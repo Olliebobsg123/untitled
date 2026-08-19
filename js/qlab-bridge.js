@@ -16,6 +16,7 @@ const QLAB_REPLY_PORT = 53001;
 const QLAB_PASSWORD = "";
 const WS_PORT = 8083;
 const POLL_MS = 250;
+const POLL_TIMEOUT_MS = 1000;
 
 const udp = dgram.createSocket("udp4");
 const wss = new WebSocket.Server({ port: WS_PORT });
@@ -28,6 +29,7 @@ let activeCueType = "";
 let timeTriggers = {};
 let firedTriggers = new Set();
 let pollTimer = null;
+let pollTimeoutTimer = null;
 let pollInFlight = false;
 
 function encodeString(value) {
@@ -71,8 +73,10 @@ function encodeOsc(address, args = []) {
 function decodeOscString(buffer, offset) {
   let end = offset;
   while (end < buffer.length && buffer[end] !== 0) end++;
+  if (end >= buffer.length) throw new Error("Unterminated OSC string");
   const value = buffer.toString("utf8", offset, end);
   const nextOffset = end + 1 + ((4 - ((end + 1) % 4)) % 4);
+  if (nextOffset > buffer.length) throw new Error("Truncated OSC string padding");
   return { value, nextOffset };
 }
 
@@ -105,7 +109,7 @@ function decodeOsc(buffer) {
 
     return { address: address.value, args };
   } catch (error) {
-    console.error("❌ OSC decode error:", error);
+    console.error("❌ OSC decode error:", error.message);
     return { address: "", args: [] };
   }
 }
@@ -242,10 +246,18 @@ function processTime(cueNumber, elapsed) {
   }
 }
 
+function clearPollInFlight() {
+  pollInFlight = false;
+  if (pollTimeoutTimer) {
+    clearTimeout(pollTimeoutTimer);
+    pollTimeoutTimer = null;
+  }
+}
+
 function handleQLabReply(address, reply) {
   if (reply && reply.status && reply.status !== "ok") {
     console.error("❌ QLab returned error:", reply);
-    if (address.endsWith("/playbackPosition")) pollInFlight = false;
+    if (address.endsWith("/playbackPosition")) clearPollInFlight();
     return;
   }
 
@@ -258,7 +270,7 @@ function handleQLabReply(address, reply) {
 
   if (address.endsWith("/playbackPosition")) {
     // One request chain: playbackPosition -> currentFileTime.
-    pollInFlight = false;
+    clearPollInFlight();
 
     const cueNumber = extractCueNumber(data);
     if (cueNumber === null) {
@@ -318,6 +330,13 @@ function pollQLab() {
   if (pollInFlight) return;
   pollInFlight = true;
   sendOsc("/playbackPosition");
+
+  // UDP is connectionless. If QLab is unavailable, the reply may never
+  // arrive, so the old in-flight guard must eventually release itself.
+  pollTimeoutTimer = setTimeout(() => {
+    pollInFlight = false;
+    pollTimeoutTimer = null;
+  }, POLL_TIMEOUT_MS);
 }
 
 function startDurationWatcher() {

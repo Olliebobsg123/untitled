@@ -113,6 +113,124 @@ function createWindow() {
       console.error('❌ Visualiser performance patch failed:', err);
     });
 
+    // QLab's 250ms playback tracker calls renderCueSync() on every time
+    // update. The original renderer clears qlabSyncList.innerHTML and creates
+    // every cue row again, including the hovered GO button. That destroys the
+    // button under the mouse roughly four times per second and causes the
+    // visible hover flicker.
+    //
+    // Keep the original renderer for real cue-list/layout changes, but update
+    // playback state and elapsed time in the existing DOM when only the clock
+    // changed. This keeps the actual GO button node stable while hovered.
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__qlabStableCueRenderer) return;
+        if (!window.QLab || typeof window.QLab.renderCueSync !== 'function') {
+          console.warn('⚠️ QLab stable cue renderer could not initialise');
+          return;
+        }
+
+        const qlab = window.QLab;
+        const originalRenderCueSync = qlab.renderCueSync.bind(qlab);
+        let lastStructureSignature = null;
+        let hasRendered = false;
+
+        const getCueNumber = cue => String(cue?.number ?? '').trim();
+
+        const getStructureSignature = () => JSON.stringify(
+          (Array.isArray(qlab.cues) ? qlab.cues : []).map(cue => {
+            const q = getCueNumber(cue);
+            const triggers = qlab.timeTriggers?.[q] || [];
+            return {
+              q,
+              name: cue?.name ?? cue?.displayName ?? cue?.type ?? cue?.cueType ?? 'Unnamed',
+              triggers: triggers.map(t => ({
+                time: Number(t?.time) || 0,
+                lights: Array.isArray(t?.lights) ? t.lights : []
+              }))
+            };
+          })
+        );
+
+        const annotateRows = () => {
+          const box = document.getElementById('qlabSyncList');
+          const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
+          if (!box) return;
+
+          let rowIndex = 0;
+          cues.forEach(cue => {
+            const q = getCueNumber(cue);
+            if (!q) return;
+            const row = box.children[rowIndex++];
+            if (row) {
+              row.dataset.qlabCueNumber = q;
+              row.dataset.qlabActiveTime = 'true';
+            }
+          });
+        };
+
+        const updatePlaybackOnly = () => {
+          const box = document.getElementById('qlabSyncList');
+          const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
+          if (!box || !cues.length || box.children.length !== cues.filter(c => getCueNumber(c)).length) {
+            return false;
+          }
+
+          let rowIndex = 0;
+          for (const cue of cues) {
+            const q = getCueNumber(cue);
+            if (!q) continue;
+
+            const row = box.children[rowIndex++];
+            if (!row || row.dataset.qlabCueNumber !== q) return false;
+
+            const active = q === String(qlab.activeCue ?? '');
+            row.style.background = active ? '#1a3a2a' : '#2a2a3a';
+            row.style.borderLeft = `3px solid ${active ? '#0f6' : '#444'}`;
+
+            let elapsed = row.querySelector('.qlab-active-time');
+            if (active) {
+              if (!elapsed) {
+                elapsed = document.createElement('span');
+                elapsed.className = 'qlab-active-time';
+                elapsed.style.cssText = 'font-size:11px;color:#0f6;';
+                const goButton = row.querySelector('button');
+                row.insertBefore(elapsed, goButton || null);
+              }
+              elapsed.textContent = `▶ ${Number(qlab.activeElapsed || 0).toFixed(2)}s`;
+            } else if (elapsed) {
+              elapsed.remove();
+            }
+          }
+
+          return true;
+        };
+
+        qlab.renderCueSync = function stableRenderCueSync() {
+          const signature = getStructureSignature();
+
+          if (!hasRendered || signature !== lastStructureSignature) {
+            originalRenderCueSync();
+            lastStructureSignature = signature;
+            hasRendered = true;
+            annotateRows();
+            return;
+          }
+
+          if (!updatePlaybackOnly()) {
+            originalRenderCueSync();
+            lastStructureSignature = signature;
+            annotateRows();
+          }
+        };
+
+        window.__qlabStableCueRenderer = true;
+        console.log('🖥️ QLab stable cue renderer enabled — GO buttons will not be recreated during playback');
+      })();
+    `).catch(err => {
+      console.error('❌ QLab stable cue renderer failed:', err);
+    });
+
     startServices();
   });
 

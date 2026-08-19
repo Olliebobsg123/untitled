@@ -1,47 +1,63 @@
 "use strict";
 
-// ✅ GUARANTEE ALL DEPENDENCIES EXIST FIRST
-if (!window.State) window.State = {};
-if (!State.groups) State.groups = [];
-if (!window.Groups) window.Groups = {};
+(function initialiseGroups() {
+  if (!window.State || typeof window.State !== "object") window.State = {};
+  if (!Array.isArray(State.groups)) State.groups = [];
+  if (!window.Groups || typeof window.Groups !== "object") window.Groups = {};
 
-// ... rest of your groups.js code ...
+  function getElement(id) {
+    return typeof window.$ === "function"
+      ? window.$(id)
+      : document.getElementById(id);
+  }
 
+  window.renderGroups = function renderGroups() {
+    const list = getElement("groupList");
+    if (!list) return;
 
+    list.replaceChildren();
 
-function renderGroups() {
-  const list = $('groupList');
-  if (!list) return;
-  list.innerHTML = '';
+    State.groups.forEach((group, groupIndex) => {
+      if (!group || typeof group !== "object") return;
 
-  // ✅ Safe fallback if empty — never crashes
-  (State.groups || []).forEach(g => {
-    const el = document.createElement('div');
-    el.className = 'group-item';
-    el.textContent = g.name;
+      const members = Array.isArray(group.members) ? group.members : [];
+      const name = String(group.name || `Group ${groupIndex + 1}`);
+      const el = document.createElement("div");
+      el.className = "group-item";
+      el.textContent = name;
 
-    el.onclick = () => {
-      State.selected.clear();
-      let found = 0;
-      g.members.forEach(n => {
-        const f = State.fixtures[n - 1];
-        if (f) {
-          State.selected.add(f.id);
-          found++;
+      el.addEventListener("click", () => {
+        if (!(State.selected instanceof Set)) State.selected = new Set();
+        State.selected.clear();
+
+        let found = 0;
+        members.forEach(value => {
+          const index = Number(value) - 1;
+          if (!Number.isInteger(index) || index < 0) return;
+
+          const fixture = State.fixtures?.[index];
+          if (!fixture?.id) return;
+
+          State.selected.add(fixture.id);
+          found += 1;
+        });
+
+        const intensity = Number(State.current?.intensity ?? 100);
+        const intensityInput = getElement("intensity");
+        const intensityValue = getElement("intVal");
+        if (intensityInput) intensityInput.value = intensity;
+        if (intensityValue) intensityValue.textContent = `${intensity}%`;
+
+        if (typeof window.renderFixtures === "function") window.renderFixtures();
+        if (typeof window.updateControlVisibility === "function") window.updateControlVisibility();
+        if (typeof window.updateDMX === "function") window.updateDMX();
+
+        if (typeof window.log === "function") {
+          window.log(`✅ Selected ${name}: ${found}/${members.length} — DMX active`);
         }
       });
 
-      const currInt = State.current.intensity ?? 100;
-      if ($('intensity')) $('intensity').value = currInt;
-      if ($('intVal')) $('intVal').textContent = currInt + '%';
-
-      renderFixtures();
-      if (typeof updateControlsForSelection === 'function') updateControlsForSelection();
-      updateDMX();
-
-      log(`✅ Selected ${g.name}: ${found}/${g.members.length} — DMX active`);
-    };
-
-    list.appendChild(el);
-  });
-}
+      list.appendChild(el);
+    });
+  };
+})();

@@ -251,9 +251,8 @@ window.QLab = {
 
   pollQLab() {
     if (!this.connected) return;
-    // One request per tick. handlePlaybackPosition() requests the
-    // current file time once the active cue is known.
-    this.command("/playbackPosition");
+    // The bridge owns playback polling. This legacy client watcher is
+    // intentionally disabled to prevent a second polling loop.
   },
 
   requestCurrentTime() {
@@ -352,6 +351,13 @@ window.QLab = {
       this.lastElapsed = -1;
       this.firedTriggers.clear();
       this.renderCueSync();
+
+      // Immediate lighting links fire once when a new QLab cue becomes active.
+      // Timed links are owned by the bridge, which emits qlab-lighting-trigger.
+      (Array.isArray(this.cueLinks[cueNumber]) ? this.cueLinks[cueNumber] : []).forEach(light => {
+        this.fireLightingCue(light, `QLab ${cueNumber} started`);
+      });
+
       if (typeof log === "function") log(`🎵 QLab Audio Cue ${cueNumber} started`);
     }
     this.requestCurrentTime();
@@ -372,26 +378,15 @@ window.QLab = {
     this.activeCue = cueNumber;
     this.activeElapsed = elapsed;
     this.lastElapsed = elapsed;
-    this.checkTimedLighting(cueNumber, elapsed);
 
-    // DO NOT rebuild the cue list every tick. This is the main flicker fix.
+    // Timed lighting is deliberately NOT checked here. The bridge owns the
+    // timed trigger clock so each configured lighting cue fires exactly once.
     this.updateCueSyncTime();
   },
 
   checkTimedLighting(cueNumber, elapsed) {
-    const q = String(cueNumber);
-    const triggers = this.timeTriggers[q] || [];
-    triggers.forEach((trigger, index) => {
-      const triggerTime = Number(trigger.time);
-      if (!Number.isFinite(triggerTime)) return;
-      const key = `${q}:${index}`;
-      if (elapsed >= triggerTime && !this.firedTriggers.has(key)) {
-        this.firedTriggers.add(key);
-        (Array.isArray(trigger.lights) ? trigger.lights : []).forEach(light =>
-          this.fireLightingCue(light, `QLab ${q} reached ${triggerTime.toFixed(2)}s`)
-        );
-      }
-    });
+    // Kept for compatibility with older callers. The bridge is authoritative.
+    return undefined;
   },
 
   fireLightingCue(number, reason = "") {

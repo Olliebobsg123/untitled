@@ -1,105 +1,146 @@
 "use strict";
 
-// ✅ Define these properly — use global State values or set defaults
-// (We read live from State inside functions so changes take effect instantly)
+(function initialiseChases() {
+  const state = () => window.State;
+  const writeLog = (message, type) => {
+    if (typeof window.log === "function") window.log(message, type);
+    else console.log(message);
+  };
 
-window.renderChases = function() {
-  const list = document.getElementById('chaseList');
-  if (!list) return; 
-  list.innerHTML = '';
-  if (!Array.isArray(State.chases)) State.chases = [];
-  State.chases.forEach((ch, i) => {
-    if (!ch) return;
-    const el = document.createElement('div');
-    el.className = `cue-item ${i === State.currentChase ? 'active' : ''}`;
-    const stepCount = Array.isArray(ch.steps) ? ch.steps.length : 0;
-    el.innerHTML = `<strong>${i + 1}. ${ch.name || `Chase ${i + 1}`}</strong><div style="font-size:11px;color:var(--text-muted);">${stepCount} steps · ${ch.loop ? '🔁 Loop' : '→ Run once'}</div>`;
-    el.addEventListener('click', e => { 
-      e.preventDefault(); 
-      log(`Chase ${i + 1}: ${ch.name || `Chase ${i + 1}`} — ${stepCount} steps`); 
+  window.renderChases = function renderChases() {
+    const list = document.getElementById("chaseList");
+    if (!list) return;
+
+    const s = state();
+    if (!s) return;
+    if (!Array.isArray(s.chases)) s.chases = [];
+
+    list.replaceChildren();
+
+    s.chases.forEach((chase, index) => {
+      if (!chase) return;
+
+      const el = document.createElement("div");
+      el.className = `cue-item ${index === s.currentChase ? "active" : ""}`;
+
+      const title = document.createElement("strong");
+      title.textContent = `${index + 1}. ${chase.name || `Chase ${index + 1}`}`;
+
+      const meta = document.createElement("div");
+      meta.style.cssText = "font-size:11px;color:var(--text-muted);";
+      meta.textContent = `${Array.isArray(chase.steps) ? chase.steps.length : 0} steps · ${chase.loop ? "🔁 Loop" : "→ Run once"}`;
+
+      el.append(title, meta);
+      el.addEventListener("click", event => {
+        event.preventDefault();
+        writeLog(`Chase ${index + 1}: ${chase.name || `Chase ${index + 1}`} — ${Array.isArray(chase.steps) ? chase.steps.length : 0} steps`);
+      });
+      list.appendChild(el);
     });
-    list.appendChild(el);
-  });
-};
+  };
 
-window.startChase = function(idx) {
-  stopChase(false);
-  const ch = State.chases[idx];
-  if (!ch || !Array.isArray(ch.steps) || !ch.steps.length) { 
-    log('Chase empty or missing', 'warn'); 
-    return; 
-  }
-  State.currentChase = idx;
-  let step = 0;
+  window.startChase = function startChase(index) {
+    const s = state();
+    if (!s) return false;
 
-  // ✅ READ LIVE EVERY RUN — so changing values mid‑chase works
-  const currentFade = State.chaseFade ?? 800;
-  const currentWait = State.chaseWait ?? 500;
+    window.stopChase(false);
 
-  function run() {
-    if (State.currentChase !== idx) return;
-    const cueIdx = ch.steps[step];
-    if (State.cues[cueIdx]) {
-      const target = { ...State.current, ...State.cues[cueIdx].state };
+    const chase = s.chases?.[index];
+    if (!chase || !Array.isArray(chase.steps) || !chase.steps.length) {
+      writeLog("Chase empty or missing", "warn");
+      return false;
+    }
 
-      // ✅ 0 FADE = COMPLETELY SKIP FADE ENGINE — INSTANT SNAP ONLY
-      if (currentFade <= 0) {
-        // Kill any stray running fade
-        if (State.fading) cancelAnimationFrame(State.fading);
-        State.fading = null;
+    s.currentChase = index;
+    let step = 0;
 
-        // DIRECT HARD APPLY — NO ANIMATION, NO BLENDING
-        Object.assign(State.current, target);
-        State.fixtures.forEach(f => {
-          State.fixtureStates.set(f.id, { ...State.current });
-        });
-        updateDMX();
-        if (typeof syncCueControls === 'function') syncCueControls(target);
-      } else {
-        // Only use smooth fade when explicitly wanted
-        fadeTo(target, currentFade);
-        if (typeof syncCueControls === 'function') syncCueControls(target);
+    const run = () => {
+      if (s.currentChase !== index) return;
+
+      const cueIndex = Number(chase.steps[step]);
+      const cue = s.cues?.[cueIndex];
+
+      if (cue) {
+        const target = { ...s.current, ...(cue.globalState || cue.state || {}) };
+        const fade = Math.max(0, Number(s.chaseFade) || 0);
+
+        if (fade > 0 && typeof window.fadeTo === "function") {
+          window.fadeTo(target, fade);
+        } else {
+          if (s.fading) cancelAnimationFrame(s.fading);
+          s.fading = null;
+          Object.assign(s.current, target);
+
+          if (s.fixtureStates instanceof Map) {
+            s.fixtures.forEach(fixture => {
+              if (!fixture?.id) return;
+              const existing = s.fixtureStates.get(fixture.id) || {};
+              s.fixtureStates.set(fixture.id, {
+                ...(window.DEFAULT_FIXTURE_STATE || {}),
+                ...existing,
+                ...target
+              });
+            });
+          }
+
+          if (typeof window.updateDMX === "function") window.updateDMX();
+        }
+
+        s.currentCue = cueIndex;
+        if (typeof window.renderCues === "function") window.renderCues();
+        writeLog(`Chase ${index + 1} Step ${step + 1}: Cue ${cueIndex + 1}`);
       }
 
-      State.currentCue = cueIdx;
-      renderCues();
-      log(`Chase ${idx + 1} Step ${step + 1}: Cue ${cueIdx + 1}`);
+      step += 1;
+      if (step >= chase.steps.length) {
+        if (chase.loop) step = 0;
+        else {
+          window.stopChase();
+          return;
+        }
+      }
+
+      const wait = Math.max(0, Number(s.chaseWait) || 0);
+      s.chaseTimer = window.setTimeout(run, wait);
+    };
+
+    run();
+    window.renderChases();
+    writeLog(`▶ Started Chase ${index + 1}: ${chase.name || `Chase ${index + 1}`}`);
+    return true;
+  };
+
+  window.stopChase = function stopChase(writeMessage = true) {
+    const s = state();
+    if (!s) return;
+
+    if (s.chaseTimer) window.clearTimeout(s.chaseTimer);
+    s.chaseTimer = null;
+    s.currentChase = -1;
+
+    if (typeof window.renderChases === "function") window.renderChases();
+    if (writeMessage) writeLog("⏹ Chase stopped");
+  };
+
+  window.saveChase = function saveChase(name, cueIndices, loop = true) {
+    const s = state();
+    if (!s) return false;
+    if (!Array.isArray(s.chases)) s.chases = [];
+    if (!Array.isArray(cueIndices)) cueIndices = [];
+
+    const steps = cueIndices
+      .map(value => Number(value) - 1)
+      .filter(value => Number.isInteger(value) && value >= 0 && value < s.cues.length);
+
+    if (!steps.length) {
+      writeLog("No valid cues selected for chase", "warn");
+      return false;
     }
 
-    step++;
-    if (step >= ch.steps.length) { 
-      if (ch.loop) step = 0; 
-      else { stopChase(); return; } 
-    }
-
-    // Hold time — works fast or slow with no fade fighting
-    State.chaseTimer = setTimeout(run, currentWait);
-  }
-
-  run(); 
-  renderChases();
-  log(`▶ Started Chase ${idx + 1}: ${ch.name || `Chase ${idx + 1}`} — ${currentFade <=0 ? 'INSTANT JUMP MODE' : `smooth ${currentFade}ms fade`}`);
-};
-
-window.stopChase = function(writeLog = true) {
-  if (State.chaseTimer) clearTimeout(State.chaseTimer);
-  State.chaseTimer = null; 
-  State.currentChase = -1;
-  renderChases();
-  if (writeLog) log('⏹ Chase stopped');
-};
-
-window.saveChase = function(name, cueIndices, loop = true) {
-  if (!Array.isArray(State.chases)) State.chases = [];
-  if (!Array.isArray(cueIndices)) cueIndices = [];
-  const steps = cueIndices.map(i => Number(i) - 1).filter(i => Number.isInteger(i) && State.cues[i]);
-  if (!steps.length) { 
-    log('No valid cues selected for chase', 'warn'); 
-    return false; 
-  }
-  const chaseName = String(name || '').trim() || `Chase ${State.chases.length + 1}`;
-  State.chases.push({ name: chaseName, steps, loop: !!loop });
-  renderChases();
-  log(`✅ Saved Chase: ${chaseName} (${steps.length} steps)`, 'ok');
-  return true;
-};
+    const chaseName = String(name || "").trim() || `Chase ${s.chases.length + 1}`;
+    s.chases.push({ name: chaseName, steps, loop: Boolean(loop) });
+    window.renderChases();
+    writeLog(`✅ Saved Chase: ${chaseName} (${steps.length} steps)`, "ok");
+    return true;
+  };
+})();

@@ -34,8 +34,6 @@
       }
     }
 
-    // Avoid forcing layout/style recalculation when the visibility has not
-    // actually changed. This is especially important while clicking fixtures.
     if (nextDisplay !== lastPadDisplay) {
       xyPad.style.display = nextDisplay;
       lastPadDisplay = nextDisplay;
@@ -46,7 +44,6 @@
     if (refreshQueued) return;
     refreshQueued = true;
 
-    // Coalesce multiple selection/render calls into one layout update.
     if (typeof requestAnimationFrame === "function") {
       requestAnimationFrame(refreshVisibilityNow);
     } else {
@@ -55,6 +52,51 @@
   }
 
   window.updateControlVisibility = refreshVisibility;
+
+  // Prevent fixture selection from making the visualiser rebuild its
+  // entire Three.js fixture scene. sendToVisualizer() is also used for
+  // live DMX changes, so only suppress duplicate SYNC_FIXTURES messages;
+  // normal Art-Net output is completely unaffected.
+  if (typeof window.sendToVisualizer === "function" && !window.__visualizerSyncGuard) {
+    const originalSendToVisualizer = window.sendToVisualizer;
+    let lastFixtureSignature = null;
+
+    function fixtureSignature() {
+      const fixtures = Array.isArray(window.State?.fixtures)
+        ? window.State.fixtures
+        : [];
+
+      return JSON.stringify(fixtures.map(f => ({
+        id: f?.id ?? null,
+        name: f?.name ?? null,
+        uni: f?.uni ?? f?.universe ?? null,
+        addr: f?.addr ?? f?.address ?? f?.startAddress ?? null
+      })));
+    }
+
+    window.sendToVisualizer = function guardedSendToVisualizer() {
+      const signature = fixtureSignature();
+      const originalPostMessage = Window.prototype.postMessage;
+
+      try {
+        Window.prototype.postMessage = function guardedPostMessage(message, targetOrigin, transfer) {
+          if (message?.type === "SYNC_FIXTURES") {
+            if (signature === lastFixtureSignature) return;
+            lastFixtureSignature = signature;
+          }
+
+          return originalPostMessage.call(this, message, targetOrigin, transfer);
+        };
+
+        return originalSendToVisualizer.apply(this, arguments);
+      } finally {
+        Window.prototype.postMessage = originalPostMessage;
+      }
+    };
+
+    window.__visualizerSyncGuard = true;
+    console.log("🖥️ Visualiser sync guard enabled");
+  }
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", refreshVisibility, { once: true });

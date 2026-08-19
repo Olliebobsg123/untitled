@@ -1,0 +1,328 @@
+"use strict";
+function $(id){return document.getElementById(id)}
+if(typeof window.log!=="function")window.log=(msg,type="info")=>console.log(`[${type.toUpperCase()}] ${msg}`);
+window.State=window.State||{};
+Object.assign(State,{
+dmx:State.dmx instanceof Uint8Array?State.dmx:new Uint8Array(512),
+liveDMX:State.liveDMX instanceof Uint8Array?State.liveDMX:new Uint8Array(512),
+fixtures:Array.isArray(State.fixtures)?State.fixtures:[],
+cues:Array.isArray(State.cues)?State.cues:[],
+chases:Array.isArray(State.chases)?State.chases:[],
+fixtureStates:State.fixtureStates instanceof Map?State.fixtureStates:new Map(),
+selected:State.selected instanceof Set?State.selected:new Set(),
+groups:Array.isArray(State.groups)?State.groups:[],
+current:{
+hue:0,sat:100,light:50,intensity:100,master:100,
+pan:128,tilt:128,strobe:0,gobo:0,gobo2:0,gobor:0,gobo2r:0,
+prism:0,prismr:0,focus:0,zoom:0,frost:0,iris:0,rot:0,effect:0,
+speed:0,macro:0,preset:0,shake:0,mode:0,zone:0,fog:0,fana:0,haze:0,fluid:0,colmacro:0,
+...(State.current||{})
+},
+Viz:State.Viz||{scene:null,camera:null,renderer:null,controls:null,fixtures:[]}
+});
+if(State.chaseFade==null)State.chaseFade=800;
+if(State.chaseWait==null)State.chaseWait=500;
+let visualizerWindow=null,ws=null,reconnectTimer=null;
+
+function cloneState(state){
+return typeof cloneFixtureState==="function"?cloneFixtureState(state):{...(state||{})};
+}
+function fixtureState(id){
+if(!(State.fixtureStates instanceof Map))State.fixtureStates=new Map();
+if(!State.fixtureStates.has(id)){
+State.fixtureStates.set(id,typeof createFixtureState==="function"?createFixtureState(State.current):{...State.current});
+}
+return State.fixtureStates.get(id);
+}
+function initialiseFixtureState(f){
+if(!f?.id)return;
+if(!State.fixtureStates.has(f.id))State.fixtureStates.set(f.id,cloneState(State.current));
+}
+window.initFixtureStates=()=>{
+if(!(State.fixtureStates instanceof Map))State.fixtureStates=new Map();
+State.fixtures.forEach(initialiseFixtureState);
+};
+window.ensureFixtureState=fixtureState;
+
+window.connectVisualizer=()=>{
+if(visualizerWindow&&!visualizerWindow.closed){visualizerWindow.focus();sendToVisualizer();return;}
+visualizerWindow=window.open("visualizer.html","visualizer","width=1200,height=800");
+if(!visualizerWindow)console.error("Visualizer popup blocked");
+};
+window.sendToVisualizer=()=>{
+if(!visualizerWindow||visualizerWindow.closed)return;
+visualizerWindow.postMessage({type:"SYNC_FIXTURES",fixtures:Array.isArray(State.fixtures)?State.fixtures:[],fixtureLibrary:window.FixtureLibrary||{}},"*");
+sendVisualizerDMX();
+};
+function sendVisualizerDMX(){
+if(!visualizerWindow||visualizerWindow.closed)return;
+visualizerWindow.postMessage({type:"DMX_UPDATE",dmx:Array.from(State.dmx)},"*");
+}
+window.addEventListener("message",e=>{
+if(e.data?.type==="VISUALIZER_READY"){visualizerWindow=e.source;sendToVisualizer();}
+});
+
+function connectArtNet(){
+clearTimeout(reconnectTimer);
+try{
+ws=new WebSocket("ws://localhost:8081");
+ws.binaryType="arraybuffer";
+ws.onopen=()=>{console.log("WebSocket connected");ArtNet.start();};
+ws.onclose=()=>{console.warn("Art-Net relay disconnected");ArtNet.stop();reconnectTimer=setTimeout(connectArtNet,2000);};
+ws.onerror=e=>console.error("WebSocket error:",e);
+ws.onmessage=e=>{
+if(!(e.data instanceof ArrayBuffer))return;
+const p=new Uint8Array(e.data);
+if(p.length<18||p[0]!==0x41||p[1]!==0x72||p[2]!==0x74||p[3]!==0x2d)return;
+const len=Math.min((p[16]<<8)|p[17],512);
+State.liveDMX.fill(0);
+State.liveDMX.set(p.subarray(18,18+len));
+updateVisualizerFromDMX();
+};
+}catch(e){console.error("WebSocket failed:",e);reconnectTimer=setTimeout(connectArtNet,2000);}
+}
+
+function hslToRgb(h,s,l){
+h=((h%360)+360)%360/60;
+s=Math.max(0,Math.min(100,s))/100;
+l=Math.max(0,Math.min(100,l))/100;
+if(!s){const v=Math.round(l*255);return[v,v,v];}
+const c=(1-Math.abs(2*l-1))*s;
+const x=c*(1-Math.abs(h%2-1));
+const m=l-c/2;
+let r=0,g=0,b=0;
+if(h<1)[r,g]=[c,x];
+else if(h<2)[r,g]=[x,c];
+else if(h<3)[g,b]=[c,x];
+else if(h<4)[g,b]=[x,c];
+else if(h<5)[r,b]=[x,c];
+else[r,b]=[c,x];
+return[Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+
+const ArtNet={
+universe:0,enabled:false,sequence:0,timer:null,fps:25,
+makePacket(data,u=0){
+data=data instanceof Uint8Array?data:new Uint8Array(512);
+const len=Math.max(2,Math.min(512,data.length));
+const p=new Uint8Array(18+len);
+p.set([0x41,0x72,0x74,0x2d,0x4e,0x65,0x74,0],0);
+p[8]=0;p[9]=0x50;p[10]=0;p[11]=0x0e;
+p[12]=this.sequence;this.sequence=(this.sequence+1)&255;
+p[13]=0;p[14]=u&255;p[15]=(u>>8)&255;
+p[16]=(len>>8)&255;p[17]=len&255;
+p.set(data.subarray(0,len),18);
+return p;
+},
+send(){
+if(this.enabled&&ws?.readyState===WebSocket.OPEN)ws.send(this.makePacket(State.dmx,this.universe));
+sendVisualizerDMX();
+},
+start(){
+if(this.enabled)return;this.enabled=true;clearInterval(this.timer);
+this.timer=setInterval(()=>this.send(),1000/this.fps);this.send();
+console.log("Art-Net output enabled");
+},
+stop(){this.enabled=false;clearInterval(this.timer);this.timer=null;}
+};
+window.ArtNet=ArtNet;
+
+function setDMX(channel,value){
+const ch=Number(channel);
+if(!Number.isFinite(ch)||ch<0||ch>=512)return;
+State.dmx[ch]=Math.max(0,Math.min(255,Math.round(Number(value)||0)));
+}
+
+function getFixtureDefinition(fixture){
+if(!fixture)return null;
+if(fixture.map&&typeof fixture.map==="object")return fixture;
+if(fixture.definition&&typeof fixture.definition==="object")return fixture.definition;
+if(fixture.fixture&&typeof fixture.fixture==="object")return fixture.fixture;
+const lib=window.FixtureLibrary&&typeof window.FixtureLibrary==="object"?window.FixtureLibrary:{};
+const name=fixture.name??fixture.fixtureName??fixture.type??fixture.model;
+if(!name)return null;
+if(lib[name])return lib[name];
+const key=Object.keys(lib).find(k=>k.toLowerCase()===String(name).toLowerCase());
+return key?lib[key]:null;
+}
+
+function getFixtureBaseAddress(fixture){
+if(!fixture)return-1;
+const n=Number(fixture.addr??fixture.address??fixture.startAddress??fixture.start??fixture.channel);
+return Number.isFinite(n)&&n>=1&&n<=512?n-1:-1;
+}
+
+function writeFixtureChannel(base,mapValue,value){
+if(typeof mapValue!=="number")return;
+const ch=base+mapValue;
+if(ch>=0&&ch<512)setDMX(ch,value);
+}
+
+function updateDMX(){
+State.dmx.fill(0);
+if(!Array.isArray(State.fixtures)||!State.fixtures.length){ArtNet.send();return;}
+initFixtureStates();
+
+const clamp255=v=>Math.max(0,Math.min(255,Math.round(Number(v)||0)));
+const clamp100=v=>Math.max(0,Math.min(100,Number(v)||0));
+const normaliseHue=h=>{h=Number(h);if(!Number.isFinite(h))h=0;h%=360;if(h<0)h+=360;return h;};
+
+function colourHSL(h,s,l){
+h=normaliseHue(h);s=clamp100(s)/100;l=clamp100(l)/100;
+if(s===0){const v=Math.round(l*255);return[v,v,v];}
+const hh=h/60,c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((hh%2)-1)),m=l-c/2;
+let r=0,g=0,b=0;
+if(hh<1){r=c;g=x;}else if(hh<2){r=x;g=c;}else if(hh<3){g=c;b=x;}
+else if(hh<4){g=x;b=c;}else if(hh<5){r=x;b=c;}else{r=c;b=x;}
+return[clamp255((r+m)*255),clamp255((g+m)*255),clamp255((b+m)*255)];
+}
+
+function colourWheelDMX(def,hue,sat){
+    const wheel=getColourWheel(def);
+    if(!wheel.length) return clamp255((normaliseHue(hue)/360)*255);
+    if(Number(sat)<5){
+        const white=wheel.find(s=>Array.isArray(s.rgb)&&s.rgb[0]===1&&s.rgb[1]===1&&s.rgb[2]===1);
+        if(white) return clamp255((white.min+white.max)/2);
+    }
+    const target=normaliseHue(hue);
+    let best=wheel[0], bestDist=Infinity;
+    wheel.forEach(s=>{
+        if(typeof s.hue==="undefined") return;
+        const slotH=normaliseHue(s.hue);
+        let d=Math.abs(target-slotH);
+        d=Math.min(d,360-d);
+        if(d<bestDist){bestDist=d; best=s;}
+    });
+    return clamp255((best.min+best.max)/2);
+}
+
+function write(base,ch,v){if(!Number.isInteger(ch))return;const a=base+ch;if(a>=0&&a<512)State.dmx[a]=clamp255(v);}
+
+State.fixtures.forEach(fixture=>{
+if(!fixture)return;
+const def=getFixtureDefinition(fixture);if(!def)return;
+const map=def.map||{};const base=getFixtureBaseAddress(fixture);if(base<0)return;
+const saved=fixtureState(fixture.id)||State.current||{};
+
+const master=clamp100(saved.master??State.current?.master??100)/100;
+const intensity=clamp100(saved.intensity??100)/100;
+const level=master*intensity;
+
+const hue=normaliseHue(saved.hue??0),sat=clamp100(saved.sat??100),light=clamp100(saved.light??50);
+
+if(typeof map.dimmer==="number")write(base,map.dimmer,255*level);
+
+const hasRGB=typeof map.r==="number"&&typeof map.g==="number"&&typeof map.b==="number";
+if(hasRGB){
+const rgb=colourHSL(hue,sat,light);
+write(base,map.r,rgb[0]*level);
+write(base,map.g,rgb[1]*level);
+write(base,map.b,rgb[2]*level);
+if(typeof map.w==="number")write(base,map.w,(saved.w??saved.white??0)*level);
+if(typeof map.amber==="number")write(base,map.amber,clamp255(saved.amber??0));
+if(typeof map.uv==="number")write(base,map.uv,clamp255(saved.uv??0));
+}else if(typeof map.colour==="number"){
+const wVal=colourWheelDMX(def,hue,sat);
+write(base,map.colour,wVal);
+if(typeof map.colourr==="number")write(base,map.colourr,clamp255(saved.colourr??0));
+}
+
+["strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
+
+if(typeof map.pan==="number"){write(base,map.pan,saved.pan??128);if(typeof map.panf==="number")write(base,map.panf,saved.panf??0);}
+if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof map.tiltf==="number")write(base,map.tiltf,saved.tiltf??0);}
+});
+ArtNet.send();
+}
+
+function fadeTo(target,duration=1000,targetFixtureStates=null){
+if(State.fading){cancelAnimationFrame(State.fading);State.fading=null;}
+const startG={...State.current},startF=new Map();
+State.fixtureStates.forEach((v,id)=>startF.set(id,cloneState(v)));
+const tgts=Array.isArray(targetFixtureStates)?targetFixtureStates:null;
+if(duration<=0){Object.assign(State.current,target||{});tgts?.forEach(([id,s])=>State.fixtureStates.set(id,cloneState(s)));updateDMX();return;}
+const start=performance.now();
+function tick(now){
+const p=Math.min(1,(now-start)/duration),e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+Object.keys(target||{}).forEach(k=>{if(typeof target[k]==="number"&&typeof startG[k]==="number")State.current[k]=startG[k]+(target[k]-startG[k])*e;});
+tgts?.forEach(([id,tFx])=>{const sFx=startF.get(id)||cloneState(tFx),cFx=cloneState(sFx);Object.keys(tFx).forEach(k=>{if(typeof tFx[k]==="number"&&typeof sFx[k]==="number")cFx[k]=sFx[k]+(tFx[k]-sFx[k])*e;});State.fixtureStates.set(id,cFx);});
+updateDMX();
+if(p<1)State.fading=requestAnimationFrame(tick);else{Object.assign(State.current,target||{});tgts?.forEach(([id,s])=>State.fixtureStates.set(id,cloneState(s)));State.fading=null;updateDMX();}
+}
+State.fading=requestAnimationFrame(tick);
+}
+window.fadeTo=fadeTo;
+
+function updateVisualizerFromDMX(){
+const live=State.liveDMX;
+if(!State.Viz||!Array.isArray(State.Viz.fixtures)||!live||typeof live.length!=="number")return;
+State.Viz.fixtures.forEach(fv=>{
+const fx=fv.fx;if(!fx)return;
+const base=getFixtureBaseAddress(fx);if(!Number.isInteger(base)||base<0)return;
+const def=getFixtureDefinition(fx);if(!def||!def.map)return;
+const map=def.map;
+const read=k=>{const o=map[k];if(!Number.isInteger(o))return null;const i=base+o;if(i<0||i>=live.length)return null;const v=Number(live[i]);return Number.isFinite(v)?Math.max(0,Math.min(255,v)):null;};
+
+let dim=1;
+if(Number.isInteger(map.dimmer))dim=read("dimmer")/255;
+else if(Number.isInteger(map.intensity))dim=read("intensity")/255;
+dim=Math.max(0,Math.min(1,dim));
+
+let r=1,g=1,b=1;
+const hasRGB=Number.isInteger(map.r)&&Number.isInteger(map.g)&&Number.isInteger(map.b);
+const hasWheel=Number.isInteger(map.colour);
+
+if(hasRGB){
+r=read("r")/255;g=read("g")/255;b=read("b")/255;
+if(Number.isInteger(map.w)){const w=read("w")/255;r=Math.min(1,r+w);g=Math.min(1,g+w);b=Math.min(1,b+w);}
+}else if(hasWheel){
+const cVal=read("colour");const wheel=getColourWheel(def);const col=colourWheelToRGB(cVal,wheel);r=col[0];g=col[1];b=col[2];
+}
+
+r=Math.max(0,Math.min(1,Number(r)||0));g=Math.max(0,Math.min(1,Number(g)||0));b=Math.max(0,Math.min(1,Number(b)||0));
+
+if(fv.spot){
+  fv.spot.color.setRGB(r,g,b);
+  fv.spot.intensity=dim*8;
+  // ✅ RESTORED ZOOM & FOCUS read + pass to visualizer
+  const zoomVal=read("zoom");
+  if(zoomVal!==null) fv.spot.angle=0.1 + (zoomVal/255)*1.05; // match viz range
+  const focusVal=read("focus");
+  if(focusVal!==null) fv.spot.penumbra=0.25 + (focusVal/255)*0.65; // match viz range
+}
+if(fv.bulb){const m=fv.bulb.material;if(m&&m.color)m.color.setRGB(r,g,b);if(m&&m.emissive)m.emissive.setRGB(r,g,b);if(m)m.emissiveIntensity=dim*5;}
+
+if(fv.group){
+if(Number.isInteger(map.pan)){let pan=read("pan");if(Number.isInteger(map.panf))pan=read("pan")*256+read("panf");const pan16=Number.isInteger(map.panf)?pan/65535:pan/255;fv.group.rotation.y=(pan16-.5)*Math.PI;}
+if(Number.isInteger(map.tilt)){let tilt=read("tilt");if(Number.isInteger(map.tiltf))tilt=read("tilt")*256+read("tiltf");const tilt16=Number.isInteger(map.tiltf)?tilt/65535:tilt/255;fv.group.rotation.x=(tilt16-.5)*Math.PI*.6;}
+}
+});
+}
+window.updateVisualizerFromDMX=updateVisualizerFromDMX;
+
+function getColourWheel(def){
+if(def&&Array.isArray(def.colourWheel)&&def.colourWheel.length)return def.colourWheel;
+return[
+{min:0,max:20,rgb:[1,1,1],hue:0},
+{min:21,max:40,rgb:[1,0,0],hue:0},
+{min:41,max:60,rgb:[1,.5,0],hue:30},
+{min:61,max:80,rgb:[1,1,0],hue:60},
+{min:81,max:100,rgb:[0,1,0],hue:120},
+{min:101,max:120,rgb:[0,1,1],hue:180},
+{min:121,max:140,rgb:[0,0,1],hue:240},
+{min:141,max:160,rgb:[.5,0,1],hue:270},
+{min:161,max:180,rgb:[1,0,1],hue:300},
+{min:181,max:255,rgb:[1,1,1],hue:0}
+];
+}
+
+function colourWheelToRGB(val,wheel){
+val=Number(val);if(!Number.isFinite(val))val=0;val=Math.max(0,Math.min(255,val));
+if(!Array.isArray(wheel))return[1,1,1];
+const slot=wheel.find(i=>{if(!i)return false;const mn=Number(i.min),mx=Number(i.max);return Number.isFinite(mn)&&Number.isFinite(mx)&&val>=mn&&val<=mx;});
+if(!slot||!Array.isArray(slot.rgb))return[1,1,1];
+return[Math.max(0,Math.min(1,Number(slot.rgb[0])||0)),Math.max(0,Math.min(1,Number(slot.rgb[1])||0)),Math.max(0,Math.min(1,Number(slot.rgb[2])||0))];
+}
+
+window.testArtNet=()=>{State.dmx.fill(0);State.dmx.set([255,255,255,255],0);ArtNet.send();};
+document.addEventListener("DOMContentLoaded",()=>{console.log("DMX controller starting...");initFixtureStates();connectArtNet();});

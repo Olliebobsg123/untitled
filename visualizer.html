@@ -1,0 +1,3499 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Optimized Lighting Visualizer</title>
+
+<style>
+*{
+  box-sizing:border-box;
+  margin:0;
+}
+
+html,body,#viz{
+  width:100%;
+  height:100%;
+  overflow:hidden;
+}
+
+body{
+  background:#050505;
+  color:#fff;
+  font:12px monospace;
+}
+
+#status{
+  position:fixed;
+  right:12px;
+  top:12px;
+  z-index:20;
+  padding:8px 12px;
+  background:#000c;
+  border-radius:6px;
+  line-height:1.45;
+}
+
+#ui{
+  position:fixed;
+  left:12px;
+  top:12px;
+  z-index:20;
+  background:#090909ee;
+  padding:10px;
+  border:1px solid #444;
+  border-radius:7px;
+}
+
+button{
+  width:175px;
+  margin:3px 0;
+  padding:7px;
+  background:#191919;
+  color:#fff;
+  border:1px solid #555;
+  border-radius:4px;
+  cursor:pointer;
+}
+
+button.on{
+  background:#315c35;
+  border-color:#6fbd76;
+}
+</style>
+
+<script type="importmap">
+{
+  "imports":{
+    "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+
+<body>
+
+<div id="viz"></div>
+
+<div id="status">Starting...</div>
+
+<div id="ui">
+  <b>THEATRE</b><br>
+  <button id="house">HOUSE LIGHTS: OFF</button>
+  <button id="work">WORK LIGHTS: OFF</button>
+  <button id="grid">GRID: ON</button>
+  <button id="savePos">💾 SAVE POSITIONS</button>
+  <button id="loadPos">📂 RESTORE POSITIONS</button>
+</div>
+
+<script type="module">
+
+import * as THREE from "three";
+import {OrbitControls} from "three/addons/controls/OrbitControls.js";
+
+const $ = id => document.getElementById(id);
+const status = $("status");
+
+
+// ============================================================
+// PERFORMANCE
+// ============================================================
+
+const IDLE_FPS = 24;
+const ACTIVE_FPS = 30;
+
+const MAX_PIXEL_RATIO = 1.0;
+
+
+// ============================================================
+// STATE
+// ============================================================
+
+const S = {
+
+  dmx:new Uint8Array(512),
+
+  fixtures:[],
+  fixturePositions:new Map(),
+  fixtureManualRot:new Map(),
+
+  library:{},
+
+  objects:[],
+  house:[],
+  work:[],
+  haze:[],
+
+  scene:null,
+  camera:null,
+  renderer:null,
+  controls:null,
+  grid:null,
+
+  packets:0,
+
+  selectedFixture:null,
+  selectedAim:null,
+
+  dragOffset:new THREE.Vector3(),
+  dragPlane:new THREE.Plane(),
+
+  dmxDirty:true,
+
+  fixtureCache:new Map(),
+
+  renderDirty:true,
+  lastRender:0,
+
+  animated:false,
+
+  lastFixtureUpdate:0,
+
+  // Cached raycast lists.
+  fixtureBodies:[],
+  aimHeads:[],
+
+  // Shared fixture resources.
+  fixtureGeometry:null,
+  fixtureBodyMaterial:null,
+  fixtureYokeMaterial:null,
+  fixtureHeadMaterial:null,
+  fixtureBulbMaterial:null,
+
+  // Used to avoid unnecessary material updates.
+  lastFixtureColours:[],
+  lastFixtureIntensity:[],
+
+  // Number of currently active fixture lights.
+  activeLights:0
+
+};
+
+
+window.S = S;
+window.VizState = S;
+window.rebuildFixtures = rebuildFixtures;
+window.applyLoadedPositions = applyLoadedPositions;
+
+
+if(window.opener){
+
+  window.opener.S = S;
+  window.opener.VizState = S;
+  window.opener.rebuildFixtures = rebuildFixtures;
+  window.opener.applyLoadedPositions = applyLoadedPositions;
+
+}
+
+
+// ============================================================
+// CONNECTION
+// ============================================================
+
+let ws;
+let reconnect;
+
+
+// ============================================================
+// UI STATE
+// ============================================================
+
+let houseOn = false;
+let workOn = false;
+let gridOn = true;
+
+
+// ============================================================
+// TEMP VECTORS
+// ============================================================
+
+const tempDirection = new THREE.Vector3();
+const tempWorldPosition = new THREE.Vector3();
+const tempTargetPosition = new THREE.Vector3();
+
+const panAxis = new THREE.Vector3(0,1,0);
+const tiltAxis = new THREE.Vector3(1,0,0);
+
+const mousePlane =
+  new THREE.Plane(
+    new THREE.Vector3(0,1,0),
+    0
+  );
+
+const mouseTarget = new THREE.Vector3();
+const mouseIntersect = new THREE.Vector3();
+const mouseDirection = new THREE.Vector3();
+
+
+// ============================================================
+// SHARED FIXTURE RESOURCES
+// ============================================================
+//
+// IMPORTANT:
+//
+// Thousands of fixtures no longer create thousands of identical
+// Geometry + Material objects.
+//
+// Geometry and materials are shared between every fixture.
+//
+// This saves a LOT of memory and reduces WebGL state overhead.
+//
+
+function createSharedFixtureResources(){
+
+  S.fixtureGeometry = {
+
+    body:new THREE.BoxGeometry(
+      1,
+      .6,
+      1
+    ),
+
+    yoke:new THREE.BoxGeometry(
+      .12,
+      .9,
+      .12
+    ),
+
+    head:new THREE.BoxGeometry(
+      .75,
+      .8,
+      1
+    ),
+
+    bulb:new THREE.SphereGeometry(
+      .25,
+      6,
+      6
+    )
+
+  };
+
+
+  S.fixtureBodyMaterial =
+    new THREE.MeshStandardMaterial({
+      color:.15,
+      metalness:.8,
+      roughness:.3
+    });
+
+
+  S.fixtureYokeMaterial =
+    new THREE.MeshStandardMaterial({
+      color:.05,
+      metalness:.8,
+      roughness:.3
+    });
+
+
+  S.fixtureHeadMaterial =
+    new THREE.MeshStandardMaterial({
+      color:.35,
+      metalness:.9,
+      roughness:.1
+    });
+
+
+  S.fixtureBulbMaterial =
+    new THREE.MeshStandardMaterial({
+      color:.03,
+      emissive:0x000000,
+      emissiveIntensity:0
+    });
+
+}
+
+
+// ============================================================
+// RENDER INVALIDATION
+// ============================================================
+
+function requestRender(){
+
+  S.renderDirty = true;
+
+}
+
+
+// ============================================================
+// STATUS
+// ============================================================
+
+function statusText(t){
+
+  status.innerHTML = t;
+
+}
+
+
+// ============================================================
+// FIXTURE DEFINITION CACHE
+// ============================================================
+
+function getFixtureDefinition(fx){
+
+  if(!fx)
+    return null;
+
+  if(fx.map && typeof fx.map === "object")
+    return fx;
+
+  if(fx.definition && typeof fx.definition === "object")
+    return fx.definition;
+
+  if(fx.fixture && typeof fx.fixture === "object")
+    return fx.fixture;
+
+  const name =
+    fx.name ??
+    fx.fixtureName ??
+    fx.type ??
+    fx.model;
+
+  if(!name)
+    return null;
+
+  if(S.fixtureCache.has(name))
+    return S.fixtureCache.get(name);
+
+  if(S.library[name]){
+
+    const result =
+      S.library[name];
+
+    S.fixtureCache.set(
+      name,
+      result
+    );
+
+    return result;
+
+  }
+
+  const lowerName =
+    String(name).toLowerCase();
+
+  const keys =
+    Object.keys(S.library);
+
+  let result = null;
+
+  for(let i=0;i<keys.length;i++){
+
+    if(
+      keys[i].toLowerCase() ===
+      lowerName
+    ){
+
+      result =
+        S.library[keys[i]];
+
+      break;
+
+    }
+
+  }
+
+  S.fixtureCache.set(
+    name,
+    result
+  );
+
+  return result;
+
+}
+
+
+// ============================================================
+// ADDRESS
+// ============================================================
+
+function address(fx){
+
+  const n = Number(
+    fx?.addr ??
+    fx?.address ??
+    fx?.startAddress ??
+    fx?.start ??
+    fx?.channel
+  );
+
+  return Number.isFinite(n) &&
+         n >= 1 &&
+         n <= 512
+    ? n - 1
+    : -1;
+
+}
+
+
+// ============================================================
+// SHADOW SETTINGS
+// ============================================================
+
+function shadow(light){
+
+  light.castShadow = true;
+
+  light.shadow.mapSize.set(
+    64,
+    64
+  );
+
+  light.shadow.camera.near = .1;
+  light.shadow.camera.far = 55;
+
+  light.shadow.bias = -.0002;
+  light.shadow.normalBias = .02;
+
+  light.shadow.radius = 1;
+
+}
+
+
+// ============================================================
+// HAZE MATERIAL
+// ============================================================
+
+function hazeMaterial(){
+
+  return new THREE.ShaderMaterial({
+
+    uniforms:{
+
+      color:{
+        value:new THREE.Color(1,1,1)
+      },
+
+      opacity:{
+        value:0
+      },
+
+      time:{
+        value:0
+      }
+
+    },
+
+    vertexShader:`
+
+      varying vec2 vUv;
+
+      void main(){
+
+        vUv = uv;
+
+        gl_Position =
+          projectionMatrix *
+          modelViewMatrix *
+          vec4(position,1.0);
+
+      }
+
+    `,
+
+    fragmentShader:`
+
+      uniform vec3 color;
+      uniform float opacity;
+      uniform float time;
+
+      varying vec2 vUv;
+
+      void main(){
+
+        float edge =
+          1.0 -
+          smoothstep(
+            .05,
+            .5,
+            abs(vUv.x-.5)*2.0
+          );
+
+        float fade =
+          smoothstep(0.0,.12,vUv.y) *
+          smoothstep(1.0,.55,vUv.y);
+
+        float pulse =
+          .94 +
+          sin(vUv.y*20.0 + time*.5)*.03;
+
+        gl_FragColor =
+          vec4(
+            color,
+            edge *
+            fade *
+            opacity *
+            pulse
+          );
+
+      }
+
+    `,
+
+    transparent:true,
+    depthWrite:false,
+    depthTest:true,
+
+    blending:THREE.AdditiveBlending,
+
+    side:THREE.DoubleSide
+
+  });
+
+}
+
+
+// ============================================================
+// MAKE FIXTURE
+// ============================================================
+
+function makeFixture(fx,index){
+
+  const count =
+    Math.max(
+      S.fixtures.length,
+      1
+    );
+
+  const mount =
+    new THREE.Group();
+
+  let pos;
+
+  if(S.fixturePositions.has(index)){
+
+    const v =
+      S.fixturePositions.get(index);
+
+    pos = {
+      x:v.x,
+      y:v.y,
+      z:v.z
+    };
+
+  }else{
+
+    pos = {
+      x:(index-(count-1)/2)*2.4,
+      y:9.5,
+      z:-2
+    };
+
+  }
+
+  mount.position.set(
+    pos.x,
+    pos.y,
+    pos.z
+  );
+
+  mount.userData.fx = fx;
+  mount.userData.posKey = index;
+
+  S.scene.add(mount);
+
+
+  // ----------------------------------------------------------
+  // BODY
+  // ----------------------------------------------------------
+
+  const body =
+    new THREE.Mesh(
+      S.fixtureGeometry.body,
+      S.fixtureBodyMaterial
+    );
+
+  // Fixture shadows are unnecessary.
+  // Work lights are the only shadow-casting lights.
+  body.castShadow = false;
+  body.receiveShadow = false;
+
+  body.userData.isFixtureBody = true;
+  body.userData.mountRef = mount;
+
+  mount.add(body);
+
+
+  // ----------------------------------------------------------
+  // PAN
+  // ----------------------------------------------------------
+
+  const panGroup =
+    new THREE.Group();
+
+  panGroup.position.set(
+    0,
+    -.3,
+    0
+  );
+
+  mount.add(panGroup);
+
+
+  const yokeLeft =
+    new THREE.Mesh(
+      S.fixtureGeometry.yoke,
+      S.fixtureYokeMaterial
+    );
+
+  yokeLeft.position.set(
+    -.4,
+    -.6,
+    0
+  );
+
+  yokeLeft.castShadow = false;
+  yokeLeft.receiveShadow = false;
+
+  panGroup.add(yokeLeft);
+
+
+  const yokeRight =
+    new THREE.Mesh(
+      S.fixtureGeometry.yoke,
+      S.fixtureYokeMaterial
+    );
+
+  yokeRight.position.set(
+    .4,
+    -.6,
+    0
+  );
+
+  yokeRight.castShadow = false;
+  yokeRight.receiveShadow = false;
+
+  panGroup.add(yokeRight);
+
+
+  // ----------------------------------------------------------
+  // TILT
+  // ----------------------------------------------------------
+
+  const tiltGroup =
+    new THREE.Group();
+
+  tiltGroup.position.set(
+    0,
+    -.85,
+    0
+  );
+
+  panGroup.add(tiltGroup);
+
+
+  // ----------------------------------------------------------
+  // HEAD
+  // ----------------------------------------------------------
+
+  const head =
+    new THREE.Mesh(
+      S.fixtureGeometry.head,
+      S.fixtureHeadMaterial
+    );
+
+  head.castShadow = false;
+  head.receiveShadow = false;
+
+  head.userData.isAimHandle = true;
+
+  tiltGroup.add(head);
+
+
+  // ----------------------------------------------------------
+  // BULB
+  // ----------------------------------------------------------
+
+  const bulbMaterial =
+    S.fixtureBulbMaterial.clone();
+
+  const bulb =
+    new THREE.Mesh(
+      S.fixtureGeometry.bulb,
+      bulbMaterial
+    );
+
+  bulb.castShadow = false;
+  bulb.receiveShadow = false;
+
+  bulb.position.set(
+    0,
+    -.5,
+    0
+  );
+
+  tiltGroup.add(bulb);
+
+
+  // ----------------------------------------------------------
+  // TARGET
+  // ----------------------------------------------------------
+
+  const target =
+    new THREE.Object3D();
+
+  S.scene.add(target);
+
+
+  // ----------------------------------------------------------
+  // SPOT LIGHT
+  // ----------------------------------------------------------
+
+  const spot =
+    new THREE.SpotLight(
+      0xffffff,
+      0,
+      45,
+      Math.PI*.32,
+      .72,
+      1
+    );
+
+  spot.position.set(
+    0,
+    -.5,
+    0
+  );
+
+  spot.target = target;
+
+  spot.castShadow = false;
+
+  // ----------------------------------------------------------
+  // HUGE PERFORMANCE OPTIMIZATION
+  //
+  // Lights with zero intensity are completely hidden from
+  // Three.js' lighting list.
+  //
+  // This is extremely important when the patch contains lots
+  // of fixtures but only a small percentage are actually on.
+  //
+  // When a fixture turns on, it becomes visible again.
+  // ----------------------------------------------------------
+
+  spot.visible = false;
+
+  tiltGroup.add(spot);
+
+
+  // ----------------------------------------------------------
+  // HAZE
+  // ----------------------------------------------------------
+
+  const haze =
+    new THREE.Mesh(
+
+      new THREE.CylinderGeometry(
+        2,
+        .25,
+        10,
+        6,
+        1,
+        true
+      ),
+
+      hazeMaterial()
+
+    );
+
+  haze.position.set(
+    0,
+    -5,
+    0
+  );
+
+  haze.visible = false;
+
+  tiltGroup.add(haze);
+
+  S.haze.push(haze);
+
+
+  // ----------------------------------------------------------
+  // DMX
+  // ----------------------------------------------------------
+
+  const def =
+    getFixtureDefinition(fx);
+
+  const map =
+    def?.map;
+
+  const hasDMXPanTilt =
+    !!(
+      map &&
+      typeof map.pan === "number" &&
+      typeof map.tilt === "number"
+    );
+
+
+  const fixture = {
+
+    group:mount,
+
+    panGroup,
+    tiltGroup,
+
+    head,
+    bulb,
+    spot,
+    target,
+    haze,
+
+    fx,
+
+    def,
+    map,
+
+    baseAddress:address(fx),
+
+    strobePhase:0,
+
+    manualAim:false,
+
+    hasDMXPanTilt,
+
+    posKey:index,
+
+    lastR:255,
+    lastG:255,
+    lastB:255,
+
+    lastDim:-1,
+    lastStrobe:-1,
+    lastPan:-999,
+    lastTilt:-999,
+    lastZoom:-1,
+    lastFocus:-1
+
+  };
+
+
+  if(S.fixtureManualRot.has(index)){
+
+    const rot =
+      S.fixtureManualRot.get(index);
+
+    panGroup.rotation.y =
+      rot.pan;
+
+    tiltGroup.rotation.x =
+      rot.tilt;
+
+  }
+
+
+  S.fixtureBodies.push(body);
+  S.aimHeads.push(head);
+
+  return fixture;
+
+}
+
+
+// ============================================================
+// DISPOSE
+// ============================================================
+
+function disposeObject(object){
+
+  object.traverse(child=>{
+
+    // Shared geometry/materials MUST NOT be disposed here.
+    // Only individually-owned resources are disposed.
+
+    if(
+      child.material &&
+      child.material !==
+        S.fixtureBodyMaterial &&
+      child.material !==
+        S.fixtureYokeMaterial &&
+      child.material !==
+        S.fixtureHeadMaterial
+    ){
+
+      if(Array.isArray(child.material)){
+
+        child.material.forEach(
+          m => m.dispose()
+        );
+
+      }else{
+
+        child.material.dispose();
+
+      }
+
+    }
+
+  });
+
+}
+
+
+// ============================================================
+// REBUILD
+// ============================================================
+
+function rebuildFixtures(){
+
+  S.objects.forEach(o=>{
+
+    if(o.group){
+
+      S.scene.remove(
+        o.group
+      );
+
+    }
+
+    if(o.target)
+      S.scene.remove(
+        o.target
+      );
+
+  });
+
+
+  S.haze.forEach(h=>{
+
+    if(h.material)
+      h.material.dispose();
+
+  });
+
+
+  S.haze.length = 0;
+
+  S.fixtureBodies.length = 0;
+  S.aimHeads.length = 0;
+
+  S.objects = [];
+
+  S.lastFixtureColours.length = 0;
+  S.lastFixtureIntensity.length = 0;
+
+  S.objects =
+    S.fixtures.map(
+      makeFixture
+    );
+
+  S.dmxDirty = true;
+  S.animated = false;
+
+  requestRender();
+
+
+  statusText(
+    "🟢 Rebuilt — Fixtures: " +
+    S.objects.length
+  );
+
+}
+
+
+// ============================================================
+// APPLY LOADED POSITIONS
+// ============================================================
+
+function applyLoadedPositions(
+  posList,
+  rotList
+){
+
+  S.fixturePositions.clear();
+  S.fixtureManualRot.clear();
+
+
+  posList.forEach(saved=>{
+
+    S.fixturePositions.set(
+      saved.fixtureIndex,
+      new THREE.Vector3(
+        saved.x,
+        saved.y,
+        saved.z
+      )
+    );
+
+  });
+
+
+  rotList.forEach(saved=>{
+
+    S.fixtureManualRot.set(
+      saved.fixtureIndex,
+      {
+        pan:saved.pan,
+        tilt:saved.tilt
+      }
+    );
+
+  });
+
+
+  rebuildFixtures();
+
+}
+
+
+// ============================================================
+// UPDATE FIXTURES
+// ============================================================
+
+function updateFixtures(time=0){
+
+  let animated = false;
+  let activeLights = 0;
+
+
+  for(
+    let idx=0;
+    idx<S.objects.length;
+    idx++
+  ){
+
+    const o =
+      S.objects[idx];
+
+    const base =
+      o.baseAddress;
+
+    const map =
+      o.map;
+
+
+    if(base < 0 || !map){
+
+      if(o.spot.visible){
+
+        o.spot.visible = false;
+        o.spot.intensity = 0;
+
+      }
+
+      o.bulb.material.emissiveIntensity = 0;
+
+      if(o.haze.visible){
+
+        o.haze.material.uniforms
+          .opacity.value = 0;
+
+      }
+
+      continue;
+
+    }
+
+
+    // --------------------------------------------------------
+    // DIMMER
+    // --------------------------------------------------------
+
+    const dim =
+      typeof map.dimmer === "number"
+
+      ? S.dmx[
+          base + map.dimmer
+        ] / 255
+
+      : typeof map.intensity === "number"
+
+      ? S.dmx[
+          base + map.intensity
+        ] / 255
+
+      : 1;
+
+
+    // --------------------------------------------------------
+    // STROBE
+    // --------------------------------------------------------
+
+    let strobeValue = 0;
+    let strobeActive = false;
+
+
+    if(typeof map.strobe === "number"){
+
+      strobeValue =
+        S.dmx[
+          base + map.strobe
+        ];
+
+      strobeActive =
+        strobeValue > 10;
+
+    }
+
+
+    if(strobeActive)
+      animated = true;
+
+
+    // --------------------------------------------------------
+    // COLOUR
+    // --------------------------------------------------------
+
+    let r = 0;
+    let g = 0;
+    let b = 0;
+
+
+    const rCh =
+      map.r ?? map.red;
+
+    const gCh =
+      map.g ?? map.green;
+
+    const bCh =
+      map.b ?? map.blue;
+
+
+    if(
+      rCh != null &&
+      gCh != null &&
+      bCh != null
+    ){
+
+      r =
+        S.dmx[
+          base+rCh
+        ] / 255;
+
+      g =
+        S.dmx[
+          base+gCh
+        ] / 255;
+
+      b =
+        S.dmx[
+          base+bCh
+        ] / 255;
+
+    }else if(map.colour != null){
+
+      let cVal =
+        S.dmx[
+          base+map.colour
+        ] / 255;
+
+
+      if(typeof map.colourr === "number"){
+
+        const rotate =
+          S.dmx[
+            base+map.colourr
+          ] / 255;
+
+        cVal =
+          (cVal + rotate*.7) % 1;
+
+      }
+
+
+      const angle =
+        cVal * Math.PI * 2;
+
+
+      r =
+        (Math.sin(angle)+1)/2;
+
+      g =
+        (Math.sin(angle+2)+1)/2;
+
+      b =
+        (Math.sin(angle+4)+1)/2;
+
+    }else{
+
+      const wCh =
+        map.w ?? map.white;
+
+      const w =
+        wCh != null
+
+        ? S.dmx[
+            base+wCh
+          ] / 255
+
+        : dim;
+
+      r = w;
+      g = w;
+      b = w;
+
+    }
+
+
+    // --------------------------------------------------------
+    // STROBE MODULATION
+    // --------------------------------------------------------
+
+    let strobeMod = 1;
+
+
+    if(strobeActive){
+
+      const speedHz =
+        THREE.MathUtils.lerp(
+          .5,
+          20,
+          strobeValue/255
+        );
+
+      strobeMod =
+        .4 +
+        .6 *
+        Math.sin(
+          time *
+          speedHz *
+          Math.PI
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // SPOT
+    // --------------------------------------------------------
+
+    const baseIntensity =
+      Math.pow(dim,1.05) * 180;
+
+    const intensity =
+      baseIntensity *
+      strobeMod;
+
+
+    // --------------------------------------------------------
+    // IMPORTANT LIGHT CULLING
+    // --------------------------------------------------------
+    //
+    // A zero-intensity light does not need to exist in the
+    // renderer's active light list.
+    //
+    // This is one of the biggest optimizations for large
+    // fixture patches.
+    //
+
+    const shouldBeVisible =
+      intensity > .001;
+
+
+    if(shouldBeVisible){
+
+      if(!o.spot.visible)
+        o.spot.visible = true;
+
+      activeLights++;
+
+    }else{
+
+      if(o.spot.visible)
+        o.spot.visible = false;
+
+    }
+
+
+    if(
+      o.lastDim !== dim ||
+      o.lastStrobe !== strobeValue ||
+      o.spot.intensity !== intensity
+    ){
+
+      o.spot.intensity =
+        intensity;
+
+      o.lastDim = dim;
+      o.lastStrobe = strobeValue;
+
+    }
+
+
+    // --------------------------------------------------------
+    // LIGHT COLOUR
+    // --------------------------------------------------------
+
+    const colour =
+      o.spot.color;
+
+
+    const rr =
+      Math.max(r,.001);
+
+    const gg =
+      Math.max(g,.001);
+
+    const bb =
+      Math.max(b,.001);
+
+
+    if(
+      o.lastR !== rr ||
+      o.lastG !== gg ||
+      o.lastB !== bb
+    ){
+
+      colour.setRGB(
+        rr,
+        gg,
+        bb
+      );
+
+      o.lastR = rr;
+      o.lastG = gg;
+      o.lastB = bb;
+
+      o.bulb.material.color.setRGB(
+        Math.max(r,.02),
+        Math.max(g,.02),
+        Math.max(b,.02)
+      );
+
+      o.bulb.material.emissive.copy(
+        colour
+      );
+
+    }
+
+
+    // --------------------------------------------------------
+    // BULB
+    // --------------------------------------------------------
+
+    const bulbIntensity =
+      dim * 20 * strobeMod;
+
+
+    if(
+      o.bulb.material.emissiveIntensity !==
+      bulbIntensity
+    ){
+
+      o.bulb.material.emissiveIntensity =
+        bulbIntensity;
+
+    }
+
+
+    // --------------------------------------------------------
+    // HAZE
+    // --------------------------------------------------------
+
+    if(o.haze.visible){
+
+      o.haze.material.uniforms
+        .color.value.copy(colour);
+
+      o.haze.material.uniforms
+        .opacity.value =
+          Math.pow(dim,1.15) *
+          .13 *
+          strobeMod;
+
+    }
+
+
+    // --------------------------------------------------------
+    // PAN / TILT
+    // --------------------------------------------------------
+
+    if(!o.hasDMXPanTilt){
+
+      const rot =
+        S.fixtureManualRot.get(idx);
+
+      if(rot){
+
+        if(
+          o.lastPan !== rot.pan ||
+          o.lastTilt !== rot.tilt
+        ){
+
+          o.panGroup.rotation.y =
+            rot.pan;
+
+          o.tiltGroup.rotation.x =
+            rot.tilt;
+
+          o.lastPan = rot.pan;
+          o.lastTilt = rot.tilt;
+
+        }
+
+      }
+
+    }else{
+
+      if(typeof map.pan === "number"){
+
+        const pan =
+          S.dmx[
+            base+map.pan
+          ] / 255;
+
+        const panAngle =
+          THREE.MathUtils.degToRad(
+            THREE.MathUtils.lerp(
+              -180,
+              180,
+              pan
+            )
+          );
+
+
+        if(
+          Math.abs(
+            o.lastPan-panAngle
+          ) > .00001
+        ){
+
+          o.panGroup.rotation.y =
+            panAngle;
+
+          o.lastPan =
+            panAngle;
+
+        }
+
+      }
+
+
+      if(typeof map.tilt === "number"){
+
+        const tilt =
+          S.dmx[
+            base+map.tilt
+          ] / 255;
+
+        const tiltAngle =
+          THREE.MathUtils.degToRad(
+            THREE.MathUtils.lerp(
+              -90,
+              90,
+              tilt
+            )
+          );
+
+
+        if(
+          Math.abs(
+            o.lastTilt-tiltAngle
+          ) > .00001
+        ){
+
+          o.tiltGroup.rotation.x =
+            tiltAngle;
+
+          o.lastTilt =
+            tiltAngle;
+
+        }
+
+      }
+
+    }
+
+
+    // --------------------------------------------------------
+    // AIM TARGET
+    // --------------------------------------------------------
+
+    const panAngle =
+      o.panGroup.rotation.y;
+
+    const tiltAngle =
+      o.tiltGroup.rotation.x;
+
+
+    tempDirection.set(
+      0,
+      -1,
+      0
+    );
+
+
+    tempDirection.applyAxisAngle(
+      tiltAxis,
+      tiltAngle
+    );
+
+    tempDirection.applyAxisAngle(
+      panAxis,
+      panAngle
+    );
+
+
+    o.spot.getWorldPosition(
+      tempWorldPosition
+    );
+
+
+    tempTargetPosition
+      .copy(tempDirection)
+      .multiplyScalar(30)
+      .add(tempWorldPosition);
+
+
+    if(
+      o.target.position.distanceToSquared(
+        tempTargetPosition
+      ) > .000001
+    ){
+
+      o.target.position.copy(
+        tempTargetPosition
+      );
+
+    }
+
+
+    // --------------------------------------------------------
+    // ZOOM
+    // --------------------------------------------------------
+
+    if(typeof map.zoom === "number"){
+
+      const zoomVal =
+        S.dmx[
+          base+map.zoom
+        ];
+
+
+      if(
+        o.lastZoom !== zoomVal
+      ){
+
+        o.spot.angle =
+          THREE.MathUtils.lerp(
+            .10,
+            1.15,
+            zoomVal/255
+          );
+
+        o.lastZoom =
+          zoomVal;
+
+      }
+
+    }
+
+
+    // --------------------------------------------------------
+    // FOCUS
+    // --------------------------------------------------------
+
+    if(typeof map.focus === "number"){
+
+      const focusVal =
+        S.dmx[
+          base+map.focus
+        ];
+
+
+      if(
+        o.lastFocus !== focusVal
+      ){
+
+        o.spot.penumbra =
+          THREE.MathUtils.lerp(
+            .25,
+            .9,
+            focusVal/255
+          );
+
+        o.lastFocus =
+          focusVal;
+
+      }
+
+    }
+
+  }
+
+
+  S.activeLights =
+    activeLights;
+
+  S.animated =
+    animated;
+
+}
+
+
+// ============================================================
+// DMX
+// ============================================================
+
+function applyDMX(data){
+
+  if(!data)
+    return;
+
+
+  try{
+
+    const a =
+      data instanceof Uint8Array
+      ? data
+      : new Uint8Array(data);
+
+
+    S.dmx.fill(0);
+
+    S.dmx.set(
+      a.subarray(0,512)
+    );
+
+    S.packets++;
+
+    S.dmxDirty = true;
+
+    requestRender();
+
+  }catch(err){
+
+    console.error(
+      "DMX error:",
+      err
+    );
+
+  }
+
+}
+
+
+// ============================================================
+// ART-NET
+// ============================================================
+
+function artnet(data){
+
+  if(!(data instanceof ArrayBuffer))
+    return;
+
+
+  const p =
+    new Uint8Array(data);
+
+
+  if(
+    p.length < 18 ||
+    p[0] !== 65 ||
+    p[1] !== 114 ||
+    p[2] !== 116 ||
+    p[3] !== 45
+  )
+    return;
+
+
+  const len =
+    Math.min(
+      (p[16]<<8)|p[17],
+      512
+    );
+
+
+  applyDMX(
+    p.subarray(
+      18,
+      18+len
+    )
+  );
+
+}
+
+
+// ============================================================
+// REQUEST FIXTURES
+// ============================================================
+
+function requestFixtures(){
+
+  if(!window.opener)
+    return;
+
+
+  window.opener.postMessage(
+    {type:"REQUEST_FIXTURES"},
+    "*"
+  );
+
+  window.opener.postMessage(
+    {type:"REQUEST_FIXTURE_SYNC"},
+    "*"
+  );
+
+  window.opener.postMessage(
+    {type:"VISUALIZER_READY"},
+    "*"
+  );
+
+}
+
+
+// ============================================================
+// MESSAGE HANDLING
+// ============================================================
+
+window.addEventListener(
+  "message",
+  e=>{
+
+    const d = e.data;
+
+    if(!d)
+      return;
+
+
+    if(
+      d.type === "SYNC_FIXTURES" ||
+      d.type === "FIXTURES_SYNC" ||
+      d.type === "PATCH_SYNC"
+    ){
+
+      const list =
+        d.fixtures ||
+        d.patchedFixtures ||
+        d.patch ||
+        d.data?.fixtures ||
+        [];
+
+
+      S.fixtures =
+        Array.isArray(list)
+        ? list
+        : Object.values(
+            list || {}
+          );
+
+
+      S.library =
+        d.fixtureLibrary ||
+        d.library ||
+        d.data?.fixtureLibrary ||
+        {};
+
+
+      S.fixtureCache.clear();
+
+      rebuildFixtures();
+
+    }
+
+
+    if(d.type === "DMX_UPDATE"){
+
+      applyDMX(
+        d.dmx ||
+        d.data
+      );
+
+    }
+
+
+    if(d.type === "FIXTURE_PATCHED"){
+
+      requestFixtures();
+
+    }
+
+  }
+);
+
+
+// ============================================================
+// MESH HELPER
+// ============================================================
+
+function mesh(
+  geo,
+  mat,
+  pos
+){
+
+  const m =
+    new THREE.Mesh(
+      geo,
+      mat
+    );
+
+  if(pos)
+    m.position.set(...pos);
+
+  S.scene.add(m);
+
+  return m;
+
+}
+
+
+// ============================================================
+// CURTAIN
+// ============================================================
+
+function curtain(x){
+
+  const geo =
+    new THREE.PlaneGeometry(
+      8,
+      8,
+      8,
+      6
+    );
+
+
+  const position =
+    geo.attributes.position;
+
+
+  for(
+    let i=0;
+    i<position.count;
+    i++
+  ){
+
+    const px =
+      position.getX(i);
+
+    position.setZ(
+      i,
+      Math.sin(
+        (px+4)*Math.PI*2
+      )*.2
+    );
+
+  }
+
+
+  position.needsUpdate = true;
+
+  geo.computeVertexNormals();
+
+
+  const c =
+    mesh(
+
+      geo,
+
+      new THREE.MeshStandardMaterial({
+        color:0x20c040,
+        roughness:.9,
+        side:THREE.DoubleSide
+      }),
+
+      [x,4,-12]
+
+    );
+
+
+  c.castShadow = true;
+  c.receiveShadow = true;
+
+}
+
+
+// ============================================================
+// HOUSE LIGHTS
+// ============================================================
+
+function createHouse(){
+
+  S.house = [];
+
+
+  [
+    -10,-8,-6,-4,-2,
+     2, 4, 6, 8,10
+  ].forEach(x=>{
+
+    const l =
+      new THREE.PointLight(
+        0xffd6a0,
+        0,
+        30,
+        1.8
+      );
+
+    l.position.set(
+      x,
+      8,
+      9
+    );
+
+    S.scene.add(l);
+
+    S.house.push(l);
+
+
+    const fitting =
+      new THREE.Mesh(
+
+        new THREE.SphereGeometry(
+          .1,
+          6,
+          6
+        ),
+
+        new THREE.MeshBasicMaterial({
+          color:0xffd6a0
+        })
+
+      );
+
+    fitting.position.copy(
+      l.position
+    );
+
+    S.scene.add(fitting);
+
+  });
+
+}
+
+
+// ============================================================
+// WORK LIGHTS
+// ============================================================
+
+function createWork(){
+
+  S.work = [];
+
+
+  [
+    -8,-3,3,8
+  ].forEach(x=>{
+
+    const l =
+      new THREE.SpotLight(
+        0xfff1d0,
+        0,
+        45,
+        .85,
+        .8,
+        1.3
+      );
+
+
+    l.position.set(
+      x,
+      9.5,
+      -1.5
+    );
+
+
+    const target =
+      new THREE.Object3D();
+
+    target.position.set(
+      x*.4,
+      0,
+      -5
+    );
+
+    S.scene.add(target);
+
+    l.target = target;
+
+
+    shadow(l);
+
+    S.scene.add(l);
+
+    S.work.push(l);
+
+  });
+
+}
+
+
+// ============================================================
+// TRUSS
+// ============================================================
+
+function makeTrussBar(
+  length=30,
+  yPos=9.5,
+  zPos=-2,
+  color=0x444444
+){
+
+  const trussGeo =
+    new THREE.CylinderGeometry(
+      .25,
+      .25,
+      length,
+      8
+    );
+
+
+  const trussMat =
+    new THREE.MeshStandardMaterial({
+      color:color,
+      metalness:.9,
+      roughness:.2
+    });
+
+
+  const truss =
+    new THREE.Mesh(
+      trussGeo,
+      trussMat
+    );
+
+
+  truss.rotation.z =
+    Math.PI/2;
+
+  truss.position.set(
+    0,
+    yPos,
+    zPos
+  );
+
+
+  truss.castShadow = true;
+  truss.receiveShadow = false;
+
+
+  S.scene.add(truss);
+
+  return truss;
+
+}
+
+
+// ============================================================
+// THEATRE
+// ============================================================
+
+function theatre(){
+
+  // ----------------------------------------------------------
+  // FLOOR
+  // ----------------------------------------------------------
+
+  const floor =
+    mesh(
+
+      new THREE.PlaneGeometry(
+        50,
+        50
+      ),
+
+      new THREE.MeshStandardMaterial({
+        color:.12,
+        roughness:.9
+      })
+
+    );
+
+
+  floor.rotation.x =
+    -Math.PI/2;
+
+  floor.receiveShadow = true;
+
+
+  // ----------------------------------------------------------
+  // STAGE
+  // ----------------------------------------------------------
+
+  const stage =
+    mesh(
+
+      new THREE.BoxGeometry(
+        22,
+        1.3,
+        22
+      ),
+
+      new THREE.MeshStandardMaterial({
+        color:.09,
+        roughness:.8
+      }),
+
+      [0,.65,-9]
+
+    );
+
+
+  stage.receiveShadow = true;
+
+
+  // ----------------------------------------------------------
+  // FRONT STRUCTURE
+  // ----------------------------------------------------------
+
+  const black =
+    new THREE.MeshStandardMaterial({
+      color:.025,
+      roughness:.9
+    });
+
+
+  mesh(
+    new THREE.BoxGeometry(
+      23,
+      .6,
+      .6
+    ),
+    black,
+    [0,8.5,-12]
+  );
+
+
+  mesh(
+    new THREE.BoxGeometry(
+      .6,
+      8.5,
+      .6
+    ),
+    black,
+    [-11,4.5,-12]
+  );
+
+
+  mesh(
+    new THREE.BoxGeometry(
+      .6,
+      8.5,
+      .6
+    ),
+    black,
+    [11,4.5,-12]
+  );
+
+
+  // ----------------------------------------------------------
+  // CURTAINS
+  // ----------------------------------------------------------
+
+  curtain(-7.5);
+  curtain(7.5);
+
+
+  // ----------------------------------------------------------
+  // TRUSS
+  // ----------------------------------------------------------
+
+  makeTrussBar(
+    30,
+    9.5,
+    -2,
+    0x555555
+  );
+
+  makeTrussBar(
+    30,
+    9.5,
+    -5,
+    0x555555
+  );
+
+  makeTrussBar(
+    30,
+    9.5,
+    -8,
+    0x444444
+  );
+
+  makeTrussBar(
+    32,
+    8.5,
+    10,
+    0x555555
+  );
+
+
+  // ----------------------------------------------------------
+  // SEATS
+  // ----------------------------------------------------------
+
+  const seatMat =
+    new THREE.MeshStandardMaterial({
+      color:.07,
+      roughness:.9
+    });
+
+
+  const riserMat =
+    new THREE.MeshStandardMaterial({
+      color:.11,
+      roughness:.9
+    });
+
+
+  const rows = 7;
+  const seatsPerRow = 15;
+
+  const rowDepth = 1.6;
+  const risePerRow = .55;
+
+
+  // ----------------------------------------------------------
+  // RISERS
+  // ----------------------------------------------------------
+
+  for(
+    let r=0;
+    r<rows;
+    r++
+  ){
+
+    const rowBaseY =
+      r*risePerRow;
+
+
+    const rowZ =
+      6+r*rowDepth;
+
+
+    mesh(
+
+      new THREE.BoxGeometry(
+        20,
+        risePerRow,
+        rowDepth
+      ),
+
+      riserMat,
+
+      [
+        0,
+        rowBaseY+risePerRow/2,
+        rowZ
+      ]
+
+    );
+
+  }
+
+
+  // ----------------------------------------------------------
+  // SEAT INSTANCING
+  // ----------------------------------------------------------
+
+  const seatGeometry =
+    new THREE.BoxGeometry(
+      1,
+      .35,
+      .9
+    );
+
+
+  const backGeometry =
+    new THREE.BoxGeometry(
+      1,
+      .9,
+      .2
+    );
+
+
+  const totalSeats =
+    rows * seatsPerRow;
+
+
+  const seats =
+    new THREE.InstancedMesh(
+      seatGeometry,
+      seatMat,
+      totalSeats
+    );
+
+
+  const backs =
+    new THREE.InstancedMesh(
+      backGeometry,
+      seatMat,
+      totalSeats
+    );
+
+
+  seats.castShadow = true;
+  seats.receiveShadow = true;
+
+  backs.castShadow = true;
+  backs.receiveShadow = true;
+
+
+  const dummy =
+    new THREE.Object3D();
+
+
+  let instance = 0;
+
+
+  for(
+    let r=0;
+    r<rows;
+    r++
+  ){
+
+    const rowBaseY =
+      r*risePerRow;
+
+    const rowTopY =
+      rowBaseY+.3;
+
+    const rowZ =
+      6+r*rowDepth;
+
+
+    for(
+      let s=0;
+      s<seatsPerRow;
+      s++
+    ){
+
+      const seatX =
+        (s-(seatsPerRow-1)/2)*1.2;
+
+
+      dummy.position.set(
+        seatX,
+        rowTopY,
+        rowZ
+      );
+
+      dummy.rotation.set(
+        0,
+        0,
+        0
+      );
+
+      dummy.scale.set(
+        1,
+        1,
+        1
+      );
+
+      dummy.updateMatrix();
+
+      seats.setMatrixAt(
+        instance,
+        dummy.matrix
+      );
+
+
+      dummy.position.set(
+        seatX,
+        rowTopY+.3,
+        rowZ+.45
+      );
+
+      dummy.updateMatrix();
+
+      backs.setMatrixAt(
+        instance,
+        dummy.matrix
+      );
+
+
+      instance++;
+
+    }
+
+  }
+
+
+  seats.instanceMatrix.needsUpdate = true;
+  backs.instanceMatrix.needsUpdate = true;
+
+
+  S.scene.add(seats);
+  S.scene.add(backs);
+
+
+  // ----------------------------------------------------------
+  // LIGHTS
+  // ----------------------------------------------------------
+
+  createHouse();
+  createWork();
+
+}
+
+
+// ============================================================
+// MOUSE
+// ============================================================
+
+const raycaster =
+  new THREE.Raycaster();
+
+const mouse =
+  new THREE.Vector2();
+
+
+function getMouseNDCoords(e){
+
+  const rect =
+    $("viz").getBoundingClientRect();
+
+
+  mouse.x =
+    ((e.clientX-rect.left)/
+      rect.width)*2-1;
+
+
+  mouse.y =
+    -((e.clientY-rect.top)/
+      rect.height)*2+1;
+
+}
+
+
+// ============================================================
+// MOUSE DOWN
+// ============================================================
+
+window.addEventListener(
+  "mousedown",
+  e=>{
+
+    getMouseNDCoords(e);
+
+
+    raycaster.setFromCamera(
+      mouse,
+      S.camera
+    );
+
+
+    const aimHits =
+      raycaster.intersectObjects(
+        S.aimHeads,
+        false
+      );
+
+
+    if(aimHits.length > 0){
+
+      e.preventDefault();
+
+
+      const obj =
+        aimHits[0].object;
+
+
+      const fixtureObj =
+        S.objects.find(
+          o => o.head === obj
+        );
+
+
+      if(fixtureObj)
+        fixtureObj.manualAim = true;
+
+
+      S.selectedAim =
+        fixtureObj;
+
+      S.selectedFixture = null;
+
+      S.controls.enabled = false;
+
+      requestRender();
+
+      return;
+
+    }
+
+
+    const bodyHits =
+      raycaster.intersectObjects(
+        S.fixtureBodies,
+        false
+      );
+
+
+    if(bodyHits.length > 0){
+
+      e.preventDefault();
+
+
+      const hit =
+        bodyHits[0];
+
+
+      S.selectedFixture =
+        hit.object.userData.mountRef;
+
+      S.selectedAim = null;
+
+
+      S.dragPlane.normal
+        .copy(
+          S.camera.position
+        )
+        .normalize();
+
+
+      raycaster.ray.intersectPlane(
+        S.dragPlane,
+        S.dragOffset
+      );
+
+
+      S.dragOffset.sub(
+        S.selectedFixture.position
+      );
+
+
+      // Only change the selected material instance.
+      // Fixture body materials are shared.
+      //
+      // Therefore we intentionally don't modify the shared
+      // material here. Instead use object-level highlight.
+      //
+      // Keep behaviour visually close using a temporary
+      // material clone only for the selected object.
+
+      if(
+        !hit.object.userData.originalMaterial
+      ){
+
+        hit.object.userData.originalMaterial =
+          hit.object.material;
+
+      }
+
+
+      if(
+        hit.object.material ===
+        hit.object.userData.originalMaterial
+      ){
+
+        hit.object.material =
+          hit.object.userData.originalMaterial.clone();
+
+      }
+
+
+      hit.object.material.emissive.set(
+        0x444444
+      );
+
+      hit.object.material
+        .emissiveIntensity = 1;
+
+
+      S.controls.enabled = false;
+
+      requestRender();
+
+    }else{
+
+      S.selectedFixture = null;
+      S.selectedAim = null;
+
+
+      for(
+        let i=0;
+        i<S.fixtureBodies.length;
+        i++
+      ){
+
+        const b =
+          S.fixtureBodies[i];
+
+        if(
+          b.userData.originalMaterial &&
+          b.material !==
+            b.userData.originalMaterial
+        ){
+
+          b.material.dispose();
+
+          b.material =
+            b.userData.originalMaterial;
+
+        }
+
+      }
+
+
+      requestRender();
+
+    }
+
+  }
+);
+
+
+// ============================================================
+// MOUSE MOVE
+// ============================================================
+
+window.addEventListener(
+  "mousemove",
+  e=>{
+
+    if(S.selectedFixture){
+
+      getMouseNDCoords(e);
+
+
+      raycaster.setFromCamera(
+        mouse,
+        S.camera
+      );
+
+
+      raycaster.ray.intersectPlane(
+        S.dragPlane,
+        mouseIntersect
+      );
+
+
+      mouseIntersect.sub(
+        S.dragOffset
+      );
+
+
+      S.selectedFixture.position.copy(
+        mouseIntersect
+      );
+
+
+      requestRender();
+
+    }
+
+
+    if(S.selectedAim){
+
+      getMouseNDCoords(e);
+
+
+      raycaster.setFromCamera(
+        mouse,
+        S.camera
+      );
+
+
+      raycaster.ray.intersectPlane(
+        mousePlane,
+        mouseTarget
+      );
+
+
+      const mountPos =
+        S.selectedAim.group.position;
+
+
+      mouseDirection
+        .subVectors(
+          mouseTarget,
+          mountPos
+        )
+        .normalize();
+
+
+      const newPan =
+        Math.atan2(
+          mouseDirection.x,
+          mouseDirection.z
+        );
+
+
+      const newTilt =
+        -Math.asin(
+          THREE.MathUtils.clamp(
+            mouseDirection.y,
+            -1,
+            1
+          )
+        );
+
+
+      S.selectedAim.panGroup
+        .rotation.y = newPan;
+
+
+      S.selectedAim.tiltGroup
+        .rotation.x = newTilt;
+
+
+      const idx =
+        S.objects.indexOf(
+          S.selectedAim
+        );
+
+
+      S.fixtureManualRot.set(
+        idx,
+        {
+          pan:newPan,
+          tilt:newTilt
+        }
+      );
+
+
+      requestRender();
+
+    }
+
+  }
+);
+
+
+// ============================================================
+// MOUSE UP
+// ============================================================
+
+window.addEventListener(
+  "mouseup",
+  ()=>{
+
+    if(S.selectedFixture){
+
+      const idx =
+        S.objects.findIndex(
+          o =>
+            o.group ===
+            S.selectedFixture
+        );
+
+
+      if(idx !== -1){
+
+        S.fixturePositions.set(
+          idx,
+          S.selectedFixture.position.clone()
+        );
+
+      }
+
+    }
+
+
+    S.selectedFixture = null;
+    S.selectedAim = null;
+
+
+    if(S.controls)
+      S.controls.enabled = true;
+
+
+    requestRender();
+
+  }
+);
+
+
+// ============================================================
+// SAVE
+// ============================================================
+
+function savePositionsToStorage(){
+
+  const posArr = [];
+
+
+  S.fixturePositions.forEach(
+    (v,i)=>{
+
+      posArr.push({
+
+        index:i,
+
+        x:v.x,
+        y:v.y,
+        z:v.z
+
+      });
+
+    }
+  );
+
+
+  const rotArr = [];
+
+
+  S.fixtureManualRot.forEach(
+    (r,i)=>{
+
+      rotArr.push({
+
+        index:i,
+
+        pan:r.pan,
+        tilt:r.tilt
+
+      });
+
+    }
+  );
+
+
+  localStorage.setItem(
+    "vizPositions",
+    JSON.stringify({
+      pos:posArr,
+      rot:rotArr
+    })
+  );
+
+
+  statusText(
+    "✅ SAVED to browser storage"
+  );
+
+}
+
+
+// ============================================================
+// LOAD
+// ============================================================
+
+function loadPositionsFromStorage(){
+
+  const saved =
+    localStorage.getItem(
+      "vizPositions"
+    );
+
+
+  if(!saved){
+
+    statusText(
+      "⚠️ No saved positions"
+    );
+
+    return;
+
+  }
+
+
+  try{
+
+    const data =
+      JSON.parse(saved);
+
+
+    const posList =
+      (data.pos||[]).map(
+        p=>({
+
+          fixtureIndex:p.index,
+
+          x:p.x,
+          y:p.y,
+          z:p.z
+
+        })
+      );
+
+
+    const rotList =
+      (data.rot||[]).map(
+        r=>({
+
+          fixtureIndex:r.index,
+
+          pan:r.pan,
+          tilt:r.tilt
+
+        })
+      );
+
+
+    applyLoadedPositions(
+      posList,
+      rotList
+    );
+
+
+    statusText(
+      "✅ RESTORED from storage"
+    );
+
+
+  }catch(e){
+
+    console.error(
+      "Load failed:",
+      e
+    );
+
+
+    statusText(
+      "❌ Load failed"
+    );
+
+  }
+
+}
+
+
+// ============================================================
+// HOUSE BUTTON
+// ============================================================
+
+$("house").onclick = ()=>{
+
+  houseOn = !houseOn;
+
+
+  S.house.forEach(
+    l=>{
+      l.intensity =
+        houseOn ? 35 : 0;
+    }
+  );
+
+
+  $("house").textContent =
+    "HOUSE LIGHTS: " +
+    (houseOn ? "ON" : "OFF");
+
+
+  $("house").classList.toggle(
+    "on",
+    houseOn
+  );
+
+
+  requestRender();
+
+};
+
+
+// ============================================================
+// WORK BUTTON
+// ============================================================
+
+$("work").onclick = ()=>{
+
+  workOn = !workOn;
+
+
+  S.work.forEach(
+    l=>{
+      l.intensity =
+        workOn ? 7 : 0;
+    }
+  );
+
+
+  $("work").textContent =
+    "WORK LIGHTS: " +
+    (workOn ? "ON" : "OFF");
+
+
+  $("work").classList.toggle(
+    "on",
+    workOn
+  );
+
+
+  requestRender();
+
+};
+
+
+// ============================================================
+// GRID BUTTON
+// ============================================================
+
+$("grid").onclick = ()=>{
+
+  gridOn = !gridOn;
+
+
+  if(S.grid)
+    S.grid.visible = gridOn;
+
+
+  $("grid").textContent =
+    "GRID: " +
+    (gridOn ? "ON" : "OFF");
+
+
+  $("grid").classList.toggle(
+    "on",
+    gridOn
+  );
+
+
+  requestRender();
+
+};
+
+
+$("savePos").onclick =
+  savePositionsToStorage;
+
+$("loadPos").onclick =
+  loadPositionsFromStorage;
+
+
+// ============================================================
+// WEBSOCKET
+// ============================================================
+
+function connect(){
+
+  clearTimeout(
+    reconnect
+  );
+
+
+  try{
+
+    ws =
+      new WebSocket(
+        "ws://localhost:8081"
+      );
+
+
+    ws.binaryType =
+      "arraybuffer";
+
+
+    ws.onopen = ()=>{
+
+      statusText(
+        "🟢 ART-NET CONNECTED<br>" +
+        "Fixtures: " +
+        S.objects.length +
+        "<br>" +
+        "Waiting for DMX..."
+      );
+
+
+      requestRender();
+
+    };
+
+
+    ws.onmessage =
+      e => artnet(e.data);
+
+
+    ws.onerror = ()=>{
+
+      statusText(
+        "🟠 ART-NET CONNECTION ERROR"
+      );
+
+    };
+
+
+    ws.onclose = ()=>{
+
+      statusText(
+        "🔴 ART-NET DISCONNECTED"
+      );
+
+
+      reconnect =
+        setTimeout(
+          connect,
+          2000
+        );
+
+    };
+
+
+  }catch{
+
+    reconnect =
+      setTimeout(
+        connect,
+        2000
+      );
+
+  }
+
+}
+
+
+// ============================================================
+// INITIALIZE
+// ============================================================
+
+function init(){
+
+  S.scene =
+    new THREE.Scene();
+
+
+  S.scene.background =
+    new THREE.Color(
+      0x080808
+    );
+
+
+  S.scene.fog =
+    new THREE.Fog(
+      0x080808,
+      50,
+      110
+    );
+
+
+  S.camera =
+    new THREE.PerspectiveCamera(
+      55,
+      innerWidth/innerHeight,
+      .1,
+      120
+    );
+
+
+  S.camera.position.set(
+    20,
+    12,
+    26
+  );
+
+
+  // ==========================================================
+  // SHARED FIXTURE RESOURCES
+  // ==========================================================
+
+  createSharedFixtureResources();
+
+
+  // ==========================================================
+  // RENDERER
+  // ==========================================================
+
+  S.renderer =
+    new THREE.WebGLRenderer({
+
+      antialias:false,
+
+      powerPreference:
+        "high-performance",
+
+      // Preserve the existing visual output while avoiding
+      // unnecessary depth precision overhead.
+      precision:"mediump"
+
+    });
+
+
+  S.renderer.setSize(
+    innerWidth,
+    innerHeight,
+    false
+  );
+
+
+  S.renderer.setPixelRatio(
+    Math.min(
+      window.devicePixelRatio,
+      MAX_PIXEL_RATIO
+    )
+  );
+
+
+  S.renderer.outputColorSpace =
+    THREE.SRGBColorSpace;
+
+
+  S.renderer.toneMapping =
+    THREE.ACESFilmicToneMapping;
+
+
+  S.renderer.toneMappingExposure =
+    1.8;
+
+
+  S.renderer.shadowMap.enabled = true;
+
+
+  S.renderer.shadowMap.type =
+    THREE.PCFShadowMap;
+
+
+  $("viz").appendChild(
+    S.renderer.domElement
+  );
+
+
+  // ==========================================================
+  // ORBIT CONTROLS
+  // ==========================================================
+
+  S.controls =
+    new OrbitControls(
+      S.camera,
+      S.renderer.domElement
+    );
+
+
+  S.controls.enableDamping = true;
+
+  S.controls.dampingFactor = .06;
+
+  S.controls.target.set(
+    0,
+    4,
+    -6
+  );
+
+
+  S.controls.maxDistance = 65;
+  S.controls.minDistance = 3;
+
+
+  S.controls.addEventListener(
+    "change",
+    requestRender
+  );
+
+
+  // ==========================================================
+  // SCENE
+  // ==========================================================
+
+  theatre();
+
+
+  // ----------------------------------------------------------
+  // LOW-COST AMBIENT LIGHT
+  // ----------------------------------------------------------
+
+  S.scene.add(
+
+    new THREE.HemisphereLight(
+      0x777777,
+      0x101010,
+      .3
+    )
+
+  );
+
+
+  // ----------------------------------------------------------
+  // LOW-COST FILL
+  // ----------------------------------------------------------
+
+  const fill =
+    new THREE.DirectionalLight(
+      0x777777,
+      .2
+    );
+
+
+  fill.position.set(
+    0,
+    18,
+    16
+  );
+
+
+  fill.castShadow = false;
+
+  S.scene.add(fill);
+
+
+  // ==========================================================
+  // GRID
+  // ==========================================================
+
+  S.grid =
+    new THREE.GridHelper(
+      50,
+      25,
+      0x444444,
+      0x222222
+    );
+
+
+  S.grid.position.y = .01;
+
+  S.scene.add(
+    S.grid
+  );
+
+
+  // ==========================================================
+  // RESIZE
+  // ==========================================================
+
+  addEventListener(
+    "resize",
+    ()=>{
+
+      S.camera.aspect =
+        innerWidth/
+        innerHeight;
+
+
+      S.camera.updateProjectionMatrix();
+
+
+      S.renderer.setSize(
+        innerWidth,
+        innerHeight,
+        false
+      );
+
+
+      requestRender();
+
+    }
+  );
+
+
+  requestRender();
+
+
+  statusText(
+    "🟢 READY — drag fixtures then click SAVE"
+  );
+
+
+  requestFixtures();
+
+}
+
+
+// ============================================================
+// OPTIMIZED RENDER LOOP
+// ============================================================
+
+function animate(now){
+
+  requestAnimationFrame(
+    animate
+  );
+
+
+  const fps =
+    S.animated
+    ? ACTIVE_FPS
+    : IDLE_FPS;
+
+
+  const frameInterval =
+    1000 / fps;
+
+
+  if(
+    now - S.lastRender <
+    frameInterval
+  ){
+
+    return;
+
+  }
+
+
+  // ----------------------------------------------------------
+  // DMX UPDATE
+  // ----------------------------------------------------------
+
+  if(S.dmxDirty){
+
+    updateFixtures(
+      now*.001
+    );
+
+    S.dmxDirty = false;
+
+    S.renderDirty = true;
+
+  }
+
+
+  // ----------------------------------------------------------
+  // HAZE
+  // ----------------------------------------------------------
+
+  let hazeActive = false;
+
+
+  for(
+    let i=0;
+    i<S.haze.length;
+    i++
+  ){
+
+    const h =
+      S.haze[i];
+
+
+    if(h.visible){
+
+      h.material.uniforms
+        .time.value =
+          now*.001;
+
+      hazeActive = true;
+
+    }
+
+  }
+
+
+  if(hazeActive){
+
+    S.renderDirty = true;
+
+  }
+
+
+  // ----------------------------------------------------------
+  // NOTHING CHANGED
+  // ----------------------------------------------------------
+
+  if(
+    !S.renderDirty &&
+    !S.animated
+  ){
+
+    return;
+
+  }
+
+
+  // ----------------------------------------------------------
+  // CONTROLS
+  // ----------------------------------------------------------
+
+  S.controls.update();
+
+
+  // ----------------------------------------------------------
+  // RENDER
+  // ----------------------------------------------------------
+
+  S.renderer.render(
+    S.scene,
+    S.camera
+  );
+
+
+  S.lastRender = now;
+
+  S.renderDirty = false;
+
+}
+
+
+// ============================================================
+// START
+// ============================================================
+
+init();
+
+connect();
+
+requestAnimationFrame(
+  animate
+);
+
+</script>
+
+</body>
+</html>

@@ -1,7 +1,4 @@
-
 .node_modules
-.DS_Store
-.DS_Store
-Build/
-Build/
 node_modules/
+.DS_Store
+Build/

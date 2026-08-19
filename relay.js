@@ -40,31 +40,28 @@ wss.on('error', err => {
 });
 
 function isArtNet(packet) {
+  // ArtDMX needs the 8-byte ID plus opcode at bytes 8–9.
+  // Reject undersized packets before readUInt16LE(8) can throw.
   return Buffer.isBuffer(packet) &&
-    packet.length >= 8 &&
+    packet.length >= 10 &&
     packet.subarray(0, 8).equals(Buffer.from('Art-Net\0'));
 }
 
 function sendArtNet(packet) {
-  if (shuttingDown) {
-    console.warn('⚠️ Packet not sent — relay is shutting down');
-    return;
-  }
+  if (shuttingDown) return;
 
   if (!udpReady) {
-    console.warn('⚠️ Packet not sent — UDP socket is not ready yet');
+    packetsRejected++;
     return;
   }
 
   udp.send(packet, 0, packet.length, ARTNET_PORT, ARTNET_TARGET, err => {
     if (err) {
-      console.error(`❌ Art-Net UDP SEND FAILED → ${ARTNET_TARGET}:${ARTNET_PORT}`);
-      console.error('   ', err.message);
+      console.error(`❌ Art-Net UDP SEND FAILED → ${ARTNET_TARGET}:${ARTNET_PORT}:`, err.message);
       return;
     }
 
     packetsSent++;
-    console.log(`📤 Art-Net SENT #${packetsSent} → ${ARTNET_TARGET}:${ARTNET_PORT} (${packet.length} bytes)`);
   });
 }
 
@@ -75,10 +72,9 @@ wss.on('connection', (ws, request) => {
 
   ws.on('message', (data, isBinary) => {
     packetsReceived++;
-    console.log(`📥 WS MESSAGE #${packetsReceived} — ${isBinary ? 'BINARY' : 'TEXT'} — ${data.length} bytes`);
 
     if (!isBinary) {
-      console.warn('⚠️ Ignoring text WebSocket message');
+      packetsRejected++;
       return;
     }
 
@@ -86,30 +82,23 @@ wss.on('connection', (ws, request) => {
 
     if (!isArtNet(pkt)) {
       packetsRejected++;
-      console.warn(`⚠️ REJECTED packet #${packetsRejected} — not valid Art-Net`);
-      console.warn(`   Header: ${pkt.subarray(0, Math.min(16, pkt.length)).toString('hex')}`);
+      console.warn(`⚠️ REJECTED invalid Art-Net packet #${packetsRejected} (${pkt.length} bytes)`);
       return;
     }
 
-    console.log('✅ Valid Art-Net packet received');
-    console.log(`   Size: ${pkt.length} bytes`);
-    console.log(`   OpCode: 0x${pkt.readUInt16LE(8).toString(16).padStart(4, '0')}`);
-
     sendArtNet(pkt);
 
-    let visualiserCount = 0;
+    // Forward valid Art-Net frames to visualiser clients without echoing the
+    // frame back to the sender. This avoids an unnecessary extra browser event.
     wss.clients.forEach(client => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         try {
           client.send(pkt, { binary: true });
-          visualiserCount++;
         } catch (err) {
           console.error('❌ Visualiser broadcast failed:', err.message);
         }
       }
     });
-
-    console.log(`📺 Forwarded packet to ${visualiserCount} other WebSocket client(s)`);
   });
 
   ws.on('error', err => {

@@ -358,6 +358,7 @@ wss.on("connection", ws => {
 
       if (message.type === "subscribe") return subscribeToQLab();
       if (message.type === "sync-cues") return syncCues();
+      if (message.type === "check-playhead") return pollQLab();
 
       if (message.type === "set-time-triggers") {
         timeTriggers = message.triggers && typeof message.triggers === "object" ? message.triggers : {};

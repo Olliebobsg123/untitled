@@ -52,9 +52,6 @@ function createWindow() {
     minHeight: 600,
     title: 'Lighting Console',
     webPreferences: {
-      // Renderer code does not require Node.js APIs. Keep Node out of the
-      // renderer so a compromised UI/third-party page cannot access fs,
-      // child_process, or other privileged Electron APIs.
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true
@@ -64,9 +61,6 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
-    // Coalesce high-frequency visualiser DMX messages. The console can still
-    // output Art-Net at its configured rate, but the visualiser only receives
-    // one DMX frame per animation frame and skips identical frames.
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__visualiserPerformancePatch) return;
@@ -193,7 +187,7 @@ function createWindow() {
 
             const active = q === String(qlab.activeCue ?? '');
             row.style.background = active ? '#1a3a2a' : '#2a2a3a';
-            row.style.borderLeft = `3px solid ${active ? '#0f6' : '#444'}`;
+            row.style.borderLeft = '3px solid ' + (active ? '#0f6' : '#444');
 
             let elapsed = row.querySelector('.qlab-active-time');
             if (active) {
@@ -204,7 +198,7 @@ function createWindow() {
                 const goButton = row.querySelector('button');
                 row.insertBefore(elapsed, goButton || null);
               }
-              elapsed.textContent = `▶ ${Number(qlab.activeElapsed || 0).toFixed(2)}s`;
+              elapsed.textContent = '▶ ' + Number(qlab.activeElapsed || 0).toFixed(2) + 's';
             } else if (elapsed) {
               elapsed.remove();
             }

@@ -74,6 +74,65 @@ function createWindow() {
           if (!child || wrappedWindows.has(child)) return child;
           wrappedWindows.add(child);
 
+          const installPhotometricBeamPatch = () => {
+            try {
+              if (!child.document || !child.document.documentElement) return false;
+              if (child.document.getElementById('__photometricBeamPatch')) return true;
+
+              const script = child.document.createElement('script');
+              script.id = '__photometricBeamPatch';
+              script.textContent = \`(() => {
+                if (window.__photometricBeamPatch) return;
+                window.__photometricBeamPatch = true;
+
+                const syncBeams = () => {
+                  const state = window.S;
+                  if (!state || !Array.isArray(state.objects)) return;
+
+                  for (const fixture of state.objects) {
+                    if (!fixture || !fixture.haze || !fixture.spot) continue;
+
+                    const active = fixture.spot.visible && fixture.spot.intensity > 0.001;
+                    fixture.haze.visible = active;
+
+                    if (!fixture.haze.material?.uniforms) continue;
+
+                    const uniforms = fixture.haze.material.uniforms;
+                    if (uniforms.opacity) {
+                      uniforms.opacity.value = active
+                        ? Math.min(0.2, Math.max(0, fixture.spot.intensity / 180) * 0.13)
+                        : 0;
+                    }
+                    if (uniforms.color) {
+                      uniforms.color.value.copy(fixture.spot.color);
+                    }
+                  }
+                };
+
+                const originalRAF = window.requestAnimationFrame;
+                window.requestAnimationFrame = function(callback) {
+                  return originalRAF.call(this, (time) => {
+                    syncBeams();
+                    callback(time);
+                  });
+                };
+
+                syncBeams();
+                console.log('🟣 Photometric beam patch enabled');
+              })();\`;
+
+              child.document.documentElement.appendChild(script);
+              return true;
+            } catch (err) {
+              return false;
+            }
+          };
+
+          const beamTimer = setInterval(() => {
+            if (installPhotometricBeamPatch()) clearInterval(beamTimer);
+          }, 100);
+          setTimeout(() => clearInterval(beamTimer), 15000);
+
           const originalPostMessage = child.postMessage.bind(child);
           let pendingDMX = null;
           let frameQueued = false;
@@ -258,7 +317,5 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });

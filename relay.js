@@ -39,12 +39,26 @@ wss.on('error', err => {
   console.error('❌ WEBSOCKET SERVER ERROR:', err.message);
 });
 
-function isArtNet(packet) {
-  // ArtDMX needs the 8-byte ID plus opcode at bytes 8–9.
-  // Reject undersized packets before readUInt16LE(8) can throw.
-  return Buffer.isBuffer(packet) &&
-    packet.length >= 10 &&
-    packet.subarray(0, 8).equals(Buffer.from('Art-Net\0'));
+function isArtNetDMX(packet) {
+  // Only accept ArtDMX frames. Previously the relay forwarded any packet
+  // beginning with "Art-Net", including ArtPoll/other opcodes, which could
+  // accidentally put control packets onto the lighting network.
+  if (!Buffer.isBuffer(packet) || packet.length < 18) return false;
+  if (!packet.subarray(0, 8).equals(Buffer.from('Art-Net\0'))) return false;
+
+  // ArtDMX opcode is little-endian 0x5000 => bytes 00 50.
+  if (packet[8] !== 0x00 || packet[9] !== 0x50) return false;
+
+  // Art-Net protocol version is stored big-endian at bytes 10-11. Require
+  // at least 14, matching the protocol version emitted by the console.
+  const protocolVersion = packet.readUInt16BE(10);
+  if (protocolVersion < 14) return false;
+
+  const declaredLength = packet.readUInt16BE(16);
+  if (declaredLength < 2 || declaredLength > 512) return false;
+  if (packet.length < 18 + declaredLength) return false;
+
+  return true;
 }
 
 function sendArtNet(packet) {
@@ -80,16 +94,14 @@ wss.on('connection', (ws, request) => {
 
     const pkt = Buffer.from(data);
 
-    if (!isArtNet(pkt)) {
+    if (!isArtNetDMX(pkt)) {
       packetsRejected++;
-      console.warn(`⚠️ REJECTED invalid Art-Net packet #${packetsRejected} (${pkt.length} bytes)`);
+      console.warn(`⚠️ REJECTED invalid/non-DMX Art-Net packet (${pkt.length} bytes)`);
       return;
     }
 
     sendArtNet(pkt);
 
-    // Forward valid Art-Net frames to visualiser clients without echoing the
-    // frame back to the sender. This avoids an unnecessary extra browser event.
     wss.clients.forEach(client => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         try {
@@ -137,4 +149,4 @@ function shutdown() {
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
 
-module.exports = { sendArtNet };
+module.exports = { sendArtNet, shutdown };

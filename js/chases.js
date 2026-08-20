@@ -7,29 +7,64 @@
     else console.log(message);
   };
 
+  function applyTarget(target, duration) {
+    const s = state();
+    if (!s) return;
+    if (s.fading) cancelAnimationFrame(s.fading);
+    s.fading = null;
+
+    const fixtures = Array.isArray(s.fixtures) ? s.fixtures : [];
+    if (!(s.fixtureStates instanceof Map)) s.fixtureStates = new Map();
+    const start = performance.now();
+    const from = { ...s.current };
+    const to = { ...from, ...target };
+    const ms = Math.max(0, Number(duration) || 0) * 1000;
+
+    const tick = now => {
+      const t = ms > 0 ? Math.min(1, (now - start) / ms) : 1;
+      const next = { ...from };
+      for (const key of Object.keys(to)) {
+        const a = Number(from[key]);
+        const b = Number(to[key]);
+        next[key] = Number.isFinite(a) && Number.isFinite(b) ? a + (b - a) * t : to[key];
+      }
+      Object.assign(s.current, next);
+      fixtures.forEach(fixture => {
+        if (!fixture?.id) return;
+        const existing = s.fixtureStates.get(fixture.id) || {};
+        const base = { ...(window.DEFAULT_FIXTURE_STATE || {}), ...existing };
+        const stateOut = { ...base };
+        for (const key of Object.keys(to)) {
+          const a = Number(existing[key] ?? from[key]);
+          const b = Number(to[key]);
+          stateOut[key] = Number.isFinite(a) && Number.isFinite(b) ? a + (b - a) * t : to[key];
+        }
+        s.fixtureStates.set(fixture.id, stateOut);
+      });
+      if (typeof window.updateDMX === "function") window.updateDMX();
+      if (t < 1) s.fading = requestAnimationFrame(tick);
+      else s.fading = null;
+    };
+
+    tick(start);
+  }
+
   window.renderChases = function renderChases() {
     const list = document.getElementById("chaseList");
     if (!list) return;
-
     const s = state();
     if (!s) return;
     if (!Array.isArray(s.chases)) s.chases = [];
-
     list.replaceChildren();
-
     s.chases.forEach((chase, index) => {
       if (!chase) return;
-
       const el = document.createElement("div");
       el.className = `cue-item ${index === s.currentChase ? "active" : ""}`;
-
       const title = document.createElement("strong");
       title.textContent = `${index + 1}. ${chase.name || `Chase ${index + 1}`}`;
-
       const meta = document.createElement("div");
       meta.style.cssText = "font-size:11px;color:var(--text-muted);";
       meta.textContent = `${Array.isArray(chase.steps) ? chase.steps.length : 0} steps · ${chase.loop ? "🔁 Loop" : "→ Run once"}`;
-
       el.append(title, meta);
       el.addEventListener("click", event => {
         event.preventDefault();
@@ -42,55 +77,26 @@
   window.startChase = function startChase(index) {
     const s = state();
     if (!s) return false;
-
     window.stopChase(false);
-
     const chase = s.chases?.[index];
     if (!chase || !Array.isArray(chase.steps) || !chase.steps.length) {
       writeLog("Chase empty or missing", "warn");
       return false;
     }
-
     s.currentChase = index;
     let step = 0;
-
     const run = () => {
       if (s.currentChase !== index) return;
-
       const cueIndex = Number(chase.steps[step]);
       const cue = s.cues?.[cueIndex];
-
       if (cue) {
         const target = { ...s.current, ...(cue.globalState || cue.state || {}) };
         const fade = Math.max(0, Number(s.chaseFade) || 0);
-
-        if (fade > 0 && typeof window.fadeTo === "function") {
-          window.fadeTo(target, fade);
-        } else {
-          if (s.fading) cancelAnimationFrame(s.fading);
-          s.fading = null;
-          Object.assign(s.current, target);
-
-          if (s.fixtureStates instanceof Map) {
-            s.fixtures.forEach(fixture => {
-              if (!fixture?.id) return;
-              const existing = s.fixtureStates.get(fixture.id) || {};
-              s.fixtureStates.set(fixture.id, {
-                ...(window.DEFAULT_FIXTURE_STATE || {}),
-                ...existing,
-                ...target
-              });
-            });
-          }
-
-          if (typeof window.updateDMX === "function") window.updateDMX();
-        }
-
+        applyTarget(target, fade);
         s.currentCue = cueIndex;
         if (typeof window.renderCues === "function") window.renderCues();
         writeLog(`Chase ${index + 1} Step ${step + 1}: Cue ${cueIndex + 1}`);
       }
-
       step += 1;
       if (step >= chase.steps.length) {
         if (chase.loop) step = 0;
@@ -99,11 +105,9 @@
           return;
         }
       }
-
       const wait = Math.max(0, Number(s.chaseWait) || 0);
       s.chaseTimer = window.setTimeout(run, wait);
     };
-
     run();
     window.renderChases();
     writeLog(`▶ Started Chase ${index + 1}: ${chase.name || `Chase ${index + 1}`}`);
@@ -113,11 +117,11 @@
   window.stopChase = function stopChase(writeMessage = true) {
     const s = state();
     if (!s) return;
-
     if (s.chaseTimer) window.clearTimeout(s.chaseTimer);
     s.chaseTimer = null;
+    if (s.fading) cancelAnimationFrame(s.fading);
+    s.fading = null;
     s.currentChase = -1;
-
     if (typeof window.renderChases === "function") window.renderChases();
     if (writeMessage) writeLog("⏹ Chase stopped");
   };
@@ -127,16 +131,11 @@
     if (!s) return false;
     if (!Array.isArray(s.chases)) s.chases = [];
     if (!Array.isArray(cueIndices)) cueIndices = [];
-
-    const steps = cueIndices
-      .map(value => Number(value) - 1)
-      .filter(value => Number.isInteger(value) && value >= 0 && value < s.cues.length);
-
+    const steps = cueIndices.map(value => Number(value) - 1).filter(value => Number.isInteger(value) && value >= 0 && value < s.cues.length);
     if (!steps.length) {
       writeLog("No valid cues selected for chase", "warn");
       return false;
     }
-
     const chaseName = String(name || "").trim() || `Chase ${s.chases.length + 1}`;
     s.chases.push({ name: chaseName, steps, loop: Boolean(loop) });
     window.renderChases();

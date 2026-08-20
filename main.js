@@ -177,6 +177,50 @@ function createWindow() {
             });
           };
 
+          const installVisualiserModePatch = () => {
+            try {
+              if (!child.document || !child.document.documentElement) return false;
+              if (child.document.getElementById('__consoleModePatch')) return true;
+
+              const script = child.document.createElement('script');
+              script.id = '__consoleModePatch';
+              script.textContent = \`(() => {
+                if (window.__consoleModePatch) return;
+                window.__consoleModePatch = true;
+
+                const style = document.createElement('style');
+                style.textContent = '\n                  #consoleModeBanner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:100;background:#10351d;color:#8cffaa;border:1px solid #55d879;border-radius:7px;padding:8px 18px;font:700 12px monospace;letter-spacing:1px;box-shadow:0 0 18px #0008}\n                  #consoleModeBanner.blind{background:#102d55;color:#8fc4ff;border-color:#4b9cff;box-shadow:0 0 18px #1d73c755}\n                ';
+                document.head.appendChild(style);
+
+                const banner = document.createElement('div');
+                banner.id = 'consoleModeBanner';
+                document.body.appendChild(banner);
+
+                const setMode = mode => {
+                  const blind = String(mode).toUpperCase() === 'BLIND';
+                  banner.classList.toggle('blind', blind);
+                  banner.textContent = blind ? '● BLIND — VISUALIZER PROGRAMMER' : '● LIVE — ART-NET OUTPUT';
+                };
+
+                window.addEventListener('message', e => {
+                  if (e.data?.type === 'CONSOLE_MODE') setMode(e.data.mode);
+                });
+
+                setMode('LIVE');
+              })();\`;
+
+              child.document.documentElement.appendChild(script);
+              return true;
+            } catch (err) {
+              return false;
+            }
+          };
+
+          const modeTimer = setInterval(() => {
+            if (installVisualiserModePatch()) clearInterval(modeTimer);
+          }, 100);
+          setTimeout(() => clearInterval(modeTimer), 15000);
+
           console.log('🖥️ Visualiser performance patch enabled');
           return child;
         };
@@ -288,6 +332,81 @@ function createWindow() {
       })();
     `).catch(err => {
       console.error('❌ QLab stable cue renderer failed:', err);
+    });
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__blindLiveMode) return;
+        window.__blindLiveMode = true;
+
+        const installStyles = () => {
+          if (document.getElementById('__blindLiveStyles')) return;
+          const style = document.createElement('style');
+          style.id = '__blindLiveStyles';
+          style.textContent = '\n            .console-mode-switch{display:flex;align-items:center;gap:4px;margin-right:10px;padding:3px;background:#0b0b0b;border:1px solid #3b3b3b;border-radius:8px}\n            .console-mode-switch button{border:1px solid transparent;background:#151515;color:#999;border-radius:5px;padding:7px 13px;font:700 11px monospace;letter-spacing:.6px;cursor:pointer}\n            .console-mode-switch button.live.active{background:#315c35;color:#9dffad;border-color:#6fbd76;box-shadow:0 0 10px #315c3544}\n            .console-mode-switch button.blind.active{background:#173d70;color:#9ac9ff;border-color:#4b9cff;box-shadow:0 0 10px #2468b844}\n            body.console-blind .page-title strong{color:#75b8ff}\n            body.console-blind .control-deck-header strong{color:#75b8ff}\n          ';
+          document.head.appendChild(style);
+        };
+
+        installStyles();
+
+        const statusBar = document.querySelector('.topbar-status');
+        if (!statusBar) return;
+
+        const switcher = document.createElement('div');
+        switcher.className = 'console-mode-switch';
+        switcher.innerHTML = '<button class="live active" type="button">LIVE</button><button class="blind" type="button">BLIND</button>';
+        statusBar.insertBefore(switcher, statusBar.firstChild);
+
+        const liveButton = switcher.querySelector('.live');
+        const blindButton = switcher.querySelector('.blind');
+        let mode = 'LIVE';
+
+        const notifyVisualizer = () => {
+          try {
+            if (typeof window.sendToVisualizer === 'function') window.sendToVisualizer();
+            const v = window.visualizerWindow;
+            if (v && !v.closed) v.postMessage({type:'CONSOLE_MODE',mode}, '*');
+          } catch (_) {}
+        };
+
+        const setMode = next => {
+          mode = String(next).toUpperCase() === 'BLIND' ? 'BLIND' : 'LIVE';
+          liveButton.classList.toggle('active', mode === 'LIVE');
+          blindButton.classList.toggle('active', mode === 'BLIND');
+          document.body.classList.toggle('console-blind', mode === 'BLIND');
+          document.documentElement.dataset.consoleMode = mode.toLowerCase();
+          const title = document.getElementById('topPageTitle');
+          if (title && document.body.classList.contains('console-blind')) title.dataset.liveTitle = title.textContent;
+          const meta = document.querySelector('#page-live .quick-panel .panel-meta');
+          if (meta) meta.textContent = mode;
+          if (window.ArtNet) window.ArtNet.outputMode = mode;
+          notifyVisualizer();
+          if (typeof window.sendToVisualizer === 'function') window.sendToVisualizer();
+          console.log('🎛 Console mode:', mode);
+        };
+
+        const originalSend = window.ArtNet?.send?.bind(window.ArtNet);
+        if (window.ArtNet && originalSend && !window.ArtNet.__blindPatched) {
+          window.ArtNet.__blindPatched = true;
+          window.ArtNet.outputMode = 'LIVE';
+          window.ArtNet.send = function() {
+            if (window.ArtNet.outputMode === 'BLIND') {
+              if (typeof window.sendVisualizerDMX === 'function') window.sendVisualizerDMX();
+              else if (typeof window.sendToVisualizer === 'function') window.sendToVisualizer();
+              return;
+            }
+            return originalSend();
+          };
+        }
+
+        liveButton.onclick = () => setMode('LIVE');
+        blindButton.onclick = () => setMode('BLIND');
+        window.setConsoleMode = setMode;
+        window.getConsoleMode = () => mode;
+        setMode('LIVE');
+      })();
+    `).catch(err => {
+      console.error('❌ Blind/live mode initialisation failed:', err);
     });
   });
 

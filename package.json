@@ -8,6 +8,7 @@
 
   "scripts": {
     "start": "electron .",
+    "test:syntax": "node --check main.js && node --check relay.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
     "build-mac": "rm -rf Build && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never"
   },
 

@@ -10,6 +10,7 @@ const QLAB_PASSWORD = String(process.env.QLAB_PASSWORD || "");
 const WS_PORT = Number(process.env.QLAB_WS_PORT || 8083);
 const POLL_MS = 250;
 const EMPTY_PLAYBACK_CONFIRMATIONS = 2;
+const END_EPSILON = 0.15;
 
 const udp = dgram.createSocket("udp4");
 const wss = new WebSocket.Server({ port: WS_PORT });
@@ -17,6 +18,7 @@ const clients = new Map();
 let cues = [];
 let activeCue = null;
 let activeCueObject = null;
+let activeDuration = null;
 let timeTriggers = {};
 let firedTriggers = new Set();
 let pollTimer = null;
@@ -121,26 +123,42 @@ function loadCues(data) {
 function findCue(number) {
   return cues.find(c => String(c?.number ?? c?.cueNumber ?? "") === String(number)) || null;
 }
+function queryActiveCueState() {
+  if (!activeCue) return;
+  // QLab exposes the authoritative cue duration separately from the file
+  // playback clock. Query both so lighting never has to guess the song length.
+  sendOsc(`/cue/${activeCue}/currentDuration`);
+  sendOsc(`/cue/${activeCue}/currentFileTime`);
+  sendOsc(`/cue/${activeCue}/isRunning`);
+}
 function setActiveCue(number) {
   const n = cueNumber(number);
   if (!n) {
     if (activeCue !== null) {
+      const stoppedCue = activeCue;
       activeCue = null;
       activeCueObject = null;
+      activeDuration = null;
       firedTriggers.clear();
       lastElapsed = null;
       emptyPlaybackReplies = 0;
-      broadcast({ type: "qlab-cue-stop" });
+      broadcast({ type: "qlab-cue-stop", cueNumber: stoppedCue });
     }
     return;
   }
   emptyPlaybackReplies = 0;
-  if (activeCue === n) return;
+  if (activeCue === n) {
+    queryActiveCueState();
+    return;
+  }
   activeCue = n;
   activeCueObject = findCue(n);
+  activeDuration = Number(activeCueObject?.duration ?? activeCueObject?.currentDuration);
+  if (!Number.isFinite(activeDuration) || activeDuration <= 0) activeDuration = null;
   firedTriggers.clear();
   lastElapsed = null;
-  broadcast({ type: "qlab-cue-start", cueNumber: n, cue: activeCueObject });
+  broadcast({ type: "qlab-cue-start", cueNumber: n, cue: activeCueObject, duration: activeDuration });
+  queryActiveCueState();
 }
 function processTime(elapsed) {
   if (!activeCue || !Number.isFinite(elapsed)) return;
@@ -155,6 +173,22 @@ function processTime(elapsed) {
     broadcast({ type: "qlab-lighting-trigger", cueNumber: activeCue, elapsed, triggerTime: at, lights: Array.isArray(trigger?.lights) ? trigger.lights : [], reason: `QLab ${activeCue} reached ${at}s` });
   });
 }
+function finishActiveCue(elapsed) {
+  if (!activeCue) return;
+  const finishedCue = activeCue;
+  const duration = activeDuration;
+  broadcast({
+    type: "qlab-time",
+    cueNumber: finishedCue,
+    elapsed,
+    duration,
+    remaining: 0,
+    percent: 100,
+    ended: true
+  });
+  // Do not let the lighting timeline continue after the actual QLab cue ends.
+  setActiveCue(null);
+}
 function handleReply(address, args) {
   const data = replyData(args);
   if (address.endsWith("/cueLists")) return loadCues(data);
@@ -167,14 +201,42 @@ function handleReply(address, args) {
       emptyPlaybackReplies += 1;
       if (emptyPlaybackReplies >= EMPTY_PLAYBACK_CONFIRMATIONS) setActiveCue(null);
     }
-    if (activeCue) sendOsc(`/cue/${activeCue}/currentFileTime`);
+    if (activeCue) queryActiveCueState();
+    return;
+  }
+  if (address.endsWith("/currentDuration") && activeCue) {
+    const duration = Number(data);
+    if (Number.isFinite(duration) && duration > 0) {
+      activeDuration = duration;
+      broadcast({ type: "qlab-duration", cueNumber: activeCue, duration });
+    }
+    return;
+  }
+  if (address.endsWith("/isRunning") && activeCue) {
+    const running = data === true || data === 1 || String(data).toLowerCase() === "true" || String(data) === "1";
+    if (!running) {
+      // currentFileTime can briefly report 0 while QLab transitions, so only
+      // use isRunning=false as a stop signal after we have a real active cue.
+      if (lastElapsed !== null && lastElapsed > 0.05) setActiveCue(null);
+    }
     return;
   }
   if (address.endsWith("/currentFileTime") && activeCue) {
     const elapsed = Number(data);
     if (Number.isFinite(elapsed)) {
       processTime(elapsed);
-      broadcast({ type: "qlab-time", cueNumber: activeCue, elapsed });
+      const duration = Number.isFinite(activeDuration) ? activeDuration : null;
+      const ended = duration !== null && elapsed >= Math.max(0, duration - END_EPSILON);
+      broadcast({
+        type: "qlab-time",
+        cueNumber: activeCue,
+        elapsed,
+        duration,
+        remaining: duration === null ? null : Math.max(0, duration - elapsed),
+        percent: duration === null ? null : Math.min(100, Math.max(0, (elapsed / duration) * 100)),
+        ended
+      });
+      if (ended) finishActiveCue(elapsed);
     }
   }
 }
@@ -186,7 +248,11 @@ function handleUpdate(address) {
   if (String(address).includes("/update/workspace/")) syncCues();
 }
 function syncCues() { sendOsc("/cueLists"); }
-function pollQLab() { if (!shuttingDown) sendOsc("/playbackPosition"); }
+function pollQLab() {
+  if (shuttingDown) return;
+  sendOsc("/playbackPosition");
+  if (activeCue) queryActiveCueState();
+}
 function subscribe() { sendOsc("/updates", 1); sendOsc("/alwaysReply", 1); syncCues(); }
 
 udp.on("message", message => {
@@ -204,7 +270,7 @@ wss.on("connection", ws => {
   ws.send(JSON.stringify({ type: "status", connected: true, polling: POLL_MS, authenticated: client.authenticated }));
   if (client.authenticated) {
     if (cues.length) ws.send(JSON.stringify({ type: "qlab-cues", cues }));
-    if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject }));
+    if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject, duration: activeDuration }));
   }
   ws.on("message", raw => {
     try {
@@ -215,7 +281,7 @@ wss.on("connection", ws => {
         if (!client.authenticated) ws.close(1008, "Authentication failed");
         else {
           if (cues.length) ws.send(JSON.stringify({ type: "qlab-cues", cues }));
-          if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject }));
+          if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject, duration: activeDuration }));
         }
         return;
       }
@@ -226,7 +292,7 @@ wss.on("connection", ws => {
       if (message.type === "check-playhead") return pollQLab();
       if ((message.type === "osc" || message.address) && typeof message.address === "string") {
         const address = message.address;
-        if (address === "/playbackPosition" || /\/cue\/[^/]+\/currentFileTime$/.test(address)) return;
+        if (address === "/playbackPosition" || /\/cue\/[^/]+\/(currentFileTime|currentDuration|isRunning)$/.test(address)) return;
         sendOsc(address, Array.isArray(message.args) ? message.args : []);
       }
     } catch (error) { console.error("QLab WebSocket message error:", error.message); }

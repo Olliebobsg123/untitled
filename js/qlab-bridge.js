@@ -9,6 +9,7 @@ const QLAB_REPLY_PORT = Number(process.env.QLAB_REPLY_PORT || 53001);
 const QLAB_PASSWORD = String(process.env.QLAB_PASSWORD || "");
 const WS_PORT = Number(process.env.QLAB_WS_PORT || 8083);
 const POLL_MS = 250;
+const EMPTY_PLAYBACK_CONFIRMATIONS = 2;
 
 const udp = dgram.createSocket("udp4");
 const wss = new WebSocket.Server({ port: WS_PORT });
@@ -20,6 +21,7 @@ let timeTriggers = {};
 let firedTriggers = new Set();
 let pollTimer = null;
 let lastElapsed = null;
+let emptyPlaybackReplies = 0;
 let shuttingDown = false;
 
 function encodeString(value) {
@@ -127,10 +129,12 @@ function setActiveCue(number) {
       activeCueObject = null;
       firedTriggers.clear();
       lastElapsed = null;
+      emptyPlaybackReplies = 0;
       broadcast({ type: "qlab-cue-stop" });
     }
     return;
   }
+  emptyPlaybackReplies = 0;
   if (activeCue === n) return;
   activeCue = n;
   activeCueObject = findCue(n);
@@ -140,15 +144,8 @@ function setActiveCue(number) {
 }
 function processTime(elapsed) {
   if (!activeCue || !Number.isFinite(elapsed)) return;
-
-  // A backwards jump means the QLab playhead was scrubbed/restarted. Allow
-  // the configured lighting marks to fire again after the seek instead of
-  // leaving them permanently consumed from the previous pass.
-  if (lastElapsed !== null && elapsed < lastElapsed - 0.05) {
-    firedTriggers.clear();
-  }
+  if (lastElapsed !== null && elapsed < lastElapsed - 0.05) firedTriggers.clear();
   lastElapsed = elapsed;
-
   const triggers = Array.isArray(timeTriggers[activeCue]) ? timeTriggers[activeCue] : [];
   triggers.forEach((trigger, index) => {
     const at = Number(trigger?.time);
@@ -163,7 +160,13 @@ function handleReply(address, args) {
   if (address.endsWith("/cueLists")) return loadCues(data);
   if (address.endsWith("/playbackPosition")) {
     const n = cueNumber(data);
-    setActiveCue(n);
+    if (n) {
+      emptyPlaybackReplies = 0;
+      setActiveCue(n);
+    } else {
+      emptyPlaybackReplies += 1;
+      if (emptyPlaybackReplies >= EMPTY_PLAYBACK_CONFIRMATIONS) setActiveCue(null);
+    }
     if (activeCue) sendOsc(`/cue/${activeCue}/currentFileTime`);
     return;
   }
@@ -183,13 +186,7 @@ function handleUpdate(address) {
   if (String(address).includes("/update/workspace/")) syncCues();
 }
 function syncCues() { sendOsc("/cueLists"); }
-function pollQLab() {
-  if (shuttingDown) return;
-  // Keep the authoritative polling clock at exactly POLL_MS. We intentionally
-  // do not gate a new request on the previous UDP reply: a delayed reply must
-  // not silently turn a 250ms clock into a 1s clock.
-  sendOsc("/playbackPosition");
-}
+function pollQLab() { if (!shuttingDown) sendOsc("/playbackPosition"); }
 function subscribe() { sendOsc("/updates", 1); sendOsc("/alwaysReply", 1); syncCues(); }
 
 udp.on("message", message => {
@@ -209,7 +206,6 @@ wss.on("connection", ws => {
     if (cues.length) ws.send(JSON.stringify({ type: "qlab-cues", cues }));
     if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject }));
   }
-
   ws.on("message", raw => {
     try {
       const message = JSON.parse(raw.toString());

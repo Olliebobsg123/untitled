@@ -95,7 +95,7 @@ let r=0,g=0,b=0;
 if(h<1)[r,g]=[c,x];
 else if(h<2)[r,g]=[x,c];
 else if(h<3)[g,b]=[c,x];
-else if(h<4)[g,b]=[x,c];
+else if(h<4)[g,b]=[c,x];
 else if(h<5)[r,b]=[x,c];
 else[r,b]=[c,x];
 return[Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
@@ -167,7 +167,6 @@ initFixtureStates();
 const clamp255=v=>Math.max(0,Math.min(255,Math.round(Number(v)||0)));
 const clamp100=v=>Math.max(0,Math.min(100,Number(v)||0));
 const normaliseHue=h=>{h=Number(h);if(!Number.isFinite(h))h=0;h%=360;if(h<0)h+=360;return h;};
-const blackout=Boolean(State.blackout);
 
 function colourHSL(h,s,l){
 h=normaliseHue(h);s=clamp100(s)/100;l=clamp100(l)/100;
@@ -180,22 +179,21 @@ return[clamp255((r+m)*255),clamp255((g+m)*255),clamp255((b+m)*255)];
 }
 
 function colourWheelDMX(def,hue,sat){
-    const wheel=getColourWheel(def);
-    if(!wheel.length) return clamp255((normaliseHue(hue)/360)*255);
-    if(Number(sat)<5){
-        const white=wheel.find(s=>Array.isArray(s.rgb)&&s.rgb[0]===1&&s.rgb[1]===1&&s.rgb[2]===1);
-        if(white) return clamp255((white.min+white.max)/2);
-    }
-    const target=normaliseHue(hue);
-    let best=wheel[0], bestDist=Infinity;
-    wheel.forEach(s=>{
-        if(typeof s.hue==="undefined") return;
-        const slotH=normaliseHue(s.hue);
-        let d=Math.abs(target-slotH);
-        d=Math.min(d,360-d);
-        if(d<bestDist){bestDist=d; best=s;}
-    });
-    return clamp255((best.min+best.max)/2);
+const wheel=getColourWheel(def);
+if(!wheel.length)return clamp255((normaliseHue(hue)/360)*255);
+if(Number(sat)<5){
+const white=wheel.find(s=>Array.isArray(s.rgb)&&s.rgb[0]===1&&s.rgb[1]===1&&s.rgb[2]===1);
+if(white)return clamp255((white.min+white.max)/2);
+}
+const target=normaliseHue(hue);
+let best=wheel[0],bestDist=Infinity;
+wheel.forEach(s=>{
+if(typeof s.hue==="undefined")return;
+const slotH=normaliseHue(s.hue);
+let d=Math.abs(target-slotH);d=Math.min(d,360-d);
+if(d<bestDist){bestDist=d;best=s;}
+});
+return clamp255((best.min+best.max)/2);
 }
 
 function write(base,ch,v){if(!Number.isInteger(ch))return;const a=base+ch;if(a>=0&&a<512)State.dmx[a]=clamp255(v);}
@@ -205,35 +203,33 @@ if(!fixture)return;
 const def=getFixtureDefinition(fixture);if(!def)return;
 const map=def.map||{};const base=getFixtureBaseAddress(fixture);if(base<0)return;
 const saved=fixtureState(fixture.id)||State.current||{};
-
 const master=clamp100(saved.master??State.current?.master??100)/100;
 const intensity=clamp100(saved.intensity??100)/100;
-const level=blackout?0:master*intensity;
-
+const level=master*intensity;
 const hue=normaliseHue(saved.hue??0),sat=clamp100(saved.sat??100),light=clamp100(saved.light??50);
-
 if(typeof map.dimmer==="number")write(base,map.dimmer,255*level);
-
 const hasRGB=typeof map.r==="number"&&typeof map.g==="number"&&typeof map.b==="number";
 if(hasRGB){
-const rgb=blackout?[0,0,0]:colourHSL(hue,sat,light);
-write(base,map.r,rgb[0]*level);
-write(base,map.g,rgb[1]*level);
-write(base,map.b,rgb[2]*level);
-if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)*level);
-if(typeof map.amber==="number")write(base,map.amber,blackout?0:clamp255(saved.amber??0));
-if(typeof map.uv==="number")write(base,map.uv,blackout?0:clamp255(saved.uv??0));
+const rgb=colourHSL(hue,sat,light);
+write(base,map.r,rgb[0]*level);write(base,map.g,rgb[1]*level);write(base,map.b,rgb[2]*level);
+if(typeof map.w==="number")write(base,map.w,(saved.w??saved.white??0)*level);
+if(typeof map.amber==="number")write(base,map.amber,clamp255(saved.amber??0));
+if(typeof map.uv==="number")write(base,map.uv,clamp255(saved.uv??0));
 }else if(typeof map.colour==="number"){
-const wVal=blackout?0:colourWheelDMX(def,hue,sat);
-write(base,map.colour,wVal);
-if(typeof map.colourr==="number")write(base,map.colourr,blackout?0:clamp255(saved.colourr??0));
+write(base,map.colour,colourWheelDMX(def,hue,sat));
+if(typeof map.colourr==="number")write(base,map.colourr,clamp255(saved.colourr??0));
 }
-
 ["strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
-
 if(typeof map.pan==="number"){write(base,map.pan,saved.pan??128);if(typeof map.panf==="number")write(base,map.panf,saved.panf??0);}
 if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof map.tiltf==="number")write(base,map.tiltf,saved.tiltf??0);}
 });
+
+// BLACKOUT IS AN OUTPUT LOCK, NOT A FIXTURE-STATE CHANGE.
+// Build the programmed DMX normally, then zero the complete output frame.
+// This guarantees that changing colour, intensity, pan/tilt, gobo, etc.
+// while blackout is active can never re-energise a fixture.
+if(State.blackout)State.dmx.fill(0);
+
 ArtNet.send();
 }
 
@@ -264,35 +260,26 @@ const base=getFixtureBaseAddress(fx);if(!Number.isInteger(base)||base<0)return;
 const def=getFixtureDefinition(fx);if(!def||!def.map)return;
 const map=def.map;
 const read=k=>{const o=map[k];if(!Number.isInteger(o))return null;const i=base+o;if(i<0||i>=live.length)return null;const v=Number(live[i]);return Number.isFinite(v)?Math.max(0,Math.min(255,v)):null;};
-
 let dim=1;
 if(Number.isInteger(map.dimmer))dim=read("dimmer")/255;
 else if(Number.isInteger(map.intensity))dim=read("intensity")/255;
 dim=Math.max(0,Math.min(1,dim));
-
 let r=1,g=1,b=1;
 const hasRGB=Number.isInteger(map.r)&&Number.isInteger(map.g)&&Number.isInteger(map.b);
 const hasWheel=Number.isInteger(map.colour);
-
 if(hasRGB){
 r=read("r")/255;g=read("g")/255;b=read("b")/255;
 if(Number.isInteger(map.w)){const w=read("w")/255;r=Math.min(1,r+w);g=Math.min(1,g+w);b=Math.min(1,b+w);}
 }else if(hasWheel){
 const cVal=read("colour");const wheel=getColourWheel(def);const col=colourWheelToRGB(cVal,wheel);r=col[0];g=col[1];b=col[2];
 }
-
 r=Math.max(0,Math.min(1,Number(r)||0));g=Math.max(0,Math.min(1,Number(g)||0));b=Math.max(0,Math.min(1,Number(b)||0));
-
 if(fv.spot){
-  fv.spot.color.setRGB(r,g,b);
-  fv.spot.intensity=dim*8;
-  const zoomVal=read("zoom");
-  if(zoomVal!==null) fv.spot.angle=0.1 + (zoomVal/255)*1.05;
-  const focusVal=read("focus");
-  if(focusVal!==null) fv.spot.penumbra=0.25 + (focusVal/255)*0.65;
+fv.spot.color.setRGB(r,g,b);fv.spot.intensity=dim*8;
+const zoomVal=read("zoom");if(zoomVal!==null)fv.spot.angle=0.1+(zoomVal/255)*1.05;
+const focusVal=read("focus");if(focusVal!==null)fv.spot.penumbra=0.25+(focusVal/255)*0.65;
 }
 if(fv.bulb){const m=fv.bulb.material;if(m&&m.color)m.color.setRGB(r,g,b);if(m&&m.emissive)m.emissive.setRGB(r,g,b);if(m)m.emissiveIntensity=dim*5;}
-
 if(fv.group){
 if(Number.isInteger(map.pan)){let pan=read("pan");if(Number.isInteger(map.panf))pan=read("pan")*256+read("panf");const pan16=Number.isInteger(map.panf)?pan/65535:pan/255;fv.group.rotation.y=(pan16-.5)*Math.PI;}
 if(Number.isInteger(map.tilt)){let tilt=read("tilt");if(Number.isInteger(map.tiltf))tilt=read("tilt")*256+read("tiltf");const tilt16=Number.isInteger(map.tiltf)?tilt/65535:tilt/255;fv.group.rotation.x=(tilt16-.5)*Math.PI*.6;}
@@ -329,30 +316,26 @@ function installBlackoutGuard(){
 if(window.__blackoutGuardInstalled)return;
 window.__blackoutGuardInstalled=true;
 const originalParseCommand=window.parseCommand;
-if(typeof originalParseCommand==="function"){
+if(typeof originalParseCommand!=="function")return;
 window.parseCommand=function(command){
 const c=String(command??"").toLowerCase().trim();
-if(c==="blackout")State.blackout=true;
-else if(/^(full|all|all 25|all 50|all half|all 75)$/.test(c))State.blackout=false;
+if(c==="blackout"){
+if(State.fading){cancelAnimationFrame(State.fading);State.fading=null;}
+State.blackout=true;
+updateDMX();
+return typeof log==="function"?log("Blackout — output locked off", "ok"):true;
+}
+if(/^(full|all)$/.test(c))State.blackout=false;
 const result=originalParseCommand.apply(this,arguments);
 updateDMX();
 return result;
 };
 }
-document.addEventListener("click",event=>{
-const button=event.target?.closest?.("[data-action],[data-v]");
-if(!button)return;
-const action=String(button.dataset.action||"").toLowerCase();
-if(action==="blackout")State.blackout=true;
-if(action==="full")State.blackout=false;
-updateDMX();
-},true);
-}
-window.setBlackout=function(enabled){
-State.blackout=Boolean(enabled);
-updateDMX();
-return State.blackout;
-};
 
-window.testArtNet=()=>{State.dmx.fill(0);State.dmx.set([255,255,255,255],0);ArtNet.send();};
-document.addEventListener("DOMContentLoaded",()=>{console.log("DMX controller starting...");initFixtureStates();connectArtNet();installBlackoutGuard();});
+window.testArtNet=()=>{State.dmx.fill(0);ArtNet.send();};
+document.addEventListener("DOMContentLoaded",()=>{
+console.log("DMX controller starting...");
+initFixtureStates();
+connectArtNet();
+installBlackoutGuard();
+});

@@ -11,6 +11,7 @@ chases:Array.isArray(State.chases)?State.chases:[],
 fixtureStates:State.fixtureStates instanceof Map?State.fixtureStates:new Map(),
 selected:State.selected instanceof Set?State.selected:new Set(),
 groups:Array.isArray(State.groups)?State.groups:[],
+blackout:Boolean(State.blackout),
 current:{
 hue:0,sat:100,light:50,intensity:100,master:100,
 pan:128,tilt:128,strobe:0,gobo:0,gobo2:0,gobor:0,gobo2r:0,
@@ -166,6 +167,7 @@ initFixtureStates();
 const clamp255=v=>Math.max(0,Math.min(255,Math.round(Number(v)||0)));
 const clamp100=v=>Math.max(0,Math.min(100,Number(v)||0));
 const normaliseHue=h=>{h=Number(h);if(!Number.isFinite(h))h=0;h%=360;if(h<0)h+=360;return h;};
+const blackout=Boolean(State.blackout);
 
 function colourHSL(h,s,l){
 h=normaliseHue(h);s=clamp100(s)/100;l=clamp100(l)/100;
@@ -206,7 +208,7 @@ const saved=fixtureState(fixture.id)||State.current||{};
 
 const master=clamp100(saved.master??State.current?.master??100)/100;
 const intensity=clamp100(saved.intensity??100)/100;
-const level=master*intensity;
+const level=blackout?0:master*intensity;
 
 const hue=normaliseHue(saved.hue??0),sat=clamp100(saved.sat??100),light=clamp100(saved.light??50);
 
@@ -214,17 +216,17 @@ if(typeof map.dimmer==="number")write(base,map.dimmer,255*level);
 
 const hasRGB=typeof map.r==="number"&&typeof map.g==="number"&&typeof map.b==="number";
 if(hasRGB){
-const rgb=colourHSL(hue,sat,light);
+const rgb=blackout?[0,0,0]:colourHSL(hue,sat,light);
 write(base,map.r,rgb[0]*level);
 write(base,map.g,rgb[1]*level);
 write(base,map.b,rgb[2]*level);
-if(typeof map.w==="number")write(base,map.w,(saved.w??saved.white??0)*level);
-if(typeof map.amber==="number")write(base,map.amber,clamp255(saved.amber??0));
-if(typeof map.uv==="number")write(base,map.uv,clamp255(saved.uv??0));
+if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)*level);
+if(typeof map.amber==="number")write(base,map.amber,blackout?0:clamp255(saved.amber??0));
+if(typeof map.uv==="number")write(base,map.uv,blackout?0:clamp255(saved.uv??0));
 }else if(typeof map.colour==="number"){
-const wVal=colourWheelDMX(def,hue,sat);
+const wVal=blackout?0:colourWheelDMX(def,hue,sat);
 write(base,map.colour,wVal);
-if(typeof map.colourr==="number")write(base,map.colourr,clamp255(saved.colourr??0));
+if(typeof map.colourr==="number")write(base,map.colourr,blackout?0:clamp255(saved.colourr??0));
 }
 
 ["strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
@@ -284,11 +286,10 @@ r=Math.max(0,Math.min(1,Number(r)||0));g=Math.max(0,Math.min(1,Number(g)||0));b=
 if(fv.spot){
   fv.spot.color.setRGB(r,g,b);
   fv.spot.intensity=dim*8;
-  // ✅ RESTORED ZOOM & FOCUS read + pass to visualizer
   const zoomVal=read("zoom");
-  if(zoomVal!==null) fv.spot.angle=0.1 + (zoomVal/255)*1.05; // match viz range
+  if(zoomVal!==null) fv.spot.angle=0.1 + (zoomVal/255)*1.05;
   const focusVal=read("focus");
-  if(focusVal!==null) fv.spot.penumbra=0.25 + (focusVal/255)*0.65; // match viz range
+  if(focusVal!==null) fv.spot.penumbra=0.25 + (focusVal/255)*0.65;
 }
 if(fv.bulb){const m=fv.bulb.material;if(m&&m.color)m.color.setRGB(r,g,b);if(m&&m.emissive)m.emissive.setRGB(r,g,b);if(m)m.emissiveIntensity=dim*5;}
 
@@ -324,5 +325,34 @@ if(!slot||!Array.isArray(slot.rgb))return[1,1,1];
 return[Math.max(0,Math.min(1,Number(slot.rgb[0])||0)),Math.max(0,Math.min(1,Number(slot.rgb[1])||0)),Math.max(0,Math.min(1,Number(slot.rgb[2])||0))];
 }
 
+function installBlackoutGuard(){
+if(window.__blackoutGuardInstalled)return;
+window.__blackoutGuardInstalled=true;
+const originalParseCommand=window.parseCommand;
+if(typeof originalParseCommand==="function"){
+window.parseCommand=function(command){
+const c=String(command??"").toLowerCase().trim();
+if(c==="blackout")State.blackout=true;
+else if(/^(full|all|all 25|all 50|all half|all 75)$/.test(c))State.blackout=false;
+const result=originalParseCommand.apply(this,arguments);
+updateDMX();
+return result;
+};
+}
+document.addEventListener("click",event=>{
+const button=event.target?.closest?.("[data-action],[data-v]");
+if(!button)return;
+const action=String(button.dataset.action||"").toLowerCase();
+if(action==="blackout")State.blackout=true;
+if(action==="full")State.blackout=false;
+updateDMX();
+},true);
+}
+window.setBlackout=function(enabled){
+State.blackout=Boolean(enabled);
+updateDMX();
+return State.blackout;
+};
+
 window.testArtNet=()=>{State.dmx.fill(0);State.dmx.set([255,255,255,255],0);ArtNet.send();};
-document.addEventListener("DOMContentLoaded",()=>{console.log("DMX controller starting...");initFixtureStates();connectArtNet();});
+document.addEventListener("DOMContentLoaded",()=>{console.log("DMX controller starting...");initFixtureStates();connectArtNet();installBlackoutGuard();});

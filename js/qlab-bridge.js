@@ -9,7 +9,6 @@ const QLAB_REPLY_PORT = Number(process.env.QLAB_REPLY_PORT || 53001);
 const QLAB_PASSWORD = String(process.env.QLAB_PASSWORD || "");
 const WS_PORT = Number(process.env.QLAB_WS_PORT || 8083);
 const POLL_MS = 250;
-const POLL_TIMEOUT_MS = 1000;
 
 const udp = dgram.createSocket("udp4");
 const wss = new WebSocket.Server({ port: WS_PORT });
@@ -20,8 +19,8 @@ let activeCueObject = null;
 let timeTriggers = {};
 let firedTriggers = new Set();
 let pollTimer = null;
-let pollTimeout = null;
-let pollInFlight = false;
+let lastElapsed = null;
+let shuttingDown = false;
 
 function encodeString(value) {
   const raw = Buffer.from(`${value}\0`, "utf8");
@@ -67,6 +66,7 @@ function decodeOsc(buffer) {
   }
 }
 function sendOsc(address, args = []) {
+  if (shuttingDown) return;
   const values = Array.isArray(args) ? args : [args];
   const packet = encodeOsc(address, QLAB_PASSWORD ? [QLAB_PASSWORD, ...values] : values);
   udp.send(packet, 0, packet.length, QLAB_PORT, QLAB_IP, error => {
@@ -75,7 +75,10 @@ function sendOsc(address, args = []) {
 }
 function broadcast(message) {
   const payload = JSON.stringify(message);
-  for (const [ws] of clients) if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+  for (const [ws, client] of clients) {
+    if (!client.authenticated || ws.readyState !== WebSocket.OPEN) continue;
+    try { ws.send(payload); } catch (error) { console.error("QLab WebSocket send error:", error.message); }
+  }
 }
 function replyData(args) {
   let value = args?.[0];
@@ -120,7 +123,10 @@ function setActiveCue(number) {
   const n = cueNumber(number);
   if (!n) {
     if (activeCue !== null) {
-      activeCue = null; activeCueObject = null; firedTriggers.clear();
+      activeCue = null;
+      activeCueObject = null;
+      firedTriggers.clear();
+      lastElapsed = null;
       broadcast({ type: "qlab-cue-stop" });
     }
     return;
@@ -129,10 +135,20 @@ function setActiveCue(number) {
   activeCue = n;
   activeCueObject = findCue(n);
   firedTriggers.clear();
+  lastElapsed = null;
   broadcast({ type: "qlab-cue-start", cueNumber: n, cue: activeCueObject });
 }
 function processTime(elapsed) {
-  if (!activeCue) return;
+  if (!activeCue || !Number.isFinite(elapsed)) return;
+
+  // A backwards jump means the QLab playhead was scrubbed/restarted. Allow
+  // the configured lighting marks to fire again after the seek instead of
+  // leaving them permanently consumed from the previous pass.
+  if (lastElapsed !== null && elapsed < lastElapsed - 0.05) {
+    firedTriggers.clear();
+  }
+  lastElapsed = elapsed;
+
   const triggers = Array.isArray(timeTriggers[activeCue]) ? timeTriggers[activeCue] : [];
   triggers.forEach((trigger, index) => {
     const at = Number(trigger?.time);
@@ -142,15 +158,10 @@ function processTime(elapsed) {
     broadcast({ type: "qlab-lighting-trigger", cueNumber: activeCue, elapsed, triggerTime: at, lights: Array.isArray(trigger?.lights) ? trigger.lights : [], reason: `QLab ${activeCue} reached ${at}s` });
   });
 }
-function clearPoll() {
-  pollInFlight = false;
-  if (pollTimeout) { clearTimeout(pollTimeout); pollTimeout = null; }
-}
 function handleReply(address, args) {
   const data = replyData(args);
   if (address.endsWith("/cueLists")) return loadCues(data);
   if (address.endsWith("/playbackPosition")) {
-    clearPoll();
     const n = cueNumber(data);
     setActiveCue(n);
     if (activeCue) sendOsc(`/cue/${activeCue}/currentFileTime`);
@@ -173,15 +184,17 @@ function handleUpdate(address) {
 }
 function syncCues() { sendOsc("/cueLists"); }
 function pollQLab() {
-  if (pollInFlight) return;
-  pollInFlight = true;
+  if (shuttingDown) return;
+  // Keep the authoritative polling clock at exactly POLL_MS. We intentionally
+  // do not gate a new request on the previous UDP reply: a delayed reply must
+  // not silently turn a 250ms clock into a 1s clock.
   sendOsc("/playbackPosition");
-  pollTimeout = setTimeout(clearPoll, POLL_TIMEOUT_MS);
 }
 function subscribe() { sendOsc("/updates", 1); sendOsc("/alwaysReply", 1); syncCues(); }
 
 udp.on("message", message => {
   const osc = decodeOsc(message);
+  if (!osc.address) return;
   if (osc.address.startsWith("/reply/")) handleReply(osc.address, osc.args);
   else handleUpdate(osc.address);
 });
@@ -192,8 +205,10 @@ wss.on("connection", ws => {
   const client = { authenticated: !QLAB_PASSWORD };
   clients.set(ws, client);
   ws.send(JSON.stringify({ type: "status", connected: true, polling: POLL_MS, authenticated: client.authenticated }));
-  if (cues.length) ws.send(JSON.stringify({ type: "qlab-cues", cues }));
-  if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject }));
+  if (client.authenticated) {
+    if (cues.length) ws.send(JSON.stringify({ type: "qlab-cues", cues }));
+    if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject }));
+  }
 
   ws.on("message", raw => {
     try {
@@ -202,6 +217,10 @@ wss.on("connection", ws => {
         client.authenticated = !QLAB_PASSWORD || String(message.passcode || "") === QLAB_PASSWORD;
         ws.send(JSON.stringify({ type: "auth", authenticated: client.authenticated }));
         if (!client.authenticated) ws.close(1008, "Authentication failed");
+        else {
+          if (cues.length) ws.send(JSON.stringify({ type: "qlab-cues", cues }));
+          if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject }));
+        }
         return;
       }
       if (!client.authenticated) return;
@@ -211,18 +230,32 @@ wss.on("connection", ws => {
       if (message.type === "check-playhead") return pollQLab();
       if ((message.type === "osc" || message.address) && typeof message.address === "string") {
         const address = message.address;
-        // The bridge is the only polling clock. Ignore browser polling requests,
-        // including currentFileTime requests from older qlab.js versions.
         if (address === "/playbackPosition" || /\/cue\/[^/]+\/currentFileTime$/.test(address)) return;
         sendOsc(address, Array.isArray(message.args) ? message.args : []);
       }
     } catch (error) { console.error("QLab WebSocket message error:", error.message); }
   });
   ws.on("close", () => clients.delete(ws));
+  ws.on("error", error => console.error("QLab WebSocket client error:", error.message));
 });
 
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  for (const [ws] of clients) {
+    try { ws.close(1001, "Bridge shutting down"); } catch (_) {}
+  }
+  clients.clear();
+  try { wss.close(); } catch (_) {}
+  try { udp.close(); } catch (_) {}
+}
+
 udp.bind(QLAB_REPLY_PORT, QLAB_IP, () => {
+  if (shuttingDown) return;
   console.log(`QLab bridge listening on UDP ${QLAB_REPLY_PORT}; WebSocket ${WS_PORT}; polling ${POLL_MS}ms`);
   pollTimer = setInterval(pollQLab, POLL_MS);
   pollQLab();
 });
+
+module.exports = { shutdown };

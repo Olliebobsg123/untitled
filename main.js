@@ -1,33 +1,48 @@
 const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
 
-let mainWindow;
+let mainWindow = null;
 let servicesStarted = false;
-
-// ==========================================================
-// START SERVICES
-// ==========================================================
+let relayService = null;
+let qlabBridgeService = null;
+let shuttingDown = false;
 
 function startServices() {
   if (servicesStarted) return;
   servicesStarted = true;
 
   try {
-    require('./relay.js');
+    relayService = require('./relay.js');
+    console.log('✅ ART-NET relay service started');
   } catch (err) {
     console.error('❌ ART-NET relay failed:', err);
   }
 
   try {
-    require('./js/qlab-bridge.js');
+    qlabBridgeService = require('./js/qlab-bridge.js');
+    console.log('✅ QLab bridge service started');
   } catch (err) {
     console.error('❌ QLab bridge failed:', err);
   }
 }
 
-// ==========================================================
-// CREATE WINDOW
-// ==========================================================
+function stopServices() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  for (const [name, service] of [
+    ['Art-Net relay', relayService],
+    ['QLab bridge', qlabBridgeService]
+  ]) {
+    try {
+      if (service && typeof service.shutdown === 'function') {
+        service.shutdown();
+      }
+    } catch (err) {
+      console.error(`❌ ${name} shutdown failed:`, err);
+    }
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -37,8 +52,12 @@ function createWindow() {
     minHeight: 600,
     title: 'Lighting Console',
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      // Renderer code does not require Node.js APIs. Keep Node out of the
+      // renderer so a compromised UI/third-party page cannot access fs,
+      // child_process, or other privileged Electron APIs.
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
     }
   });
 
@@ -113,15 +132,6 @@ function createWindow() {
       console.error('❌ Visualiser performance patch failed:', err);
     });
 
-    // QLab's 250ms playback tracker calls renderCueSync() on every time
-    // update. The original renderer clears qlabSyncList.innerHTML and creates
-    // every cue row again, including the hovered GO button. That destroys the
-    // button under the mouse roughly four times per second and causes the
-    // visible hover flicker.
-    //
-    // Keep the original renderer for real cue-list/layout changes, but update
-    // playback state and elapsed time in the existing DOM when only the clock
-    // changed. This keeps the actual GO button node stable while hovered.
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__qlabStableCueRenderer) return;
@@ -162,10 +172,7 @@ function createWindow() {
             const q = getCueNumber(cue);
             if (!q) return;
             const row = box.children[rowIndex++];
-            if (row) {
-              row.dataset.qlabCueNumber = q;
-              row.dataset.qlabActiveTime = 'true';
-            }
+            if (row) row.dataset.qlabCueNumber = q;
           });
         };
 
@@ -225,13 +232,10 @@ function createWindow() {
         };
 
         window.__qlabStableCueRenderer = true;
-        console.log('🖥️ QLab stable cue renderer enabled — GO buttons will not be recreated during playback');
       })();
     `).catch(err => {
       console.error('❌ QLab stable cue renderer failed:', err);
     });
-
-    startServices();
   });
 
   mainWindow.on('closed', () => {
@@ -239,12 +243,9 @@ function createWindow() {
   });
 }
 
-// ==========================================================
-// ELECTRON READY
-// ==========================================================
-
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  startServices();
   createWindow();
 
   app.on('activate', () => {
@@ -254,12 +255,13 @@ app.whenReady().then(() => {
   });
 }).catch(err => {
   console.error('❌ Electron startup failed:', err);
+  stopServices();
   app.quit();
 });
 
-// ==========================================================
-// CLOSE APP
-// ==========================================================
+app.on('before-quit', () => {
+  stopServices();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

@@ -1,396 +1,228 @@
-// ============================================================
-// QLAB 5 ↔ LIGHTING BRIDGE
-// ============================================================
-// The bridge is the single source of truth for QLab polling.
-// It polls playbackPosition, then requests currentFileTime only
-// after that reply arrives. This prevents overlapping/duplicate
-// QLab queries which could make the UI update extremely quickly.
-// ============================================================
+"use strict";
 
 const WebSocket = require("ws");
 const dgram = require("dgram");
 
-const QLAB_IP = "127.0.0.1";
-const QLAB_PORT = 53000;
-const QLAB_REPLY_PORT = 53001;
-const QLAB_PASSWORD = "";
-const WS_PORT = 8083;
+const QLAB_IP = process.env.QLAB_IP || "127.0.0.1";
+const QLAB_PORT = Number(process.env.QLAB_PORT || 53000);
+const QLAB_REPLY_PORT = Number(process.env.QLAB_REPLY_PORT || 53001);
+const QLAB_PASSWORD = String(process.env.QLAB_PASSWORD || "");
+const WS_PORT = Number(process.env.QLAB_WS_PORT || 8083);
 const POLL_MS = 250;
 const POLL_TIMEOUT_MS = 1000;
 
 const udp = dgram.createSocket("udp4");
 const wss = new WebSocket.Server({ port: WS_PORT });
-const clients = new Set();
-
+const clients = new Map();
 let cues = [];
 let activeCue = null;
 let activeCueObject = null;
-let activeCueType = "";
 let timeTriggers = {};
 let firedTriggers = new Set();
 let pollTimer = null;
-let pollTimeoutTimer = null;
+let pollTimeout = null;
 let pollInFlight = false;
 
 function encodeString(value) {
   const raw = Buffer.from(`${value}\0`, "utf8");
-  const padding = (4 - (raw.length % 4)) % 4;
-  return Buffer.concat([raw, Buffer.alloc(padding)]);
+  return Buffer.concat([raw, Buffer.alloc((4 - raw.length % 4) % 4)]);
 }
-
-function getTypeTag(value) {
-  if (typeof value === "boolean") return value ? "T" : "F";
-  if (Number.isInteger(value)) return "i";
-  if (typeof value === "number") return "f";
-  return "s";
+function tag(v) { return typeof v === "boolean" ? (v ? "T" : "F") : Number.isInteger(v) ? "i" : typeof v === "number" ? "f" : "s"; }
+function arg(v) {
+  if (typeof v === "boolean") return Buffer.alloc(0);
+  if (Number.isInteger(v)) { const b = Buffer.alloc(4); b.writeInt32BE(v); return b; }
+  if (typeof v === "number") { const b = Buffer.alloc(4); b.writeFloatBE(v); return b; }
+  return encodeString(String(v));
 }
-
-function encodeArgument(value) {
-  if (typeof value === "boolean") return Buffer.alloc(0);
-  if (Number.isInteger(value)) {
-    const buf = Buffer.alloc(4);
-    buf.writeInt32BE(value);
-    return buf;
-  }
-  if (typeof value === "number") {
-    const buf = Buffer.alloc(4);
-    buf.writeFloatBE(value);
-    return buf;
-  }
-  return encodeString(String(value));
-}
-
 function encodeOsc(address, args = []) {
-  const safeArgs = Array.isArray(args) ? args : [args];
-  const tags = safeArgs.map(getTypeTag).join("");
-  return Buffer.concat([
-    encodeString(address),
-    encodeString(`,${tags}`),
-    ...safeArgs.map(encodeArgument)
-  ]);
+  const a = Array.isArray(args) ? args : [args];
+  return Buffer.concat([encodeString(address), encodeString(`,${a.map(tag).join("")}`), ...a.map(arg)]);
 }
-
-function decodeOscString(buffer, offset) {
+function decodeString(buffer, offset) {
   let end = offset;
   while (end < buffer.length && buffer[end] !== 0) end++;
-  if (end >= buffer.length) throw new Error("Unterminated OSC string");
-  const value = buffer.toString("utf8", offset, end);
-  const nextOffset = end + 1 + ((4 - ((end + 1) % 4)) % 4);
-  if (nextOffset > buffer.length) throw new Error("Truncated OSC string padding");
-  return { value, nextOffset };
+  if (end >= buffer.length) throw new Error("Invalid OSC string");
+  const next = end + 1 + ((4 - ((end + 1) % 4)) % 4);
+  if (next > buffer.length) throw new Error("Truncated OSC packet");
+  return { value: buffer.toString("utf8", offset, end), next };
 }
-
 function decodeOsc(buffer) {
   try {
-    const address = decodeOscString(buffer, 0);
-    const tags = decodeOscString(buffer, address.nextOffset);
+    const address = decodeString(buffer, 0);
+    const types = decodeString(buffer, address.next);
     const args = [];
-    let offset = tags.nextOffset;
-
-    if (!tags.value.startsWith(",")) return { address: address.value, args };
-
-    for (const tag of tags.value.slice(1)) {
-      if (tag === "s") {
-        const value = decodeOscString(buffer, offset);
-        args.push(value.value);
-        offset = value.nextOffset;
-      } else if (tag === "i") {
-        if (offset + 4 > buffer.length) break;
-        args.push(buffer.readInt32BE(offset));
-        offset += 4;
-      } else if (tag === "f") {
-        if (offset + 4 > buffer.length) break;
-        args.push(buffer.readFloatBE(offset));
-        offset += 4;
-      } else if (tag === "T") args.push(true);
-      else if (tag === "F") args.push(false);
-      else if (tag === "N") args.push(null);
+    let offset = types.next;
+    for (const t of types.value.startsWith(",") ? types.value.slice(1) : "") {
+      if (t === "s") { const v = decodeString(buffer, offset); args.push(v.value); offset = v.next; }
+      else if (t === "i" && offset + 4 <= buffer.length) { args.push(buffer.readInt32BE(offset)); offset += 4; }
+      else if (t === "f" && offset + 4 <= buffer.length) { args.push(buffer.readFloatBE(offset)); offset += 4; }
+      else if (t === "T") args.push(true);
+      else if (t === "F") args.push(false);
+      else if (t === "N") args.push(null);
     }
-
     return { address: address.value, args };
   } catch (error) {
-    console.error("❌ OSC decode error:", error.message);
+    console.error("QLab OSC decode error:", error.message);
     return { address: "", args: [] };
   }
 }
-
 function sendOsc(address, args = []) {
-  let safeArgs = Array.isArray(args) ? args : [args];
-  if (QLAB_PASSWORD) safeArgs = [QLAB_PASSWORD, ...safeArgs];
-
-  const packet = encodeOsc(address, safeArgs);
+  const values = Array.isArray(args) ? args : [args];
+  const packet = encodeOsc(address, QLAB_PASSWORD ? [QLAB_PASSWORD, ...values] : values);
   udp.send(packet, 0, packet.length, QLAB_PORT, QLAB_IP, error => {
-    if (error) console.error("❌ QLab UDP send error:", error.message);
+    if (error) console.error("QLab UDP send error:", error.message);
   });
 }
-
 function broadcast(message) {
   const payload = JSON.stringify(message);
-  for (const ws of clients) {
-    if (ws.readyState !== WebSocket.OPEN) continue;
-    try { ws.send(payload); } catch (error) {
-      console.error("WebSocket send error:", error.message);
-    }
-  }
+  for (const [ws] of clients) if (ws.readyState === WebSocket.OPEN) ws.send(payload);
 }
-
-function parseQLabReply(address, args) {
-  if (!String(address).startsWith("/reply/") || !Array.isArray(args) || !args.length) return null;
-  let value = args[0];
-  if (typeof value === "string") {
-    try { value = JSON.parse(value); }
-    catch { return { status: "ok", data: value }; }
-  }
-  if (value && typeof value === "object") return value;
-  return { status: "ok", data: value };
+function replyData(args) {
+  let value = args?.[0];
+  if (typeof value === "string") { try { value = JSON.parse(value); } catch (_) {} }
+  if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "data")) return value.data;
+  return value;
 }
-
-function extractReplyData(value) {
+function cueNumber(value) {
   if (value === null || value === undefined) return null;
-  if (typeof value !== "object") return value;
-  return Object.prototype.hasOwnProperty.call(value, "data") ? value.data : value;
-}
-
-function extractCueNumber(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
   if (typeof value === "string") {
-    const text = value.trim();
-    if (!text || ["none", "null", "undefined", "false"].includes(text.toLowerCase())) return null;
-    return text;
+    const s = value.trim();
+    return s && !["none", "null", "undefined", "false"].includes(s.toLowerCase()) ? s : null;
   }
   if (typeof value === "object") {
-    for (const candidate of [value.number, value.cueNumber, value.cue, value.playbackPosition, value.id, value.data]) {
-      const result = extractCueNumber(candidate);
+    for (const key of ["number", "cueNumber", "cue", "playbackPosition", "id", "data"]) {
+      const result = cueNumber(value[key]);
       if (result !== null) return result;
     }
   }
   return null;
 }
-
-function findCue(number) {
-  const wanted = String(number);
-  return cues.find(cue => String(cue?.number ?? cue?.cueNumber ?? "") === wanted);
-}
-
-function flattenCues(items, output = []) {
-  if (!Array.isArray(items)) return output;
+function flatten(items, out = []) {
+  if (!Array.isArray(items)) return out;
   for (const cue of items) {
     if (!cue) continue;
-    output.push(cue);
-    if (Array.isArray(cue.cues)) flattenCues(cue.cues, output);
+    out.push(cue);
+    if (Array.isArray(cue.cues)) flatten(cue.cues, out);
   }
-  return output;
+  return out;
 }
-
 function loadCues(data) {
-  let list = [];
-  if (Array.isArray(data)) list = data;
-  else if (data && Array.isArray(data.cues)) list = data.cues;
-  else if (data && Array.isArray(data.cueLists)) list = data.cueLists;
-  else if (data && data.data) return loadCues(data.data);
-
-  cues = flattenCues(list);
-  console.log(`🎼 Loaded ${cues.length} QLab cues`);
+  if (data?.data) return loadCues(data.data);
+  const list = Array.isArray(data) ? data : Array.isArray(data?.cues) ? data.cues : Array.isArray(data?.cueLists) ? data.cueLists : [];
+  cues = flatten(list);
   broadcast({ type: "qlab-cues", cues });
 }
-
+function findCue(number) {
+  return cues.find(c => String(c?.number ?? c?.cueNumber ?? "") === String(number)) || null;
+}
 function setActiveCue(number) {
-  const empty = number === null || number === undefined || String(number).trim() === "" ||
-    ["none", "null", "undefined", "false"].includes(String(number).trim().toLowerCase());
-
-  if (empty) {
+  const n = cueNumber(number);
+  if (!n) {
     if (activeCue !== null) {
-      activeCue = null;
-      activeCueObject = null;
-      activeCueType = "";
-      firedTriggers.clear();
+      activeCue = null; activeCueObject = null; firedTriggers.clear();
       broadcast({ type: "qlab-cue-stop" });
     }
     return;
   }
-
-  const newCue = String(number).trim();
-  if (!newCue || activeCue === newCue) return;
-
-  activeCue = newCue;
-  activeCueObject = findCue(newCue);
-  activeCueType = String(activeCueObject?.type ?? activeCueObject?.cueType ?? "").toLowerCase();
+  if (activeCue === n) return;
+  activeCue = n;
+  activeCueObject = findCue(n);
   firedTriggers.clear();
-
-  broadcast({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject || null });
+  broadcast({ type: "qlab-cue-start", cueNumber: n, cue: activeCueObject });
 }
-
-function processTime(cueNumber, elapsed) {
-  const q = String(cueNumber);
-  const triggers = timeTriggers[q] || [];
-
-  for (let i = 0; i < triggers.length; i++) {
-    const trigger = triggers[i];
-    const triggerTime = Number(trigger?.time);
-    if (!Number.isFinite(triggerTime)) continue;
-
-    const key = `${q}:${i}`;
-    if (elapsed < triggerTime || firedTriggers.has(key)) continue;
-
+function processTime(elapsed) {
+  if (!activeCue) return;
+  const triggers = Array.isArray(timeTriggers[activeCue]) ? timeTriggers[activeCue] : [];
+  triggers.forEach((trigger, index) => {
+    const at = Number(trigger?.time);
+    const key = `${activeCue}:${index}`;
+    if (!Number.isFinite(at) || elapsed < at || firedTriggers.has(key)) return;
     firedTriggers.add(key);
-    const lights = Array.isArray(trigger?.lights) ? trigger.lights : [];
-    broadcast({
-      type: "qlab-lighting-trigger",
-      cueNumber: q,
-      elapsed,
-      triggerTime,
-      lights,
-      reason: `QLab ${q} reached ${triggerTime}s`
-    });
-  }
+    broadcast({ type: "qlab-lighting-trigger", cueNumber: activeCue, elapsed, triggerTime: at, lights: Array.isArray(trigger?.lights) ? trigger.lights : [], reason: `QLab ${activeCue} reached ${at}s` });
+  });
 }
-
-function clearPollInFlight() {
+function clearPoll() {
   pollInFlight = false;
-  if (pollTimeoutTimer) {
-    clearTimeout(pollTimeoutTimer);
-    pollTimeoutTimer = null;
-  }
+  if (pollTimeout) { clearTimeout(pollTimeout); pollTimeout = null; }
 }
-
-function handleQLabReply(address, reply) {
-  if (reply && reply.status && reply.status !== "ok") {
-    console.error("❌ QLab returned error:", reply);
-    if (address.endsWith("/playbackPosition")) clearPollInFlight();
-    return;
-  }
-
-  const data = extractReplyData(reply);
-
-  if (address.endsWith("/cueLists")) {
-    loadCues(data);
-    return;
-  }
-
+function handleReply(address, args) {
+  const data = replyData(args);
+  if (address.endsWith("/cueLists")) return loadCues(data);
   if (address.endsWith("/playbackPosition")) {
-    // One request chain: playbackPosition -> currentFileTime.
-    clearPollInFlight();
-
-    const cueNumber = extractCueNumber(data);
-    if (cueNumber === null) {
-      if (activeCue !== null) setActiveCue(null);
-      return;
-    }
-
-    setActiveCue(cueNumber);
-    if (activeCue) sendOsc(`/cue/${String(activeCue).trim()}/currentFileTime`);
+    clearPoll();
+    const n = cueNumber(data);
+    setActiveCue(n);
+    if (activeCue) sendOsc(`/cue/${activeCue}/currentFileTime`);
     return;
   }
-
-  if (address.endsWith("/currentFileTime")) {
-    if (!activeCue) return;
+  if (address.endsWith("/currentFileTime") && activeCue) {
     const elapsed = Number(data);
-    if (!Number.isFinite(elapsed)) return;
-
-    processTime(activeCue, elapsed);
-    broadcast({ type: "qlab-time", cueNumber: activeCue, elapsed });
+    if (Number.isFinite(elapsed)) {
+      processTime(elapsed);
+      broadcast({ type: "qlab-time", cueNumber: activeCue, elapsed });
+    }
   }
 }
-
-function handleQLabUpdate(address) {
-  const startMatch = String(address).match(/^\/cue\/([^/]+)\/start$/);
-  if (startMatch) {
-    setActiveCue(startMatch[1]);
-    return;
-  }
-
-  const stopMatch = String(address).match(/^\/cue\/([^/]+)\/stop$/);
-  if (stopMatch && activeCue === String(stopMatch[1])) setActiveCue(null);
+function handleUpdate(address) {
+  const start = String(address).match(/^\/cue\/([^/]+)\/start$/);
+  if (start) return setActiveCue(start[1]);
+  const stop = String(address).match(/^\/cue\/([^/]+)\/stop$/);
+  if (stop && String(stop[1]) === String(activeCue)) return setActiveCue(null);
   if (String(address).includes("/update/workspace/")) syncCues();
 }
-
-udp.on("message", msg => {
-  const osc = decodeOsc(msg);
-  if (String(osc.address).startsWith("/reply/")) {
-    const reply = parseQLabReply(osc.address, osc.args);
-    if (reply) handleQLabReply(osc.address, reply);
-    return;
-  }
-  handleQLabUpdate(osc.address);
-});
-
-function syncCues() {
-  sendOsc("/cueLists");
-}
-
-function subscribeToQLab() {
-  sendOsc("/updates", 1);
-  sendOsc("/alwaysReply", 1);
-  syncCues();
-}
-
+function syncCues() { sendOsc("/cueLists"); }
 function pollQLab() {
-  // Never queue another playbackPosition request while one is waiting.
   if (pollInFlight) return;
   pollInFlight = true;
   sendOsc("/playbackPosition");
-
-  // UDP is connectionless. If QLab is unavailable, the reply may never
-  // arrive, so the old in-flight guard must eventually release itself.
-  pollTimeoutTimer = setTimeout(() => {
-    pollInFlight = false;
-    pollTimeoutTimer = null;
-  }, POLL_TIMEOUT_MS);
+  pollTimeout = setTimeout(clearPoll, POLL_TIMEOUT_MS);
 }
+function subscribe() { sendOsc("/updates", 1); sendOsc("/alwaysReply", 1); syncCues(); }
 
-function startDurationWatcher() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(pollQLab, POLL_MS);
-  pollQLab();
-}
+udp.on("message", message => {
+  const osc = decodeOsc(message);
+  if (osc.address.startsWith("/reply/")) handleReply(osc.address, osc.args);
+  else handleUpdate(osc.address);
+});
+udp.on("error", error => console.error("QLab UDP error:", error.message));
+wss.on("error", error => console.error("QLab WebSocket error:", error.message));
 
 wss.on("connection", ws => {
-  clients.add(ws);
-
-  ws.send(JSON.stringify({ type: "status", connected: true, polling: POLL_MS }));
+  const client = { authenticated: !QLAB_PASSWORD };
+  clients.set(ws, client);
+  ws.send(JSON.stringify({ type: "status", connected: true, polling: POLL_MS, authenticated: client.authenticated }));
   if (cues.length) ws.send(JSON.stringify({ type: "qlab-cues", cues }));
-  if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject || null }));
+  if (activeCue) ws.send(JSON.stringify({ type: "qlab-cue-start", cueNumber: activeCue, cue: activeCueObject }));
 
   ws.on("message", raw => {
     try {
       const message = JSON.parse(raw.toString());
-
-      if (message.type === "subscribe") return subscribeToQLab();
+      if (message.type === "auth") {
+        client.authenticated = !QLAB_PASSWORD || String(message.passcode || "") === QLAB_PASSWORD;
+        ws.send(JSON.stringify({ type: "auth", authenticated: client.authenticated }));
+        if (!client.authenticated) ws.close(1008, "Authentication failed");
+        return;
+      }
+      if (!client.authenticated) return;
+      if (message.type === "subscribe") return subscribe();
       if (message.type === "sync-cues") return syncCues();
+      if (message.type === "set-time-triggers") { timeTriggers = message.triggers && typeof message.triggers === "object" ? message.triggers : {}; firedTriggers.clear(); return; }
       if (message.type === "check-playhead") return pollQLab();
-
-      if (message.type === "set-time-triggers") {
-        timeTriggers = message.triggers && typeof message.triggers === "object" ? message.triggers : {};
-        firedTriggers.clear();
-        return;
+      if ((message.type === "osc" || message.address) && typeof message.address === "string") {
+        const address = message.address;
+        // The bridge is the only polling clock. Ignore browser polling requests,
+        // including currentFileTime requests from older qlab.js versions.
+        if (address === "/playbackPosition" || /\/cue\/[^/]+\/currentFileTime$/.test(address)) return;
+        sendOsc(address, Array.isArray(message.args) ? message.args : []);
       }
-
-      if (message.type === "osc" && typeof message.address === "string") {
-        // qlab.js may still send its old polling request. Ignore it because
-        // the bridge now owns the polling loop.
-        if (message.address === "/playbackPosition") return;
-        sendOsc(message.address, Array.isArray(message.args) ? message.args : []);
-        return;
-      }
-
-      if (typeof message.address === "string") {
-        if (message.address === "/playbackPosition") return;
-        sendOsc(message.address, Array.isArray(message.args) ? message.args : []);
-      }
-    } catch (error) {
-      console.error("❌ WebSocket message error:", error);
-    }
+    } catch (error) { console.error("QLab WebSocket message error:", error.message); }
   });
-
   ws.on("close", () => clients.delete(ws));
 });
 
-udp.on("error", error => console.error("❌ UDP ERROR:", error.message));
-wss.on("error", error => console.error("❌ WEBSOCKET ERROR:", error.message));
-
 udp.bind(QLAB_REPLY_PORT, QLAB_IP, () => {
-  console.log(`✅ UDP LISTENING ON ${QLAB_REPLY_PORT}`);
-  console.log(`⏱ ${POLL_MS}ms QLAB POLLING STARTING`);
-  startDurationWatcher();
+  console.log(`QLab bridge listening on UDP ${QLAB_REPLY_PORT}; WebSocket ${WS_PORT}; polling ${POLL_MS}ms`);
+  pollTimer = setInterval(pollQLab, POLL_MS);
+  pollQLab();
 });

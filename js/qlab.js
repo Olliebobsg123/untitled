@@ -4,15 +4,10 @@
    Stable QLab client with:
    • configurable IP / bridge port / passcode
    • localStorage settings and lighting links
-   • automatic cue detection and currentFileTime tracking
+   • automatic cue detection, elapsed time and duration tracking
    • timed and immediate lighting triggers
    • automatic reconnect
    • lighting-console -> QLab GO
-
-   IMPORTANT UI FIX:
-   The cue list is no longer rebuilt every 250ms. Only the
-   elapsed-time text is patched during playback, which prevents
-   the QLab page/buttons from flashing or losing hover/focus.
    ============================================================ */
 
 window.QLab = {
@@ -28,6 +23,9 @@ window.QLab = {
   cues: [],
   activeCue: null,
   activeElapsed: 0,
+  activeDuration: null,
+  activeRemaining: null,
+  activePercent: null,
   workspaceId: null,
 
   cueLinks: {},
@@ -69,7 +67,7 @@ window.QLab = {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
+      .replace(/\"/g, "&quot;")
       .replace(/'/g, "&#039;");
   },
 
@@ -251,19 +249,22 @@ window.QLab = {
 
   pollQLab() {
     if (!this.connected) return;
-    // The bridge owns playback polling. This legacy client watcher is
-    // intentionally disabled to prevent a second polling loop.
   },
 
   requestCurrentTime() {
     if (!this.connected || !this.activeCue) return;
     const cue = String(this.activeCue).trim();
-    if (cue) this.command(`/cue/${cue}/currentFileTime`);
+    if (cue) {
+      this.command(`/cue/${cue}/currentFileTime`);
+      this.command(`/cue/${cue}/currentDuration`);
+      this.command(`/cue/${cue}/isRunning`);
+    }
   },
 
   handleMessage(message) {
     if (!message) return;
-    if (message.type === "qlab-time") return this.handleCurrentTime(message.cueNumber, message.elapsed);
+    if (message.type === "qlab-time") return this.handleCurrentTime(message.cueNumber, message.elapsed, message.duration, message.remaining, message.percent, message.ended);
+    if (message.type === "qlab-duration") return this.handleDuration(message.cueNumber, message.duration);
     if (message.type === "qlab-lighting-trigger") {
       (Array.isArray(message.lights) ? message.lights : []).forEach(light =>
         this.fireLightingCue(light, `QLab ${message.cueNumber} reached ${message.triggerTime}s`)
@@ -275,7 +276,11 @@ window.QLab = {
     if (message.type === "qlab-cues") return this.loadCues(message.cues);
     if (message.type === "qlab-cue-start") {
       const cue = this.resolveCueNumber(message.cueNumber ?? message.number ?? message.cue);
-      if (cue) this.startAudio(cue);
+      if (cue) {
+        this.activeDuration = Number(message.duration);
+        if (!Number.isFinite(this.activeDuration) || this.activeDuration <= 0) this.activeDuration = Number(message.cue?.duration) || null;
+        this.startAudio(cue);
+      }
       return;
     }
     if (message.type === "qlab-cue-stop") { this.resetTracking(); return; }
@@ -297,10 +302,10 @@ window.QLab = {
       return;
     }
 
-    match = address.match(/\/cue\/([^/]+)\/actionElapsed$/);
+    match = address.match(/\/cue\/([^/]+)\/currentDuration$/);
     if (match) {
-      const elapsed = this.extractNumber(args);
-      if (elapsed !== null) this.handleCurrentTime(this.cleanCueIdentifier(match[1]), elapsed);
+      const duration = this.extractNumber(args);
+      if (duration !== null) this.handleDuration(this.cleanCueIdentifier(match[1]), duration);
       return;
     }
 
@@ -352,18 +357,30 @@ window.QLab = {
       this.firedTriggers.clear();
       this.renderCueSync();
 
-      // Immediate lighting links fire once when a new QLab cue becomes active.
-      // Timed links are owned by the bridge, which emits qlab-lighting-trigger.
       (Array.isArray(this.cueLinks[cueNumber]) ? this.cueLinks[cueNumber] : []).forEach(light => {
         this.fireLightingCue(light, `QLab ${cueNumber} started`);
       });
 
-      if (typeof log === "function") log(`🎵 QLab Audio Cue ${cueNumber} started`);
+      if (typeof log === "function") log(`🎵 QLab Audio Cue ${cueNumber} started${this.activeDuration ? ` — ${this.formatTime(this.activeDuration)} duration` : ""}`);
     }
     this.requestCurrentTime();
   },
 
-  handleCurrentTime(cueNumber, elapsed) {
+  handleDuration(cueNumber, duration) {
+    cueNumber = String(cueNumber ?? "").trim();
+    duration = Number(duration);
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const resolved = this.resolveCueNumber(cueNumber);
+    if (resolved) cueNumber = resolved;
+    if (this.activeCue && String(cueNumber) !== String(this.activeCue)) return;
+    this.activeCue = cueNumber;
+    this.activeDuration = duration;
+    this.activeRemaining = this.activeElapsed >= 0 ? Math.max(0, duration - this.activeElapsed) : duration;
+    this.activePercent = this.activeElapsed >= 0 ? Math.min(100, Math.max(0, (this.activeElapsed / duration) * 100)) : 0;
+    this.updateCueSyncTime();
+  },
+
+  handleCurrentTime(cueNumber, elapsed, duration = null, remaining = null, percent = null, ended = false) {
     cueNumber = String(cueNumber ?? "").trim();
     elapsed = Number(elapsed);
     if (!Number.isFinite(elapsed)) return;
@@ -373,19 +390,24 @@ window.QLab = {
     if (!this.activeCue) this.startAudio(cueNumber);
     if (this.activeCue && String(cueNumber) !== String(this.activeCue)) return;
 
+    if (duration !== null && Number.isFinite(Number(duration)) && Number(duration) > 0) this.activeDuration = Number(duration);
     if (this.lastElapsed >= 0 && elapsed < this.lastElapsed - 0.25) this.firedTriggers.clear();
 
     this.activeCue = cueNumber;
     this.activeElapsed = elapsed;
     this.lastElapsed = elapsed;
+    this.activeRemaining = this.activeDuration === null ? (remaining === null ? null : Number(remaining)) : Math.max(0, this.activeDuration - elapsed);
+    this.activePercent = this.activeDuration === null ? (percent === null ? null : Number(percent)) : Math.min(100, Math.max(0, (elapsed / this.activeDuration) * 100));
 
-    // Timed lighting is deliberately NOT checked here. The bridge owns the
-    // timed trigger clock so each configured lighting cue fires exactly once.
     this.updateCueSyncTime();
+
+    if (ended) {
+      this.resetTracking();
+      if (typeof log === "function") log(`🎵 QLab Audio Cue ${cueNumber} finished — lighting timeline stopped`);
+    }
   },
 
   checkTimedLighting(cueNumber, elapsed) {
-    // Kept for compatibility with older callers. The bridge is authoritative.
     return undefined;
   },
 
@@ -409,7 +431,7 @@ window.QLab = {
         } catch (_) {}
       }
       if (value && typeof value === "object") {
-        for (const candidate of [value.data, value.value, value.elapsed, value.currentFileTime, value.actionElapsed, value.time]) {
+        for (const candidate of [value.data, value.value, value.elapsed, value.currentFileTime, value.currentDuration, value.actionElapsed, value.time, value.duration]) {
           const n = Number(candidate);
           if (Number.isFinite(n)) return n;
         }
@@ -509,221 +531,22 @@ window.QLab = {
   resetTracking() {
     this.activeCue = null;
     this.activeElapsed = 0;
+    this.activeDuration = null;
+    this.activeRemaining = null;
+    this.activePercent = null;
     this.lastCue = null;
     this.lastElapsed = -1;
     this.firedTriggers.clear();
     this.renderCueSync();
   },
 
+  formatTime(seconds) {
+    const n = Math.max(0, Number(seconds) || 0);
+    const m = Math.floor(n / 60);
+    const s = Math.floor(n % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  },
+
   sendTimeTriggers() {
     return this.send({ type: "set-time-triggers", triggers: this.timeTriggers });
   },
-
-  addTimeTrigger(q) {
-    q = String(q);
-    if (!this.timeTriggers[q]) this.timeTriggers[q] = [];
-    this.timeTriggers[q].push({ time: 5, lights: [] });
-    this.saveAllLinks();
-  },
-
-  removeTimeTrigger(q, index) {
-    q = String(q);
-    if (!this.timeTriggers[q]) return;
-    this.timeTriggers[q].splice(index, 1);
-    if (!this.timeTriggers[q].length) delete this.timeTriggers[q];
-    this.firedTriggers.clear();
-    this.saveStoredLinks();
-    this.sendTimeTriggers();
-    this.renderLinkEditor();
-    this.renderCueSync();
-  },
-
-  saveAllLinks() {
-    document.querySelectorAll("#linkEditorList [data-immediate]").forEach(input => {
-      const q = input.dataset.immediate;
-      const numbers = input.value.split(",").map(x => parseInt(x.trim(), 10)).filter(Number.isInteger);
-      if (numbers.length) this.cueLinks[q] = numbers;
-      else delete this.cueLinks[q];
-    });
-
-    const next = {};
-    document.querySelectorAll("#linkEditorList [data-time]").forEach(input => {
-      const q = input.dataset.time;
-      const index = Number(input.dataset.index);
-      const lightInput = document.querySelector(`#linkEditorList [data-light="${CSS.escape(q)}"][data-index="${index}"]`);
-      const time = Number(input.value);
-      const light = Number(lightInput?.value);
-      if (!Number.isFinite(time) || time < 0 || !Number.isInteger(light) || light < 1) return;
-      if (!next[q]) next[q] = [];
-      next[q].push({ time, lights: [light] });
-    });
-
-    Object.keys(next).forEach(q => next[q].sort((a, b) => Number(a.time) - Number(b.time)));
-    this.timeTriggers = next;
-    this.saveStoredLinks();
-    this.firedTriggers.clear();
-    this.sendTimeTriggers();
-    this.renderLinkEditor();
-    this.renderCueSync();
-  },
-
-  saveStoredLinks() {
-    localStorage.setItem("qlabCueLinks", JSON.stringify(this.cueLinks));
-    localStorage.setItem("qlabTimeTriggers", JSON.stringify(this.timeTriggers));
-  },
-
-  clearAllLinks() {
-    this.cueLinks = {};
-    this.timeTriggers = {};
-    this.firedTriggers.clear();
-    localStorage.removeItem("qlabCueLinks");
-    localStorage.removeItem("qlabTimeTriggers");
-    this.sendTimeTriggers();
-    this.renderLinkEditor();
-    this.renderCueSync();
-  },
-
-  addNewLinkRow() {
-    const q = prompt("QLab audio cue number:");
-    if (q === null || !String(q).trim()) return;
-    const number = String(q).trim();
-    if (!this.cues.some(cue => String(cue.number ?? cue.cueNumber ?? "") === number)) {
-      this.cues.push({ number, name: "Audio Cue", type: "audio" });
-    }
-    this.renderLinkEditor();
-  },
-
-  renderLinkEditor() {
-    const box = document.getElementById("linkEditorList");
-    if (!box) return;
-    box.innerHTML = "";
-
-    this.cues.forEach(cue => {
-      const q = String(cue.number ?? cue.cueNumber ?? "").trim();
-      if (!q) return;
-      const row = document.createElement("div");
-      row.className = "link-panel";
-      row.innerHTML = `
-        <b>QLab ${this.escapeHTML(q)}</b>
-        <input class="link-input" data-immediate="${this.escapeHTML(q)}" value="${this.escapeHTML((this.cueLinks[q] || []).join(", "))}" placeholder="1,2,3" style="width:120px">
-        <button class="btn-secondary link-btn" onclick="QLab.addTimeTrigger('${this.escapeHTML(q)}')">+ Add Lighting Cue</button>
-        <div style="font-size:10px;color:#777;margin:6px 0">Timed lighting cues:</div>
-        <div data-triggers="${this.escapeHTML(q)}"></div>`;
-      box.appendChild(row);
-
-      const list = row.querySelector(`[data-triggers="${CSS.escape(q)}"]`);
-      (this.timeTriggers[q] || []).forEach((trigger, index) => {
-        const r = document.createElement("div");
-        r.className = "link-row";
-        r.innerHTML = `
-          <span>At</span>
-          <input type="number" class="link-input" data-time="${this.escapeHTML(q)}" data-index="${index}" value="${Number(trigger.time) || 0}" step="0.01" min="0">
-          <span>sec → Lighting Cue</span>
-          <input type="number" class="link-input" data-light="${this.escapeHTML(q)}" data-index="${index}" value="${(trigger.lights || [])[0] || ""}" min="1">
-          <button class="btn-secondary link-btn" onclick="QLab.removeTimeTrigger('${this.escapeHTML(q)}', ${index})">✕</button>`;
-        list?.appendChild(r);
-      });
-    });
-  },
-
-  renderCueSync() {
-    const box = document.getElementById("qlabSyncList");
-    if (!box) return;
-
-    // Preserve the existing DOM when possible. Replacing innerHTML while
-    // the mouse is over a button was the source of the visible hover flash.
-    box.innerHTML = "";
-    if (!this.cues.length) {
-      box.innerHTML = `<div style="padding:15px;color:#aaa;text-align:center">No QLab cues found.</div>`;
-      return;
-    }
-
-    this.cues.forEach(cue => {
-      const q = String(cue.number ?? cue.cueNumber ?? "");
-      if (!q) return;
-      const row = document.createElement("div");
-      row.dataset.qlabCueRow = q;
-      row.style.cssText = "padding:10px;margin:4px 0;border-radius:6px;display:flex;gap:10px;align-items:center;";
-
-      const name = cue.name || cue.displayName || cue.type || cue.cueType || "Unnamed";
-      const triggers = this.timeTriggers[q] || [];
-      const label = triggers.length
-        ? triggers.map(x => `⏰ ${x.time}s → Light ${(x.lights || [])[0] || "?"}`).join(" | ")
-        : "⚡ Not linked";
-
-      row.innerHTML = `
-        <b>${this.escapeHTML(q)}</b>
-        <span style="flex:1">${this.escapeHTML(name)}</span>
-        <span style="font-size:12px;min-width:160px">${this.escapeHTML(label)}</span>
-        <span data-qlab-elapsed style="font-size:11px;color:#0f6;min-width:60px;text-align:right"></span>
-        <button class="btn-secondary" type="button" onclick="QLab.goTo('${this.escapeHTML(q)}')">▶ GO</button>`;
-      box.appendChild(row);
-    });
-
-    this.updateCueSyncTime();
-  },
-
-  updateCueSyncTime() {
-    const box = document.getElementById("qlabSyncList");
-    if (!box) return;
-    box.querySelectorAll("[data-qlab-cue-row]").forEach(row => {
-      const isActive = row.dataset.qlabCueRow === String(this.activeCue);
-      row.style.background = isActive ? "#1a3a2a" : "#2a2a3a";
-      row.style.borderLeft = isActive ? "3px solid #0f6" : "3px solid #444";
-      const elapsed = row.querySelector("[data-qlab-elapsed]");
-      if (elapsed) elapsed.textContent = isActive ? `▶ ${this.activeElapsed.toFixed(2)}s` : "";
-    });
-  }
-};
-
-window.QLabGO = () => window.QLab.goFromLightingConsole();
-window.qlabGo = () => window.QLab.goFromLightingConsole();
-window.goQLab = () => window.QLab.goFromLightingConsole();
-window.lightingConsoleQLabGo = () => window.QLab.goFromLightingConsole();
-
-QLab.loadSettings();
-try {
-  QLab.cueLinks = JSON.parse(localStorage.getItem("qlabCueLinks") || "{}");
-  QLab.timeTriggers = JSON.parse(localStorage.getItem("qlabTimeTriggers") || "{}");
-} catch (_) {
-  QLab.cueLinks = {};
-  QLab.timeTriggers = {};
-}
-
-let qlabDuration = 0;
-function formatQLabTime(seconds) {
-  seconds = Math.max(0, Number(seconds) || 0);
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-}
-function updateQLabDuration() {
-  try {
-    const media = document.querySelector("audio") || document.querySelector("video");
-    if (media && Number.isFinite(media.duration) && media.duration > 0) qlabDuration = media.duration;
-    const durationEl = document.getElementById("qlabDuration");
-    if (durationEl && qlabDuration > 0) durationEl.textContent = formatQLabTime(qlabDuration);
-  } catch (error) {
-    console.warn("QLab duration check failed:", error);
-  }
-}
-setInterval(updateQLabDuration, 250);
-updateQLabDuration();
-
-function installQLabGoButtonHooks() {
-  ["#qlabGoButton", "#qlabGOButton", "#lightingQLabGo", "#lightingConsoleQLabGo", "#goQLab", "[data-qlab-go]"].forEach(selector => {
-    document.querySelectorAll(selector).forEach(button => {
-      if (button.dataset.qlabGoHooked === "true") return;
-      button.dataset.qlabGoHooked = "true";
-      button.addEventListener("click", () => QLab.goFromLightingConsole());
-    });
-  });
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  QLab.renderSettings();
-  QLab.connect(QLab.ip);
-  installQLabGoButtonHooks();
-  setTimeout(installQLabGoButtonHooks, 500);
-  setTimeout(installQLabGoButtonHooks, 1500);
-});

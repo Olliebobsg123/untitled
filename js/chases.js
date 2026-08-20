@@ -7,48 +7,6 @@
     else console.log(message);
   };
 
-  function applyTarget(target, duration) {
-    const s = state();
-    if (!s) return;
-    if (s.fading) cancelAnimationFrame(s.fading);
-    s.fading = null;
-
-    const fixtures = Array.isArray(s.fixtures) ? s.fixtures : [];
-    if (!(s.fixtureStates instanceof Map)) s.fixtureStates = new Map();
-    const start = performance.now();
-    const from = { ...s.current };
-    const to = { ...from, ...target };
-    const ms = Math.max(0, Number(duration) || 0) * 1000;
-
-    const tick = now => {
-      const t = ms > 0 ? Math.min(1, (now - start) / ms) : 1;
-      const next = { ...from };
-      for (const key of Object.keys(to)) {
-        const a = Number(from[key]);
-        const b = Number(to[key]);
-        next[key] = Number.isFinite(a) && Number.isFinite(b) ? a + (b - a) * t : to[key];
-      }
-      Object.assign(s.current, next);
-      fixtures.forEach(fixture => {
-        if (!fixture?.id) return;
-        const existing = s.fixtureStates.get(fixture.id) || {};
-        const base = { ...(window.DEFAULT_FIXTURE_STATE || {}), ...existing };
-        const stateOut = { ...base };
-        for (const key of Object.keys(to)) {
-          const a = Number(existing[key] ?? from[key]);
-          const b = Number(to[key]);
-          stateOut[key] = Number.isFinite(a) && Number.isFinite(b) ? a + (b - a) * t : to[key];
-        }
-        s.fixtureStates.set(fixture.id, stateOut);
-      });
-      if (typeof window.updateDMX === "function") window.updateDMX();
-      if (t < 1) s.fading = requestAnimationFrame(tick);
-      else s.fading = null;
-    };
-
-    tick(start);
-  }
-
   window.renderChases = function renderChases() {
     const list = document.getElementById("chaseList");
     if (!list) return;
@@ -85,14 +43,33 @@
     }
     s.currentChase = index;
     let step = 0;
+
     const run = () => {
       if (s.currentChase !== index) return;
       const cueIndex = Number(chase.steps[step]);
       const cue = s.cues?.[cueIndex];
       if (cue) {
         const target = { ...s.current, ...(cue.globalState || cue.state || {}) };
+        const fixtureTargets = [];
+        if (s.fixtureStates instanceof Map && Array.isArray(s.fixtures)) {
+          s.fixtures.forEach(fixture => {
+            if (!fixture?.id) return;
+            const existing = s.fixtureStates.get(fixture.id) || {};
+            const specific = cue.fixtureStates?.[fixture.id] || cue.fixtures?.[fixture.id] || {};
+            fixtureTargets.push([
+              fixture.id,
+              { ...(window.DEFAULT_FIXTURE_STATE || {}), ...existing, ...target, ...specific }
+            ]);
+          });
+        }
         const fade = Math.max(0, Number(s.chaseFade) || 0);
-        applyTarget(target, fade);
+        if (typeof window.fadeTo === "function") {
+          window.fadeTo(target, fade, fixtureTargets);
+        } else {
+          Object.assign(s.current, target);
+          fixtureTargets.forEach(([id, fixtureState]) => s.fixtureStates.set(id, fixtureState));
+          if (typeof window.updateDMX === "function") window.updateDMX();
+        }
         s.currentCue = cueIndex;
         if (typeof window.renderCues === "function") window.renderCues();
         writeLog(`Chase ${index + 1} Step ${step + 1}: Cue ${cueIndex + 1}`);
@@ -108,6 +85,7 @@
       const wait = Math.max(0, Number(s.chaseWait) || 0);
       s.chaseTimer = window.setTimeout(run, wait);
     };
+
     run();
     window.renderChases();
     writeLog(`▶ Started Chase ${index + 1}: ${chase.name || `Chase ${index + 1}`}`);

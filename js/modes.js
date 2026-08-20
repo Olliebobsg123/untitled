@@ -144,10 +144,18 @@
   }
 
   function clearSafetyOverride(){
+    const wasBlackout=blackoutActive;
     stopRunningLooks();
     setEmergencyUI(false);
     setBlackoutUI(false);
-    restoreSnapshot();
+
+    // Blackout is an output lock, not a programmed-state change. Do not
+    // restore an old snapshot here because the programmer may have edited
+    // intensity/colour/etc. while the blackout was active.
+    if(wasBlackout && window.State) State.blackout=false;
+    if(!wasBlackout) restoreSnapshot();
+    else if(typeof window.updateDMX==="function") window.updateDMX();
+
     const title=$("topPageTitle");
     if(title) title.textContent=mode==="BLIND"?"BLIND PROGRAMMER":"LIVE CONTROL";
     if(typeof window.log==="function") window.log("Safety override cleared — previous lighting state restored","ok");
@@ -158,6 +166,7 @@
     stopRunningLooks();
     snapshotState();
     blackoutActive=false;
+    if(window.State) State.blackout=false;
     setBlackoutUI(false);
     setMode("LIVE");
     applyAllFixturesState({intensity:70,master:100,hue:0,sat:0,light:50,strobe:0,gobo:0,gobo2:0,prism:0,prismr:0,focus:0,zoom:0,frost:0,iris:0,rot:0,effect:0,speed:0,macro:0,preset:0,shake:0,mode:0});
@@ -170,15 +179,20 @@
   function blackout(){
     if(blackoutActive){clearSafetyOverride();return;}
     stopRunningLooks();
-    snapshotState();
     emergencyActive=false;
     setEmergencyUI(false);
     setMode("LIVE");
-    applyAllFixturesState({intensity:0,master:100,strobe:0,gobo:0,gobo2:0,prism:0,prismr:0,effect:0,speed:0,macro:0,preset:0,shake:0,mode:0});
+
+    // Blackout must not modify the programmed fixture state. It is a
+    // separate output lock enforced by dmx.js via State.blackout.
+    if(window.State) State.blackout=true;
     setBlackoutUI(true);
+    if(typeof window.updateDMX==="function") window.updateDMX();
+    if(typeof window.sendToVisualizer==="function") window.sendToVisualizer();
+
     const title=$("topPageTitle");
     if(title) title.textContent="BLACKOUT";
-    if(typeof window.log==="function") window.log("BLACKOUT — all patched fixtures forced to 0%","warn");
+    if(typeof window.log==="function") window.log("BLACKOUT — output locked to 0% while programmed state is preserved","warn");
   }
 
   function installSafetyControls(){

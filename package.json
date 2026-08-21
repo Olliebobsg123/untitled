@@ -1,46 +1,29 @@
- {
+{
   "name": "lighting-console",
   "version": "1.0.0",
   "productName": "Lighting Console",
   "description": "Custom Lighting Control Console",
   "author": "Oliver Grainger",
-  "main": "main.js",
-
+  "main": "startup.js",
   "scripts": {
     "start": "electron .",
-    "test:syntax": "node --check main.js && node --check relay.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
+    "test:syntax": "node --check main.js && node --check startup.js && node --check relay.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
     "build-mac": "rm -rf Build && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never"
   },
-
-  "dependencies": {
-    "ws": "^8.18.1"
-  },
-
-  "devDependencies": {
-    "electron": "^43.3.0",
-    "electron-builder": "^26.15.3"
-  },
-
+  "dependencies": {"ws": "^8.18.1"},
+  "devDependencies": {"electron": "^43.3.0", "electron-builder": "^26.15.3"},
   "build": {
     "appId": "com.olivergrainger.lightingconsole",
     "productName": "Lighting Console",
-
-    "directories": {
-      "output": "Build"
-    },
-
+    "directories": {"output": "Build"},
     "mac": {
       "category": "public.app-category.utilities",
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
-
-      "extendInfo": {
-        "NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab."
-      }
+      "extendInfo": {"NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab."}
     }
   }
 }

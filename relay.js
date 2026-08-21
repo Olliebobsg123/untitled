@@ -2,12 +2,34 @@ const WebSocket = require('ws');
 const dgram = require('dgram');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const WS_PORT = Number(process.env.ARTNET_WS_PORT || 8081);
 const WS_HOST = process.env.ARTNET_WS_HOST || '127.0.0.1';
 const ARTNET_PORT = 6454;
 const ARTNET_TARGET = process.env.ARTNET_TARGET || '192.168.1.1';
-const ARTNET_LOCAL_ADDRESS = process.env.ARTNET_LOCAL_ADDRESS || '0.0.0.0';
+
+// Electron's packaged child process can otherwise end up with an unsuitable
+// wildcard UDP source/interface. Prefer an explicitly configured LAN address,
+// then the first non-internal IPv4 address on the Mac's active interfaces.
+function getLanAddress() {
+  if (process.env.ARTNET_LOCAL_ADDRESS) return process.env.ARTNET_LOCAL_ADDRESS;
+  const interfaces = os.networkInterfaces();
+  const preferred = ['en0', 'en1', 'en2'];
+  for (const name of preferred) {
+    for (const info of interfaces[name] || []) {
+      if (info.family === 'IPv4' && !info.internal) return info.address;
+    }
+  }
+  for (const infos of Object.values(interfaces)) {
+    for (const info of infos || []) {
+      if (info.family === 'IPv4' && !info.internal) return info.address;
+    }
+  }
+  return '0.0.0.0';
+}
+
+const ARTNET_LOCAL_ADDRESS = getLanAddress();
 const udp = dgram.createSocket('udp4');
 let udpReady = false;
 let shuttingDown = false;
@@ -21,9 +43,7 @@ const logDir = (() => {
     const dir = process.env.LIGHTING_CONSOLE_LOG_DIR || path.join(process.env.HOME || process.cwd(), 'Library', 'Logs', 'Lighting Console', 'services');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
-  } catch (_) {
-    return null;
-  }
+  } catch (_) { return null; }
 })();
 const logFile = logDir ? path.join(logDir, 'art-net-relay.log') : null;
 let logStream = null;
@@ -38,7 +58,6 @@ function error(...args) {
   originalError(...args);
   try { logStream?.write(`[${new Date().toISOString()}] ERROR ${args.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' ')}\n`); } catch (_) {}
 }
-
 console.log = log;
 console.error = error;
 
@@ -46,6 +65,7 @@ console.log('========================================');
 console.log('🎛 ART-NET RELAY STARTING');
 console.log(`📡 Art-Net target: ${ARTNET_TARGET}:${ARTNET_PORT}`);
 console.log(`🔌 WebSocket: ${WS_HOST}:${WS_PORT}`);
+console.log(`🌐 Art-Net local interface: ${ARTNET_LOCAL_ADDRESS}`);
 console.log(`📝 Log file: ${logFile || 'unavailable'}`);
 console.log('========================================');
 
@@ -57,7 +77,6 @@ udp.on('listening', () => {
   console.log(`➡️  Art-Net output → ${ARTNET_TARGET}:${ARTNET_PORT}`);
   sendArtNet(buildArtPoll(), ARTNET_TARGET);
 });
-
 udp.bind(0, ARTNET_LOCAL_ADDRESS);
 
 const wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
@@ -68,11 +87,8 @@ wss.on('listening', () => {
 wss.on('error', err => console.error('❌ WEBSOCKET SERVER ERROR:', err.message));
 
 function isArtNetPacket(packet, opcode) {
-  return Buffer.isBuffer(packet) && packet.length >= 10 &&
-    packet.subarray(0, 8).equals(Buffer.from('Art-Net\0')) &&
-    packet[8] === (opcode & 0xff) && packet[9] === ((opcode >> 8) & 0xff);
+  return Buffer.isBuffer(packet) && packet.length >= 10 && packet.subarray(0, 8).equals(Buffer.from('Art-Net\0')) && packet[8] === (opcode & 0xff) && packet[9] === ((opcode >> 8) & 0xff);
 }
-
 function isArtNetDMX(packet) {
   if (!Buffer.isBuffer(packet) || packet.length < 18) return false;
   if (!packet.subarray(0, 8).equals(Buffer.from('Art-Net\0'))) return false;
@@ -82,7 +98,6 @@ function isArtNetDMX(packet) {
   if (declaredLength < 2 || declaredLength > 512) return false;
   return packet.length >= 18 + declaredLength;
 }
-
 function buildArtPoll() {
   const packet = Buffer.alloc(14);
   Buffer.from('Art-Net\0').copy(packet, 0);
@@ -92,7 +107,6 @@ function buildArtPoll() {
   packet[13] = 0;
   return packet;
 }
-
 function buildArtDMX(dmx, universe = 0) {
   const values = Array.isArray(dmx) || ArrayBuffer.isView(dmx) ? Array.from(dmx) : [];
   const length = Math.max(2, Math.min(512, values.length));
@@ -107,45 +121,38 @@ function buildArtDMX(dmx, universe = 0) {
   for (let i = 0; i < length; i++) packet[18 + i] = Number(values[i]) & 0xff;
   return packet;
 }
-
 function sendArtNet(packet, target = ARTNET_TARGET) {
-  if (shuttingDown || !udpReady) {
-    packetsRejected++;
-    return false;
-  }
+  if (shuttingDown || !udpReady) { packetsRejected++; return false; }
   udp.send(packet, ARTNET_PORT, target, err => {
     if (err) console.error(`❌ Art-Net UDP SEND FAILED → ${target}:${ARTNET_PORT}:`, err.message);
     else packetsSent++;
   });
   return true;
 }
-
 function buildTodRequest(universe) {
   const portAddress = Math.max(0, Math.min(32767, Number(universe) || 0));
   const packet = Buffer.alloc(24);
   Buffer.from('Art-Net\0').copy(packet, 0);
   packet.writeUInt16LE(0x8000, 8);
   packet.writeUInt16BE(14, 10);
-  packet[21] = (portAddress >> 8) & 0x7f;
-  packet[22] = 0x00;
-  packet[23] = 1;
   packet[20] = (portAddress >> 8) & 0x7f;
   packet[21] = portAddress & 0xff;
+  packet[22] = 0;
+  packet[23] = 1;
   return packet;
 }
-
 function buildTodControl(universe, command = 1) {
   const portAddress = Math.max(0, Math.min(32767, Number(universe) || 0));
   const packet = Buffer.alloc(24);
   Buffer.from('Art-Net\0').copy(packet, 0);
   packet.writeUInt16LE(0x8100, 8);
   packet.writeUInt16BE(14, 10);
-  packet[21] = (portAddress >> 8) & 0x7f;
+  packet[20] = (portAddress >> 8) & 0x7f;
+  packet[21] = portAddress & 0xff;
   packet[22] = command & 0xff;
   packet[23] = portAddress & 0xff;
   return packet;
 }
-
 function parseTodData(packet, sourceIp) {
   if (!isArtNetPacket(packet, 0x8100) || packet.length < 28) return null;
   const uidTotal = packet.readUInt16BE(24);
@@ -159,122 +166,61 @@ function parseTodData(packet, sourceIp) {
   }
   return { uidTotal, devices };
 }
-
 udp.on('message', (packet, rinfo) => {
   if (isArtNetPacket(packet, 0x2100)) {
     console.log(`✅ ART-NET NODE REPLIED ← ${rinfo.address}`);
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'ARTNET_NODE', ip: rinfo.address }));
-    });
+    wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'ARTNET_NODE', ip: rinfo.address })); });
     return;
   }
-
   const tod = parseTodData(packet, rinfo.address);
   if (tod) {
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'RDM_TOD', ...tod }));
-    });
+    wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'RDM_TOD', ...tod })); });
     return;
   }
-
   if (isArtNetDMX(packet)) {
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        try { client.send(packet, { binary: true }); } catch (err) {
-          console.error('❌ Visualiser broadcast failed:', err.message);
-        }
-      }
-    });
+    wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) { try { client.send(packet, { binary: true }); } catch (err) { console.error('❌ Visualiser broadcast failed:', err.message); } } });
   }
 });
-
 wss.on('connection', (ws, request) => {
   const remote = request?.socket?.remoteAddress || 'unknown';
   console.log(`🔌 WEBSOCKET CLIENT CONNECTED ← ${remote}`);
   console.log(`👥 Connected clients: ${wss.clients.size}`);
-
   ws.on('message', (data, isBinary) => {
     packetsReceived++;
     console.log(`📥 WS MESSAGE ← ${remote} bytes=${Buffer.byteLength(data)} binary=${isBinary}`);
-
     if (!isBinary) {
       try {
         const message = JSON.parse(String(data));
-
-        if (message?.type === 'RDM_TOD_REQUEST') {
-          sendArtNet(buildTodRequest(message.universe));
-          return;
-        }
-
-        if (message?.type === 'RDM_TOD_FLUSH') {
-          sendArtNet(buildTodControl(message.universe, 1));
-          setTimeout(() => sendArtNet(buildTodRequest(message.universe)), 150);
-          return;
-        }
-
+        if (message?.type === 'RDM_TOD_REQUEST') { sendArtNet(buildTodRequest(message.universe)); return; }
+        if (message?.type === 'RDM_TOD_FLUSH') { sendArtNet(buildTodControl(message.universe, 1)); setTimeout(() => sendArtNet(buildTodRequest(message.universe)), 150); return; }
         if (message?.type === 'DMX_UPDATE' && message.dmx) {
           const universe = message.universe ?? message.portAddress ?? 0;
           const pkt = buildArtDMX(message.dmx, universe);
           console.log(`📤 ART-DMX → ${ARTNET_TARGET}:${ARTNET_PORT} universe=${universe} channels=${pkt.readUInt16BE(16)}`);
-          sendArtNet(pkt);
-          return;
+          sendArtNet(pkt); return;
         }
-
-        if (Array.isArray(message?.dmx)) {
-          sendArtNet(buildArtDMX(message.dmx, message.universe ?? 0));
-          return;
-        }
-      } catch (err) {
-        console.warn('⚠️ Invalid WebSocket JSON:', err.message);
-      }
-      packetsRejected++;
-      return;
+        if (Array.isArray(message?.dmx)) { sendArtNet(buildArtDMX(message.dmx, message.universe ?? 0)); return; }
+      } catch (err) { console.warn('⚠️ Invalid WebSocket JSON:', err.message); }
+      packetsRejected++; return;
     }
-
     const pkt = Buffer.from(data);
-    if (!isArtNetDMX(pkt)) {
-      packetsRejected++;
-      console.warn(`⚠️ REJECTED invalid/non-DMX Art-Net packet (${pkt.length} bytes)`);
-      return;
-    }
-
+    if (!isArtNetDMX(pkt)) { packetsRejected++; console.warn(`⚠️ REJECTED invalid/non-DMX Art-Net packet (${pkt.length} bytes)`); return; }
     console.log(`📤 ART-DMX → ${ARTNET_TARGET}:${ARTNET_PORT} universe=${pkt.readUInt16LE(14)} channels=${pkt.readUInt16BE(16)}`);
     sendArtNet(pkt);
-
-    wss.clients.forEach(client => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        try { client.send(pkt, { binary: true }); } catch (err) {
-          console.error('❌ Visualiser broadcast failed:', err.message);
-        }
-      }
-    });
+    wss.clients.forEach(client => { if (client !== ws && client.readyState === WebSocket.OPEN) { try { client.send(pkt, { binary: true }); } catch (err) { console.error('❌ Visualiser broadcast failed:', err.message); } } });
   });
-
   ws.on('error', err => console.error(`❌ WebSocket client ERROR (${remote}):`, err.message));
-  ws.on('close', (code, reason) => {
-    console.log(`🔌 WebSocket client disconnected ← ${remote}`);
-    console.log(`   Code: ${code}${reason?.length ? ` | Reason: ${reason}` : ''}`);
-    console.log(`👥 Connected clients: ${wss.clients.size}`);
-  });
+  ws.on('close', (code, reason) => { console.log(`🔌 WebSocket client disconnected ← ${remote}`); console.log(`   Code: ${code}${reason?.length ? ` | Reason: ${reason}` : ''}`); console.log(`👥 Connected clients: ${wss.clients.size}`); });
 });
-
-const statsTimer = setInterval(() => {
-  console.log(`📊 RELAY STATUS — clients=${wss.clients.size}, received=${packetsReceived}, sent=${packetsSent}, rejected=${packetsRejected}, udpReady=${udpReady}`);
-}, 10000);
-
+const statsTimer = setInterval(() => console.log(`📊 RELAY STATUS — clients=${wss.clients.size}, received=${packetsReceived}, sent=${packetsSent}, rejected=${packetsRejected}, udpReady=${udpReady}`), 10000);
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(statsTimer);
   console.log('🛑 Shutting down Art-Net relay...');
   wss.clients.forEach(client => { try { client.close(); } catch (_) {} });
-  wss.close(() => {
-    try { udp.close(); } catch (_) {}
-    try { logStream?.end(); } catch (_) {}
-  });
+  wss.close(() => { try { udp.close(); } catch (_) {} try { logStream?.end(); } catch (_) {} });
 }
-
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
-
 module.exports = { sendArtNet, shutdown, buildTodRequest, buildTodControl, buildArtDMX };

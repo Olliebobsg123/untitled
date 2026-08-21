@@ -1,7 +1,10 @@
 const WebSocket = require('ws');
 const dgram = require('dgram');
+const fs = require('fs');
+const path = require('path');
 
 const WS_PORT = Number(process.env.ARTNET_WS_PORT || 8081);
+const WS_HOST = process.env.ARTNET_WS_HOST || '127.0.0.1';
 const ARTNET_PORT = 6454;
 const ARTNET_TARGET = process.env.ARTNET_TARGET || '192.168.1.1';
 const ARTNET_LOCAL_ADDRESS = process.env.ARTNET_LOCAL_ADDRESS || '0.0.0.0';
@@ -13,10 +16,37 @@ let packetsSent = 0;
 let packetsRejected = 0;
 let sequence = 0;
 
+const logDir = (() => {
+  try {
+    const dir = process.env.LIGHTING_CONSOLE_LOG_DIR || path.join(process.env.HOME || process.cwd(), 'Library', 'Logs', 'Lighting Console', 'services');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch (_) {
+    return null;
+  }
+})();
+const logFile = logDir ? path.join(logDir, 'art-net-relay.log') : null;
+let logStream = null;
+try { if (logFile) logStream = fs.createWriteStream(logFile, { flags: 'a' }); } catch (_) {}
+const originalConsole = console.log.bind(console);
+const originalError = console.error.bind(console);
+function log(...args) {
+  originalConsole(...args);
+  try { logStream?.write(`[${new Date().toISOString()}] ${args.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' ')}\n`); } catch (_) {}
+}
+function error(...args) {
+  originalError(...args);
+  try { logStream?.write(`[${new Date().toISOString()}] ERROR ${args.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' ')}\n`); } catch (_) {}
+}
+
+console.log = log;
+console.error = error;
+
 console.log('========================================');
 console.log('🎛 ART-NET RELAY STARTING');
 console.log(`📡 Art-Net target: ${ARTNET_TARGET}:${ARTNET_PORT}`);
-console.log(`🔌 WebSocket port: ${WS_PORT}`);
+console.log(`🔌 WebSocket: ${WS_HOST}:${WS_PORT}`);
+console.log(`📝 Log file: ${logFile || 'unavailable'}`);
 console.log('========================================');
 
 udp.on('error', err => console.error('❌ UDP ERROR:', err.message));
@@ -28,15 +58,11 @@ udp.on('listening', () => {
   sendArtNet(buildArtPoll(), ARTNET_TARGET);
 });
 
-// The relay is an Art-Net controller, so it should use an ephemeral source
-// port and send to the node's Art-Net destination port 6454. Binding locally
-// to 6454 can conflict with another Art-Net process and is not required for
-// unicast Art-Net DMX.
 udp.bind(0, ARTNET_LOCAL_ADDRESS);
 
-const wss = new WebSocket.Server({ port: WS_PORT });
+const wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
 wss.on('listening', () => {
-  console.log(`✅ WEBSOCKET READY — ws://localhost:${WS_PORT}`);
+  console.log(`✅ WEBSOCKET READY — ws://${WS_HOST}:${WS_PORT}`);
   console.log('🎛 ART-NET RELAY FULLY RUNNING');
 });
 wss.on('error', err => console.error('❌ WEBSOCKET SERVER ERROR:', err.message));
@@ -60,7 +86,7 @@ function isArtNetDMX(packet) {
 function buildArtPoll() {
   const packet = Buffer.alloc(14);
   Buffer.from('Art-Net\0').copy(packet, 0);
-  packet.writeUInt16LE(0x2000, 8); // OpPoll
+  packet.writeUInt16LE(0x2000, 8);
   packet.writeUInt16BE(14, 10);
   packet[12] = 0;
   packet[13] = 0;
@@ -103,8 +129,6 @@ function buildTodRequest(universe) {
   packet[21] = (portAddress >> 8) & 0x7f;
   packet[22] = 0x00;
   packet[23] = 1;
-  // OpTodRequest has the Port-Address in bytes 20-21 for the Art-Net 4 layout;
-  // keep the request address explicit for nodes that support per-port TOD.
   packet[20] = (portAddress >> 8) & 0x7f;
   packet[21] = portAddress & 0xff;
   return packet;
@@ -171,6 +195,7 @@ wss.on('connection', (ws, request) => {
 
   ws.on('message', (data, isBinary) => {
     packetsReceived++;
+    console.log(`📥 WS MESSAGE ← ${remote} bytes=${Buffer.byteLength(data)} binary=${isBinary}`);
 
     if (!isBinary) {
       try {
@@ -187,8 +212,6 @@ wss.on('connection', (ws, request) => {
           return;
         }
 
-        // Also accept the browser-side JSON DMX form. This prevents the relay
-        // from silently rejecting output when the renderer sends {dmx:[...]}.
         if (message?.type === 'DMX_UPDATE' && message.dmx) {
           const universe = message.universe ?? message.portAddress ?? 0;
           const pkt = buildArtDMX(message.dmx, universe);
@@ -245,7 +268,10 @@ function shutdown() {
   clearInterval(statsTimer);
   console.log('🛑 Shutting down Art-Net relay...');
   wss.clients.forEach(client => { try { client.close(); } catch (_) {} });
-  wss.close(() => { try { udp.close(); } catch (_) {} });
+  wss.close(() => {
+    try { udp.close(); } catch (_) {}
+    try { logStream?.end(); } catch (_) {}
+  });
 }
 
 process.once('SIGINT', shutdown);

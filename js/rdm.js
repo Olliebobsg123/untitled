@@ -18,8 +18,69 @@
       .rdm-device:hover,.rdm-device.selected{border-color:#19d6a3;background:#0d1717}.rdm-uid{font:800 11px/1 var(--mono,monospace);letter-spacing:.8px;color:#dce7e4}
       .rdm-meta{font:700 8px/1.4 var(--mono,monospace);color:#64716f}.rdm-empty{padding:14px;color:#64716f;font:700 9px/1.5 var(--mono,monospace)}
       .patch-range{margin-top:10px;padding:10px 12px;border:1px solid #202a30;border-radius:8px;background:#0a0f12;font:800 10px/1.4 var(--mono,monospace);color:#8bc5ff}
+      .fixture-number-hint{margin-top:6px;font:700 8px/1.4 var(--mono,monospace);color:#64716f}
+      .rdm-assignment{margin-top:8px;padding:8px 10px;border:1px solid #202a30;border-radius:7px;background:#080d10;font:700 8px/1.4 var(--mono,monospace);color:#8bc5ff}
     `;
     document.head.appendChild(style);
+  }
+
+  function ensureFixtureNumberField() {
+    if ($("patchFixtureNumber")) return;
+    const name = $("patchName");
+    const addr = $("patchAddr");
+    const form = name?.closest(".form-grid");
+    if (!form || !addr) return;
+
+    const row = document.createElement("div");
+    row.className = "form-row";
+    row.innerHTML = `
+      <label>Fixture Number</label>
+      <input type="number" id="patchFixtureNumber" min="1" max="9999" step="1" placeholder="Auto">
+      <div class="fixture-number-hint">Console fixture ID — separate from the DMX start address.</div>
+    `;
+
+    const addrRow = addr.closest(".form-row");
+    if (addrRow?.parentElement === form) addrRow.insertAdjacentElement("afterend", row);
+    else form.appendChild(row);
+
+    const input = $("patchFixtureNumber");
+    if (input) input.value = String(nextFixtureNumber());
+  }
+
+  function nextFixtureNumber() {
+    const used = new Set(
+      (Array.isArray(window.State?.fixtures) ? window.State.fixtures : [])
+        .map(f => Number(f?.number ?? f?.fixtureNumber))
+        .filter(Number.isInteger)
+    );
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  }
+
+  function getSelectedRdmDevice() {
+    return state.devices.find(device => device.uid === state.selectedUid) || null;
+  }
+
+  function ensureRdmAssignmentUI() {
+    const range = $("patchRange");
+    if (!range || $("rdmAssignment")) return;
+    const box = document.createElement("div");
+    box.id = "rdmAssignment";
+    box.className = "rdm-assignment";
+    range.insertAdjacentElement("afterend", box);
+  }
+
+  function updateRdmAssignmentUI() {
+    ensureRdmAssignmentUI();
+    const box = $("rdmAssignment");
+    if (!box) return;
+    const device = getSelectedRdmDevice();
+    if (!device) {
+      box.textContent = "RDM: no device selected. Scan the selected universe to discover fixtures.";
+      return;
+    }
+    box.textContent = `RDM UID ${device.uid} · Universe ${device.universe} · Port ${device.port} · Source ${device.sourceIp || "unknown"}`;
   }
 
   function ensurePanel() {
@@ -34,6 +95,7 @@
     grid.appendChild(panel);
     $("btnRdmScan")?.addEventListener("click", () => scan(false));
     $("btnRdmFlush")?.addEventListener("click", () => scan(true));
+    ensureRdmAssignmentUI();
     return panel;
   }
 
@@ -44,10 +106,11 @@
     const channels = Number(def?.channels || 0);
     const range = $("patchRange");
     if (!range) return;
-    if (!name || !channels || !Number.isInteger(addr) || addr < 1) { range.textContent = "Select a fixture to see its DMX footprint."; return; }
+    if (!name || !channels || !Number.isInteger(addr) || addr < 1) { range.textContent = "Select a fixture to see its DMX footprint."; updateRdmAssignmentUI(); return; }
     const end = addr + channels - 1;
     range.textContent = end <= 512 ? `DMX footprint: ${addr}–${end} (${channels} channel${channels === 1 ? "" : "s"})` : `Invalid footprint: ${addr}–${end} exceeds channel 512`;
     range.style.color = end <= 512 ? "#8bc5ff" : "#ff8996";
+    updateRdmAssignmentUI();
   }
 
   function setStatus(text) { const el = $("rdmStatus"); if (el) el.textContent = text; }
@@ -56,29 +119,34 @@
     const list = $("rdmDeviceList");
     if (!list) return;
     list.innerHTML = "";
-    if (!state.devices.length) { list.innerHTML = '<div class="rdm-empty">No RDM devices discovered yet.</div>'; return; }
+    if (!state.devices.length) { list.innerHTML = '<div class="rdm-empty">No RDM devices discovered yet.</div>'; updateRdmAssignmentUI(); return; }
     state.devices.forEach(device => {
       const item = document.createElement("div");
       item.className = "rdm-device" + (state.selectedUid === device.uid ? " selected" : "");
-      item.innerHTML = `<div><div class="rdm-uid">UID ${device.uid}</div><div class="rdm-meta">Universe ${device.universe} · Port ${device.port} · ${device.rdmVersion === 1 ? "RDM Standard" : "RDM Draft"}</div></div><button class="btn-secondary" type="button">Use Universe</button>`;
-      item.addEventListener("click", () => { state.selectedUid = device.uid; renderDevices(); });
+      item.innerHTML = `<div><div class="rdm-uid">UID ${device.uid}</div><div class="rdm-meta">Universe ${device.universe} · Port ${device.port} · ${device.rdmVersion === 1 ? "RDM Standard" : "RDM Draft"}${device.sourceIp ? ` · ${device.sourceIp}` : ""}</div></div><button class="btn-secondary" type="button">Use RDM</button>`;
+      item.addEventListener("click", () => { state.selectedUid = device.uid; renderDevices(); patchFootprint(); });
       item.querySelector("button")?.addEventListener("click", event => {
         event.stopPropagation();
+        state.selectedUid = device.uid;
         if ($("patchUni")) $("patchUni").value = String(device.universe);
+        if ($("patchFixtureNumber") && !Number.isInteger(Number($("patchFixtureNumber").value))) $("patchFixtureNumber").value = String(nextFixtureNumber());
         patchFootprint();
-        setStatus(`RDM UID ${device.uid} is on universe ${device.universe}, port ${device.port}. Set the fixture's DMX start address manually before patching.`);
+        renderDevices();
+        setStatus(`RDM UID ${device.uid} selected on universe ${device.universe}, port ${device.port}. Set the fixture's DMX start address, then patch it.`);
       });
       list.appendChild(item);
     });
+    updateRdmAssignmentUI();
   }
 
   function scan(flush) {
     const universe = Math.max(1, Number($("patchUni")?.value || 1));
     state.scanning = true;
     state.devices = [];
+    state.selectedUid = null;
     renderDevices();
     setStatus(flush ? `Starting full RDM discovery on universe ${universe}…` : `Requesting RDM TOD on universe ${universe}…`);
-    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) { setStatus("RDM transport is not connected."); return; }
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) { state.scanning = false; setStatus("RDM transport is not connected."); return; }
     state.ws.send(JSON.stringify({ type: flush ? "RDM_TOD_FLUSH" : "RDM_TOD_REQUEST", universe }));
     setTimeout(() => { state.scanning = false; if (!state.devices.length) setStatus(`No RDM devices reported on universe ${universe}.`); }, 2500);
   }
@@ -92,6 +160,113 @@
     });
     renderDevices();
     setStatus(`${state.devices.length} RDM device${state.devices.length === 1 ? "" : "s"} discovered.`);
+  }
+
+  function patchFixtureFromUI(event) {
+    const name = $("patchName")?.value;
+    const uni = Number($("patchUni")?.value || 1);
+    const addr = Number($("patchAddr")?.value || 1);
+    const numberInput = $("patchFixtureNumber");
+    const fixtureNumber = Number(numberInput?.value || 0);
+
+    if (!name || !window.FixtureLibrary?.[name]) {
+      setStatus("Select a valid fixture first.");
+      return;
+    }
+    if (!Number.isInteger(uni) || uni < 1) {
+      setStatus("Invalid universe.");
+      return;
+    }
+    if (!Number.isInteger(addr) || addr < 1 || addr > 512) {
+      setStatus("Invalid DMX address.");
+      return;
+    }
+    if (!Number.isInteger(fixtureNumber) || fixtureNumber < 1 || fixtureNumber > 9999) {
+      setStatus("Invalid fixture number.");
+      return;
+    }
+
+    const definition = window.FixtureLibrary[name];
+    const channels = Number(definition.channels || 1);
+    const end = addr + channels - 1;
+    if (end > 512) {
+      setStatus("Fixture extends beyond DMX address 512.");
+      return;
+    }
+
+    const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
+    const numberConflict = fixtures.find(f => Number(f?.number ?? f?.fixtureNumber) === fixtureNumber);
+    if (numberConflict && !window.confirm(`Fixture number ${fixtureNumber} is already used by ${numberConflict.name || "another fixture"}. Use it anyway?`)) return;
+
+    const overlap = fixtures.some(fixture => {
+      if (Number(fixture.uni) !== uni) return false;
+      const existing = window.FixtureLibrary?.[fixture.name];
+      if (!existing) return false;
+      const start = Number(fixture.addr);
+      const finish = start + Number(existing.channels || 1) - 1;
+      return addr <= finish && end >= start;
+    });
+    if (overlap && !window.confirm(`DMX ${addr}-${end} is already used. Overwrite?`)) return;
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const fixture = {
+      id,
+      number: fixtureNumber,
+      name,
+      uni,
+      addr
+    };
+    const rdmDevice = getSelectedRdmDevice();
+    if (rdmDevice) {
+      fixture.rdmUid = rdmDevice.uid;
+      fixture.rdm = {
+        uid: rdmDevice.uid,
+        universe: rdmDevice.universe,
+        port: rdmDevice.port,
+        rdmVersion: rdmDevice.rdmVersion,
+        sourceIp: rdmDevice.sourceIp || null
+      };
+    }
+
+    window.State.fixtures.push(fixture);
+    const current = window.State.current || {};
+    const initialState = {
+      ...current,
+      pan: Number(current.pan ?? 128),
+      tilt: Number(current.tilt ?? 128),
+      zoom: Number($("zoom")?.value ?? 0),
+      intensity: Number($("intensity")?.value ?? 100)
+    };
+    const stateFactory = typeof window.createFixtureState === "function" ? window.createFixtureState : value => ({ ...value });
+    window.State.fixtureStates ||= new Map();
+    window.State.fixtureStates.set(id, stateFactory(initialState));
+    window.State.selectedFixtureId = id;
+    window.State.selected ||= new Set();
+    window.State.selected.clear();
+    window.State.selected.add(id);
+
+    window.renderFixtures?.();
+    window.updateControlVisibility?.();
+    window.syncControlsFromSelection?.();
+    window.updateDMX?.();
+    window.sendToVisualizer?.();
+
+    setStatus(`Patched fixture #${fixtureNumber}: ${name} → Uni ${uni}, DMX ${addr}–${end}${rdmDevice ? ` · RDM ${rdmDevice.uid}` : ""}.`);
+    if (numberInput) numberInput.value = String(nextFixtureNumber());
+    state.selectedUid = null;
+    renderDevices();
+    if (event) event.stopImmediatePropagation();
+  }
+
+  function installPatchCapture() {
+    const button = $("btnPatch");
+    if (!button || button.__fixtureNumberPatchInstalled) return;
+    button.__fixtureNumberPatchInstalled = true;
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      patchFixtureFromUI(event);
+    }, true);
   }
 
   function connectRelay() {
@@ -111,12 +286,14 @@
 
   function install() {
     injectStyles();
+    ensureFixtureNumberField();
     ensurePanel();
-    ["patchName", "patchAddr", "patchUni"].forEach(id => $(id)?.addEventListener("input", patchFootprint));
+    installPatchCapture();
+    ["patchName", "patchAddr", "patchUni", "patchFixtureNumber"].forEach(id => $(id)?.addEventListener("input", patchFootprint));
     patchFootprint();
     connectRelay();
   }
 
-  window.RDMUI = { scan, renderDevices, patchFootprint };
+  window.RDMUI = { scan, renderDevices, patchFootprint, nextFixtureNumber };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true }); else install();
 })();

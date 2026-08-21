@@ -12,6 +12,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const $ = id => document.getElementById(id);
 
+  // The fixture number is the console channel/fader number. It is deliberately
+  // separate from the DMX start address and can be chosen by the programmer.
+  function ensureFixtureNumberField() {
+    if ($("patchFixtureNumber")) return;
+    const patchButton = $("btnPatch");
+    const panel = patchButton?.closest(".panel");
+    const grid = panel?.querySelector(".form-grid");
+    if (!grid) return;
+
+    const row = document.createElement("div");
+    row.className = "form-row";
+    row.innerHTML = '<label>Fixture Number</label><input type="number" id="patchFixtureNumber" min="1" step="1">';
+    const addrRow = $("patchAddr")?.closest(".form-row");
+    grid.insertBefore(row, addrRow || null);
+
+    const nextFixtureNumber = () => {
+      const used = new Set((State.fixtures || []).map(f => Number(f?.fixtureNumber)).filter(Number.isInteger));
+      let n = 1;
+      while (used.has(n)) n++;
+      return n;
+    };
+
+    const input = $("patchFixtureNumber");
+    if (input) input.value = String(nextFixtureNumber());
+  }
+
   function button(id, fn) {
     const el = $(id);
     if (!el) return;
@@ -336,9 +362,11 @@ document.addEventListener("DOMContentLoaded", () => {
   ========================================================== */
 
   button("btnPatch", () => {
+    ensureFixtureNumberField();
     const name = $("patchName")?.value;
     const uni = Number($("patchUni")?.value || 1);
     const addr = Number($("patchAddr")?.value || 1);
+    const fixtureNumber = Number($("patchFixtureNumber")?.value || 0);
 
     if (!name || !FixtureLibrary?.[name]) {
       return log("Select a valid fixture first", "warn");
@@ -350,6 +378,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!Number.isInteger(addr) || addr < 1 || addr > 512) {
       return log("Invalid DMX address", "warn");
+    }
+
+    if (!Number.isInteger(fixtureNumber) || fixtureNumber < 1) {
+      return log("Invalid fixture number", "warn");
+    }
+
+    if (State.fixtures.some(f => Number(f?.fixtureNumber) === fixtureNumber)) {
+      return log(`Fixture number ${fixtureNumber} is already patched`, "warn");
     }
 
     const definition = FixtureLibrary[name];
@@ -379,7 +415,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    State.fixtures.push({ id, name, uni, addr });
+    State.fixtures.push({ id, name, uni, addr, fixtureNumber });
 
     const initialState = {
       ...(State.current || {}),
@@ -407,7 +443,8 @@ document.addEventListener("DOMContentLoaded", () => {
     updateDMX?.();
     sendToVisualizer?.();
 
-    log(`Patched: ${name} → Uni ${uni} Addr ${addr}`, "ok");
+    log(`Patched: #${fixtureNumber} ${name} → Uni ${uni} Addr ${addr}`, "ok");
+    ensureFixtureNumberField();
   });
 
   /* ==========================================================
@@ -612,13 +649,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  /*
-   * RECORD CUE
-   *
-   * Follow is stored directly on the cue:
-   *   followEnabled = true/false
-   *   follow = seconds
-   */
   button("btnRecordCue", () => {
     const number = State.cues.length + 1;
     const name = prompt("Cue name:", `Cue ${number}`);
@@ -805,8 +835,6 @@ document.addEventListener("DOMContentLoaded", () => {
       inspectPrism: state.prism ?? 0,
       inspectFocus: state.focus ?? 0,
       inspectZoom: state.zoom ?? 0,
-
-      // These are optional, so they won't break older HTML.
       inspectFollow: cue.follow ?? 0
     };
 
@@ -858,7 +886,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     cue.state = { ...cue.globalState };
 
-    // Follow settings
     if ($("inspectFollow")) {
       cue.follow = Math.max(
         0,
@@ -896,16 +923,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.addEventListener("keydown", e => {
-  if (e.key === "Shift" && !e.repeat) {
-    e.preventDefault();
-    parseCommand("go");
-  }
-});
+    if (e.key === "Shift" && !e.repeat) {
+      e.preventDefault();
+      parseCommand("go");
+    }
+  });
 
   /* ==========================================================
      STARTUP
   ========================================================== */
 
+  ensureFixtureNumberField();
   renderLibrary?.();
   renderFixtures?.();
   renderGroups?.();

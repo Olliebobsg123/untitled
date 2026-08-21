@@ -17,42 +17,32 @@ function servicePath(relativePath) {
 
 function startNodeService(label, relativePath) {
   const scriptPath = servicePath(relativePath);
-
   if (!fs.existsSync(scriptPath)) {
     console.error(`❌ ${label} missing: ${scriptPath}`);
     return null;
   }
 
   try {
-    // Do not use Electron utilityProcess here. In the packaged macOS app,
-    // spawning a real Node-mode child is more reliable for UDP/WebSocket
-    // services and also matches how the services run from npm start.
     const child = spawn(process.execPath, [scriptPath], {
       cwd: serviceRoot,
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
         LIGHTING_CONSOLE_SERVICE_CHILD: '1',
-        NODE_PATH: [
-          path.join(serviceRoot, 'node_modules'),
-          process.env.NODE_PATH || ''
-        ].filter(Boolean).join(path.delimiter)
+        NODE_PATH: [path.join(serviceRoot, 'node_modules'), process.env.NODE_PATH || '']
+          .filter(Boolean).join(path.delimiter)
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
     children.push({ label, child });
-
     child.stdout.on('data', data => process.stdout.write(`[${label}] ${data}`));
     child.stderr.on('data', data => process.stderr.write(`[${label}] ${data}`));
     child.on('spawn', () => console.log(`✅ ${label} process spawned (pid=${child.pid})`));
     child.on('exit', (code, signal) => {
-      if (!shuttingDown) {
-        console.error(`❌ ${label} exited: code=${code}, signal=${signal || 'none'}`);
-      }
+      if (!shuttingDown) console.error(`❌ ${label} exited: code=${code}, signal=${signal || 'none'}`);
     });
     child.on('error', err => console.error(`❌ ${label} process error:`, err));
-
     console.log(`▶️ ${label}: ${scriptPath}`);
     return child;
   } catch (err) {
@@ -61,9 +51,6 @@ function startNodeService(label, relativePath) {
   }
 }
 
-// main.js historically started these services with require(). When startup.js
-// is the Electron entry point, block those legacy requires so the dedicated
-// child processes below are the only relay/QLab instances.
 const originalLoad = Module._load;
 const legacyServiceFiles = new Set([
   path.resolve(__dirname, 'relay.js'),
@@ -86,6 +73,7 @@ app.whenReady().then(() => {
   console.log(`📦 Service root: ${serviceRoot}`);
   console.log(`📦 Relay exists: ${fs.existsSync(servicePath('relay.js'))}`);
   console.log(`📦 QLab exists: ${fs.existsSync(servicePath(path.join('js', 'qlab-bridge.js')))}`);
+  console.log(`📦 Node launcher: ${process.execPath}`);
 
   startNodeService('ART-NET relay', 'relay.js');
   startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));

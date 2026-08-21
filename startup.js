@@ -1,52 +1,23 @@
 const { app } = require('electron');
 const { spawn } = require('child_process');
-const dgram = require('dgram');
 const Module = require('module');
 const fs = require('fs');
 const path = require('path');
 
 const children = [];
+let directRelayService = null;
 let shuttingDown = false;
 
 // In development the services live beside startup.js. In the packaged app
 // electron-builder copies them to Resources/services so they can run outside
-// app.asar as normal Node scripts.
+// app.asar.
 const serviceRoot = app.isPackaged
   ? path.join(process.resourcesPath, 'services')
   : __dirname;
 
-// Finder does not give us a useful terminal, so always persist service output.
+// Finder launches do not have a useful terminal, so always persist service logs.
 const logDir = path.join(app.getPath('logs'), 'services');
 fs.mkdirSync(logDir, { recursive: true });
-
-function requestLocalNetworkAccess() {
-  // macOS Local Network privacy is attached to the responsible GUI app.
-  // Terminal-launched command-line tools are automatically allowed, while a
-  // Finder-launched app must first perform a local-network operation so macOS
-  // can ask the user for permission. A UDP connect is enough to trigger the
-  // permission check and does not transmit an Art-Net packet.
-  const target = process.env.ARTNET_TARGET || '192.168.1.1';
-  const port = 6454;
-  const socket = dgram.createSocket('udp4');
-
-  socket.once('error', err => {
-    console.error(`❌ Local Network permission/network check failed → ${target}:${port}:`, err.message);
-    try { socket.close(); } catch (_) {}
-  });
-
-  try {
-    console.log(`🔐 Requesting macOS Local Network access for ${target}:${port}...`);
-    socket.connect(port, target, () => {
-      console.log('✅ Local Network access check completed.');
-      setTimeout(() => {
-        try { socket.close(); } catch (_) {}
-      }, 250);
-    });
-  } catch (err) {
-    console.error('❌ Could not perform Local Network access check:', err);
-    try { socket.close(); } catch (_) {}
-  }
-}
 
 function startNodeService(label, relativeScript) {
   const scriptPath = path.join(serviceRoot, relativeScript);
@@ -61,12 +32,11 @@ function startNodeService(label, relativeScript) {
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
   const stamp = () => new Date().toISOString();
   const writeLog = (prefix, data) => {
-    logStream.write(`[${stamp()}] ${prefix}${String(data)}`);
+    try { logStream.write(`[${stamp()}] ${prefix}${String(data)}`); } catch (_) {}
   };
 
   const env = {
     ...process.env,
-    // Run the service with Electron's bundled runtime as ordinary Node.
     ELECTRON_RUN_AS_NODE: '1',
     LIGHTING_CONSOLE_SERVICE_CHILD: '1',
     LIGHTING_CONSOLE_LOG_DIR: logDir,
@@ -100,22 +70,18 @@ function startNodeService(label, relativeScript) {
     process.stdout.write(`[${label}] ${data}`);
     writeLog('', data);
   });
-
   child.stderr.on('data', data => {
     process.stderr.write(`[${label}] ${data}`);
     writeLog('[stderr] ', data);
   });
-
   child.on('spawn', () => {
     console.log(`✅ ${label} Node process spawned (pid=${child.pid})`);
     writeLog('', `process spawned pid=${child.pid}\n`);
   });
-
   child.on('error', err => {
     console.error(`❌ ${label} process error:`, err);
     writeLog('[error] ', `${err.stack || err}\n`);
   });
-
   child.on('exit', (code, signal) => {
     if (!shuttingDown) {
       console.error(`❌ ${label} EXITED: code=${code}, signal=${signal || 'none'}`);
@@ -127,22 +93,20 @@ function startNodeService(label, relativeScript) {
   return child;
 }
 
-// main.js still contains the old in-process requires for development. When
-// startup.js owns the lifecycle, make those requires harmless so we never get
-// a second relay/QLab listener inside Electron.
+// main.js contains legacy in-process service startup. startup.js owns the
+// lifecycle so the packaged app cannot accidentally create duplicate servers.
+// The important exception is the Art-Net relay: it is deliberately allowed to
+// run IN THIS ELECTRON MAIN PROCESS. Running the relay as ELECTRON_RUN_AS_NODE
+// was the source of the Finder-only UDP EHOSTUNREACH failure seen on macOS.
 const originalLoad = Module._load;
 const serviceNames = new Set(['relay.js', 'qlab-bridge.js']);
 
 Module._load = function(request, parent, isMain) {
   let resolved = null;
-  try {
-    resolved = Module._resolveFilename(request, parent, isMain);
-  } catch (_) {}
+  try { resolved = Module._resolveFilename(request, parent, isMain); } catch (_) {}
 
   const requestName = path.basename(String(request));
-  const resolvedName = resolved
-    ? path.basename(path.resolve(resolved))
-    : '';
+  const resolvedName = resolved ? path.basename(path.resolve(resolved)) : '';
 
   if (serviceNames.has(requestName) || serviceNames.has(resolvedName)) {
     console.log(`⏭️ Skipping legacy service require: ${request}`);
@@ -152,9 +116,38 @@ Module._load = function(request, parent, isMain) {
   return originalLoad.apply(this, arguments);
 };
 
-// Load the actual Electron UI. The require shim above prevents main.js from
-// starting duplicate in-process services.
+// Load the UI. The require shim above prevents main.js from starting duplicate
+// relay/QLab services.
 require(path.join(__dirname, 'main.js'));
+
+function startRelayInElectronMainProcess() {
+  const relayPath = path.join(serviceRoot, 'relay.js');
+
+  if (!fs.existsSync(relayPath)) {
+    console.error(`❌ ART-NET relay missing: ${relayPath}`);
+    return null;
+  }
+
+  try {
+    console.log(`📡 Starting ART-NET relay inside Electron main process: ${relayPath}`);
+    console.log('📡 This avoids the Finder-launched child-process UDP routing problem.');
+
+    // relay.js requires its dependencies relative to Resources/services, so
+    // temporarily expose the packaged service node_modules to Node's resolver.
+    const serviceNodeModules = path.join(serviceRoot, 'node_modules');
+    const previousNodePath = process.env.NODE_PATH;
+    process.env.NODE_PATH = [serviceNodeModules, previousNodePath || '']
+      .filter(Boolean).join(path.delimiter);
+    Module._initPaths();
+
+    directRelayService = require(relayPath);
+    console.log('✅ ART-NET relay running inside Electron main process');
+    return directRelayService;
+  } catch (err) {
+    console.error('❌ ART-NET relay failed to start in Electron main process:', err);
+    return null;
+  }
+}
 
 app.whenReady().then(() => {
   console.log(`📦 Packaged: ${app.isPackaged}`);
@@ -163,12 +156,12 @@ app.whenReady().then(() => {
   console.log(`📦 Relay exists: ${fs.existsSync(path.join(serviceRoot, 'relay.js'))}`);
   console.log(`📦 QLab exists: ${fs.existsSync(path.join(serviceRoot, 'js', 'qlab-bridge.js'))}`);
 
-  // Do this from the Electron app itself, not the child process. This is
-  // important for Finder launches because macOS Local Network privacy tracks
-  // the responsible GUI app and its helper processes together.
-  requestLocalNetworkAccess();
+  // CRITICAL: Art-Net UDP now belongs to the same Electron GUI process that
+  // macOS sees when the user double-clicks the application in Finder.
+  startRelayInElectronMainProcess();
 
-  startNodeService('ART-NET relay', 'relay.js');
+  // QLab remains a child process because it is independent of the Art-Net UDP
+  // path and has historically worked correctly this way.
   startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));
 }).catch(err => {
   console.error('❌ Electron readiness failed:', err);
@@ -177,7 +170,16 @@ app.whenReady().then(() => {
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log('🛑 Stopping child services...');
+  console.log('🛑 Stopping services...');
+
+  if (directRelayService && typeof directRelayService.shutdown === 'function') {
+    try {
+      console.log('🛑 Stopping ART-NET relay...');
+      directRelayService.shutdown();
+    } catch (err) {
+      console.error('❌ ART-NET relay shutdown failed:', err);
+    }
+  }
 
   for (const { label, child, logStream } of children) {
     try {

@@ -1,4 +1,5 @@
-const { app, utilityProcess } = require('electron');
+const { app } = require('electron');
+const { spawn } = require('child_process');
 const Module = require('module');
 const fs = require('fs');
 const path = require('path');
@@ -27,9 +28,17 @@ function startNodeService(label, relativeScript) {
     logStream.write(`[${stamp()}] ${prefix}${text}`);
   };
 
+  // Run the relay/QLab scripts under Electron's bundled Node runtime, but as a
+  // normal Node process. Electron utilityProcess runs with Chromium's process
+  // environment; on macOS that can make ordinary UDP routing fail with
+  // EHOSTUNREACH even though the same dgram send works from Node. ELECTRON_RUN_AS_NODE
+  // gives the child the normal Node networking stack without requiring Node to
+  // be installed on the end user's machine.
   const env = {
     ...process.env,
+    ELECTRON_RUN_AS_NODE: '1',
     LIGHTING_CONSOLE_SERVICE_CHILD: '1',
+    LIGHTING_CONSOLE_LOG_DIR: logDir,
     NODE_PATH: [path.join(serviceRoot, 'node_modules'), process.env.NODE_PATH || '']
       .filter(Boolean).join(path.delimiter)
   };
@@ -39,33 +48,25 @@ function startNodeService(label, relativeScript) {
     console.log(`📦 ${label} exists: true`);
     console.log(`📦 ${label} log: ${logPath}`);
 
-    // Do not launch the packaged Electron executable with ELECTRON_RUN_AS_NODE.
-    // Finder-launched macOS builds can give that child a different network
-    // execution context. Electron utilityProcess.fork gives the service a real
-    // Node runtime while keeping it under the app's process lifecycle.
-    const child = utilityProcess.fork(scriptPath, [], {
+    const child = spawn(process.execPath, [scriptPath], {
       cwd: serviceRoot,
       env,
-      stdio: 'pipe',
-      serviceName: label
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
     });
 
     children.push({ label, child, logStream });
 
-    if (child.stdout) {
-      child.stdout.on('data', data => {
-        process.stdout.write(`[${label}] ${data}`);
-        writeLog('', data);
-      });
-    }
-    if (child.stderr) {
-      child.stderr.on('data', data => {
-        process.stderr.write(`[${label}] ${data}`);
-        writeLog('[stderr] ', data);
-      });
-    }
+    child.stdout.on('data', data => {
+      process.stdout.write(`[${label}] ${data}`);
+      writeLog('', data);
+    });
+    child.stderr.on('data', data => {
+      process.stderr.write(`[${label}] ${data}`);
+      writeLog('[stderr] ', data);
+    });
     child.on('spawn', () => {
-      console.log(`✅ ${label} utility process spawned (pid=${child.pid})`);
+      console.log(`✅ ${label} Node process spawned (pid=${child.pid})`);
       writeLog('', `process spawned pid=${child.pid}\n`);
     });
     child.on('error', err => {
@@ -95,7 +96,7 @@ Module._load = function(request, parent, isMain) {
   try { resolved = Module._resolveFilename(request, parent, isMain); } catch (_) {}
 
   if (resolved && serviceNames.has(path.basename(path.resolve(resolved)))) {
-    console.log(`⏭️ Skipping in-process service require: ${resolved}`);
+    console.log(`⏭️ Skipping legacy service require: ${resolved}`);
     return { shutdown() {} };
   }
 
@@ -123,7 +124,7 @@ function shutdown() {
   for (const { label, child, logStream } of children) {
     try {
       console.log(`🛑 Stopping ${label} (pid=${child.pid})...`);
-      child.kill();
+      child.kill('SIGTERM');
     } catch (_) {}
     try { logStream.end(); } catch (_) {}
   }

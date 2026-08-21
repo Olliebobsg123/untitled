@@ -60,14 +60,13 @@
     state.devices.forEach(device => {
       const item = document.createElement("div");
       item.className = "rdm-device" + (state.selectedUid === device.uid ? " selected" : "");
-      item.innerHTML = `<div><div class="rdm-uid">UID ${device.uid}</div><div class="rdm-meta">Universe ${device.universe} · Port ${device.port} · ${device.rdmVersion === 1 ? "RDM Standard" : "RDM Draft"}</div></div><button class="btn-secondary" type="button">Use Address</button>`;
+      item.innerHTML = `<div><div class="rdm-uid">UID ${device.uid}</div><div class="rdm-meta">Universe ${device.universe} · Port ${device.port} · ${device.rdmVersion === 1 ? "RDM Standard" : "RDM Draft"}</div></div><button class="btn-secondary" type="button">Use Universe</button>`;
       item.addEventListener("click", () => { state.selectedUid = device.uid; renderDevices(); });
       item.querySelector("button")?.addEventListener("click", event => {
         event.stopPropagation();
         if ($("patchUni")) $("patchUni").value = String(device.universe);
-        if ($("patchAddr")) $("patchAddr").value = String(device.address || 1);
         patchFootprint();
-        setStatus(`RDM UID ${device.uid} selected — choose a fixture and patch at address ${device.address || 1}.`);
+        setStatus(`RDM UID ${device.uid} is on universe ${device.universe}, port ${device.port}. Set the fixture's DMX start address manually before patching.`);
       });
       list.appendChild(item);
     });

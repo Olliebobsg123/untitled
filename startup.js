@@ -1,4 +1,4 @@
-const { utilityProcess } = require('electron');
+const { utilityProcess, app } = require('electron');
 const Module = require('module');
 const path = require('path');
 
@@ -28,18 +28,12 @@ function startNodeService(label, script) {
   }
 }
 
-// Start the network services as Node-based Electron utility processes.
-// This avoids relying on ELECTRON_RUN_AS_NODE, which may be disabled by
-// Electron packaging fuses.
-startNodeService('ART-NET relay', 'relay.js');
-startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));
-
-// main.js still contains its legacy require() calls. Return harmless service
-// handles there so the actual network servers above are not started twice.
+// main.js has legacy require() calls for these services. Patch those requires
+// first so the real service processes are only started once, below.
 const originalLoad = Module._load;
 const serviceFiles = new Set([
   path.resolve(root, 'relay.js'),
-  path.resolve(root, 'js', 'qlab-bridge.js')
+  path.resolve(root, 'js/qlab-bridge.js')
 ]);
 
 Module._load = function(request, parent, isMain) {
@@ -49,7 +43,24 @@ Module._load = function(request, parent, isMain) {
   return originalLoad.apply(this, arguments);
 };
 
+// Register main.js first so Electron can finish its normal startup sequence.
 require(path.join(root, 'main.js'));
+
+// Electron only permits utilityProcess.fork() once app is ready. Starting the
+// relay at module load time makes packaged builds fail with:
+// "utilityProcess cannot be created before app is ready".
+const startServicesWhenReady = () => {
+  startNodeService('ART-NET relay', 'relay.js');
+  startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));
+};
+
+if (app.isReady()) {
+  startServicesWhenReady();
+} else {
+  app.whenReady().then(startServicesWhenReady).catch(err => {
+    console.error('❌ Failed waiting for Electron readiness:', err);
+  });
+}
 
 function shutdown() {
   if (shuttingDown) return;

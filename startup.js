@@ -1,4 +1,5 @@
-const { app, utilityProcess } = require('electron');
+const { app } = require('electron');
+const { spawn } = require('child_process');
 const Module = require('module');
 const fs = require('fs');
 const path = require('path');
@@ -23,25 +24,32 @@ function startNodeService(label, relativePath) {
   }
 
   try {
-    const child = utilityProcess.fork(scriptPath, [], {
+    // Do not use Electron utilityProcess here. In the packaged macOS app,
+    // spawning a real Node-mode child is more reliable for UDP/WebSocket
+    // services and also matches how the services run from npm start.
+    const child = spawn(process.execPath, [scriptPath], {
       cwd: serviceRoot,
       env: {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
         LIGHTING_CONSOLE_SERVICE_CHILD: '1',
         NODE_PATH: [
           path.join(serviceRoot, 'node_modules'),
           process.env.NODE_PATH || ''
         ].filter(Boolean).join(path.delimiter)
       },
-      stdio: 'pipe'
+      stdio: ['ignore', 'pipe', 'pipe']
     });
 
     children.push({ label, child });
-    child.stdout?.on('data', data => process.stdout.write(`[${label}] ${data}`));
-    child.stderr?.on('data', data => process.stderr.write(`[${label}] ${data}`));
-    child.on('spawn', () => console.log(`✅ ${label} process spawned`));
+
+    child.stdout.on('data', data => process.stdout.write(`[${label}] ${data}`));
+    child.stderr.on('data', data => process.stderr.write(`[${label}] ${data}`));
+    child.on('spawn', () => console.log(`✅ ${label} process spawned (pid=${child.pid})`));
     child.on('exit', (code, signal) => {
-      if (!shuttingDown) console.error(`❌ ${label} exited: code=${code}, signal=${signal || 'none'}`);
+      if (!shuttingDown) {
+        console.error(`❌ ${label} exited: code=${code}, signal=${signal || 'none'}`);
+      }
     });
     child.on('error', err => console.error(`❌ ${label} process error:`, err));
 
@@ -53,6 +61,9 @@ function startNodeService(label, relativePath) {
   }
 }
 
+// main.js historically started these services with require(). When startup.js
+// is the Electron entry point, block those legacy requires so the dedicated
+// child processes below are the only relay/QLab instances.
 const originalLoad = Module._load;
 const legacyServiceFiles = new Set([
   path.resolve(__dirname, 'relay.js'),
@@ -86,10 +97,11 @@ function shutdown() {
   for (const { label, child } of children) {
     try {
       console.log(`🛑 Stopping ${label}...`);
-      child.kill();
+      child.kill('SIGTERM');
     } catch (_) {}
   }
 }
 
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
+process.once('exit', shutdown);

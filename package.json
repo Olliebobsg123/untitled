@@ -16,6 +16,12 @@
     "appId": "com.olivergrainger.lightingconsole",
     "productName": "Lighting Console",
     "directories": {"output": "Build"},
+    "asar": true,
+    "asarUnpack": [
+      "relay.js",
+      "js/qlab-bridge.js",
+      "node_modules/ws/**"
+    ],
     "mac": {
       "category": "public.app-category.utilities",
       "identity": null,

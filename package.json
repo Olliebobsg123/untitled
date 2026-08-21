@@ -17,6 +17,10 @@
     "productName": "Lighting Console",
     "directories": {"output": "Build"},
     "asar": true,
+    "extraResources": [
+      {"from": "relay.js", "to": "services/relay.js"},
+      {"from": "js/qlab-bridge.js", "to": "services/js/qlab-bridge.js"}
+    ],
     "mac": {
       "category": "public.app-category.utilities",
       "identity": null,

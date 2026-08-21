@@ -4,7 +4,7 @@
   "productName": "Lighting Console",
   "description": "Custom Lighting Control Console",
   "author": "Oliver Grainger",
-  "main": "startup.js",
+  "main": "main.js",
   "scripts": {
     "start": "electron .",
     "test:syntax": "node --check main.js && node --check startup.js && node --check relay.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
@@ -17,16 +17,6 @@
     "productName": "Lighting Console",
     "directories": {"output": "Build"},
     "asar": true,
-    "asarUnpack": [
-      "relay.js",
-      "js/qlab-bridge.js",
-      "node_modules/ws/**"
-    ],
-    "extraResources": [
-      {"from": "relay.js", "to": "services/relay.js"},
-      {"from": "js/qlab-bridge.js", "to": "services/js/qlab-bridge.js"},
-      {"from": "node_modules/ws", "to": "services/node_modules/ws"}
-    ],
     "mac": {
       "category": "public.app-category.utilities",
       "identity": null,

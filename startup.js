@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { utilityProcess } = require('electron');
 const Module = require('module');
 const path = require('path');
 
@@ -7,28 +7,35 @@ const children = [];
 let shuttingDown = false;
 
 function startNodeService(label, script) {
-  const child = spawn(process.execPath, [path.join(root, script)], {
-    cwd: root,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  try {
+    const child = utilityProcess.fork(path.join(root, script), [], {
+      cwd: root,
+      env: { ...process.env, LIGHTING_CONSOLE_SERVICE_CHILD: '1' },
+      stdio: 'pipe'
+    });
 
-  child.stdout.on('data', data => process.stdout.write(`[${label}] ${data}`));
-  child.stderr.on('data', data => process.stderr.write(`[${label}] ${data}`));
-  child.on('error', err => console.error(`❌ ${label} process failed:`, err));
-  child.on('exit', (code, signal) => {
-    if (!shuttingDown) console.error(`❌ ${label} exited (code=${code}, signal=${signal || 'none'})`);
-  });
+    child.stdout?.on('data', data => process.stdout.write(`[${label}] ${data}`));
+    child.stderr?.on('data', data => process.stderr.write(`[${label}] ${data}`));
+    child.on('spawn', () => console.log(`▶️ Started ${label}: ${script}`));
+    child.on('error', err => console.error(`❌ ${label} process failed:`, err));
+    child.on('exit', (code, signal) => {
+      if (!shuttingDown) console.error(`❌ ${label} exited (code=${code}, signal=${signal || 'none'})`);
+    });
 
-  children.push({ label, child });
-  console.log(`▶️ Started ${label} as node ${script}`);
+    children.push({ label, child });
+  } catch (err) {
+    console.error(`❌ Failed to start ${label}:`, err);
+  }
 }
 
+// Start the network services as Node-based Electron utility processes.
+// This avoids relying on ELECTRON_RUN_AS_NODE, which may be disabled by
+// Electron packaging fuses.
 startNodeService('ART-NET relay', 'relay.js');
 startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));
 
-// main.js still contains its legacy service startup. Return a harmless
-// shutdown-only module there so the real servers are not started twice.
+// main.js still contains its legacy require() calls. Return harmless service
+// handles there so the actual network servers above are not started twice.
 const originalLoad = Module._load;
 const serviceFiles = new Set([
   path.resolve(root, 'relay.js'),
@@ -47,11 +54,11 @@ require(path.join(root, 'main.js'));
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+
   for (const { label, child } of children) {
-    if (child.killed || child.exitCode !== null) continue;
     try {
       console.log(`🛑 Stopping ${label}...`);
-      child.kill('SIGTERM');
+      child.kill();
     } catch (err) {
       console.error(`❌ Failed to stop ${label}:`, err.message);
     }

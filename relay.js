@@ -2,13 +2,16 @@ const WebSocket = require('ws');
 const dgram = require('dgram');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 
 const WS_PORT = Number(process.env.ARTNET_WS_PORT || 8081);
 const WS_HOST = process.env.ARTNET_WS_HOST || '127.0.0.1';
 const ARTNET_PORT = 6454;
 const ARTNET_TARGET = process.env.ARTNET_TARGET || '192.168.1.1';
-const ARTNET_LOCAL_ADDRESS = process.env.ARTNET_LOCAL_ADDRESS || null;
+
+// IMPORTANT: do not bind the UDP socket to the selected LAN address.
+// Electron utility processes on macOS can report EHOSTUNREACH when the socket
+// is explicitly bound to en0's address, even though a normal Node process can
+// reach the same Art-Net node. Let macOS select the correct interface/route.
 const udp = dgram.createSocket('udp4');
 let udpReady = false;
 let shuttingDown = false;
@@ -16,33 +19,6 @@ let packetsReceived = 0;
 let packetsSent = 0;
 let packetsRejected = 0;
 let sequence = 0;
-
-function ipv4ToInt(ip) {
-  const parts = String(ip).split('.').map(Number);
-  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null;
-  return (((parts[0] << 24) >>> 0) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
-}
-
-function getLocalAddressForTarget(target) {
-  if (ARTNET_LOCAL_ADDRESS) return ARTNET_LOCAL_ADDRESS;
-
-  const targetInt = ipv4ToInt(target);
-  if (targetInt === null) return '0.0.0.0';
-
-  for (const entries of Object.values(os.networkInterfaces())) {
-    for (const entry of entries || []) {
-      if (entry.family !== 'IPv4' || entry.internal || !entry.address || !entry.netmask) continue;
-      const addressInt = ipv4ToInt(entry.address);
-      const maskInt = ipv4ToInt(entry.netmask);
-      if (addressInt === null || maskInt === null) continue;
-      if ((addressInt & maskInt) === (targetInt & maskInt)) return entry.address;
-    }
-  }
-
-  return '0.0.0.0';
-}
-
-const ARTNET_BIND_ADDRESS = getLocalAddressForTarget(ARTNET_TARGET);
 
 const logDir = (() => {
   try {
@@ -66,7 +42,6 @@ function error(...args) {
   originalError(...args);
   try { logStream?.write(`[${new Date().toISOString()}] ERROR ${args.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' ')}\n`); } catch (_) {}
 }
-
 console.log = log;
 console.error = error;
 
@@ -74,7 +49,7 @@ console.log('========================================');
 console.log('🎛 ART-NET RELAY STARTING');
 console.log(`📡 Art-Net target: ${ARTNET_TARGET}:${ARTNET_PORT}`);
 console.log(`🔌 WebSocket: ${WS_HOST}:${WS_PORT}`);
-console.log(`🌐 UDP bind address: ${ARTNET_BIND_ADDRESS}`);
+console.log('🌐 UDP bind address: 0.0.0.0 (OS route selection)');
 console.log('========================================');
 
 udp.on('error', err => console.error('❌ UDP ERROR:', err.message));
@@ -86,7 +61,9 @@ udp.on('listening', () => {
   sendArtNet(buildArtPoll(), ARTNET_TARGET);
 });
 
-udp.bind(0, ARTNET_BIND_ADDRESS);
+// Bind without a local-address constraint. This is the same routing behaviour
+// as the known-good `node -e 'dgram...send(...)'` test on macOS.
+udp.bind(0);
 
 const wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
 wss.on('listening', () => {
@@ -141,9 +118,13 @@ function sendArtNet(packet, target = ARTNET_TARGET) {
     packetsRejected++;
     return false;
   }
-  udp.send(packet, ARTNET_PORT, target, err => {
-    if (err) console.error(`❌ Art-Net UDP SEND FAILED → ${target}:${ARTNET_PORT}:`, err.message);
-    else packetsSent++;
+
+  udp.send(packet, 0, packet.length, ARTNET_PORT, target, err => {
+    if (err) {
+      console.error(`❌ Art-Net UDP SEND FAILED → ${target}:${ARTNET_PORT}:`, err.message);
+    } else {
+      packetsSent++;
+    }
   });
   return true;
 }
@@ -154,11 +135,10 @@ function buildTodRequest(universe) {
   Buffer.from('Art-Net\0').copy(packet, 0);
   packet.writeUInt16LE(0x8000, 8);
   packet.writeUInt16BE(14, 10);
-  packet[21] = (portAddress >> 8) & 0x7f;
-  packet[22] = 0x00;
-  packet[23] = 1;
   packet[20] = (portAddress >> 8) & 0x7f;
   packet[21] = portAddress & 0xff;
+  packet[22] = 0;
+  packet[23] = 1;
   return packet;
 }
 
@@ -168,9 +148,10 @@ function buildTodControl(universe, command = 1) {
   Buffer.from('Art-Net\0').copy(packet, 0);
   packet.writeUInt16LE(0x8100, 8);
   packet.writeUInt16BE(14, 10);
-  packet[21] = (portAddress >> 8) & 0x7f;
+  packet[20] = (portAddress >> 8) & 0x7f;
+  packet[21] = portAddress & 0xff;
   packet[22] = command & 0xff;
-  packet[23] = portAddress & 0xff;
+  packet[23] = 0;
   return packet;
 }
 

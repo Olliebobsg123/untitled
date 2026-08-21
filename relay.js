@@ -2,34 +2,16 @@ const WebSocket = require('ws');
 const dgram = require('dgram');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 
 const WS_PORT = Number(process.env.ARTNET_WS_PORT || 8081);
 const WS_HOST = process.env.ARTNET_WS_HOST || '127.0.0.1';
 const ARTNET_PORT = 6454;
 const ARTNET_TARGET = process.env.ARTNET_TARGET || '192.168.1.1';
 
-// Electron's packaged child process can otherwise end up with an unsuitable
-// wildcard UDP source/interface. Prefer an explicitly configured LAN address,
-// then the first non-internal IPv4 address on the Mac's active interfaces.
-function getLanAddress() {
-  if (process.env.ARTNET_LOCAL_ADDRESS) return process.env.ARTNET_LOCAL_ADDRESS;
-  const interfaces = os.networkInterfaces();
-  const preferred = ['en0', 'en1', 'en2'];
-  for (const name of preferred) {
-    for (const info of interfaces[name] || []) {
-      if (info.family === 'IPv4' && !info.internal) return info.address;
-    }
-  }
-  for (const infos of Object.values(interfaces)) {
-    for (const info of infos || []) {
-      if (info.family === 'IPv4' && !info.internal) return info.address;
-    }
-  }
-  return '0.0.0.0';
-}
-
-const ARTNET_LOCAL_ADDRESS = getLanAddress();
+// Always let macOS choose the correct LAN route for the UDP socket. Binding
+// to a guessed interface address caused the packaged app to get EHOSTUNREACH
+// even though normal Node UDP could reach the Art-Net node.
+const ARTNET_LOCAL_ADDRESS = process.env.ARTNET_LOCAL_ADDRESS || '0.0.0.0';
 const udp = dgram.createSocket('udp4');
 let udpReady = false;
 let shuttingDown = false;
@@ -65,7 +47,7 @@ console.log('========================================');
 console.log('🎛 ART-NET RELAY STARTING');
 console.log(`📡 Art-Net target: ${ARTNET_TARGET}:${ARTNET_PORT}`);
 console.log(`🔌 WebSocket: ${WS_HOST}:${WS_PORT}`);
-console.log(`🌐 Art-Net local interface: ${ARTNET_LOCAL_ADDRESS}`);
+console.log(`🌐 Art-Net UDP bind: ${ARTNET_LOCAL_ADDRESS}`);
 console.log(`📝 Log file: ${logFile || 'unavailable'}`);
 console.log('========================================');
 

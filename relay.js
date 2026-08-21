@@ -2,12 +2,13 @@ const WebSocket = require('ws');
 const dgram = require('dgram');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const WS_PORT = Number(process.env.ARTNET_WS_PORT || 8081);
 const WS_HOST = process.env.ARTNET_WS_HOST || '127.0.0.1';
 const ARTNET_PORT = 6454;
 const ARTNET_TARGET = process.env.ARTNET_TARGET || '192.168.1.1';
-const ARTNET_LOCAL_ADDRESS = process.env.ARTNET_LOCAL_ADDRESS || '0.0.0.0';
+const ARTNET_LOCAL_ADDRESS = process.env.ARTNET_LOCAL_ADDRESS || null;
 const udp = dgram.createSocket('udp4');
 let udpReady = false;
 let shuttingDown = false;
@@ -15,6 +16,33 @@ let packetsReceived = 0;
 let packetsSent = 0;
 let packetsRejected = 0;
 let sequence = 0;
+
+function ipv4ToInt(ip) {
+  const parts = String(ip).split('.').map(Number);
+  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+  return (((parts[0] << 24) >>> 0) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function getLocalAddressForTarget(target) {
+  if (ARTNET_LOCAL_ADDRESS) return ARTNET_LOCAL_ADDRESS;
+
+  const targetInt = ipv4ToInt(target);
+  if (targetInt === null) return '0.0.0.0';
+
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries || []) {
+      if (entry.family !== 'IPv4' || entry.internal || !entry.address || !entry.netmask) continue;
+      const addressInt = ipv4ToInt(entry.address);
+      const maskInt = ipv4ToInt(entry.netmask);
+      if (addressInt === null || maskInt === null) continue;
+      if ((addressInt & maskInt) === (targetInt & maskInt)) return entry.address;
+    }
+  }
+
+  return '0.0.0.0';
+}
+
+const ARTNET_BIND_ADDRESS = getLocalAddressForTarget(ARTNET_TARGET);
 
 const logDir = (() => {
   try {
@@ -46,7 +74,7 @@ console.log('========================================');
 console.log('🎛 ART-NET RELAY STARTING');
 console.log(`📡 Art-Net target: ${ARTNET_TARGET}:${ARTNET_PORT}`);
 console.log(`🔌 WebSocket: ${WS_HOST}:${WS_PORT}`);
-console.log(`📝 Log file: ${logFile || 'unavailable'}`);
+console.log(`🌐 UDP bind address: ${ARTNET_BIND_ADDRESS}`);
 console.log('========================================');
 
 udp.on('error', err => console.error('❌ UDP ERROR:', err.message));
@@ -58,7 +86,7 @@ udp.on('listening', () => {
   sendArtNet(buildArtPoll(), ARTNET_TARGET);
 });
 
-udp.bind(0, ARTNET_LOCAL_ADDRESS);
+udp.bind(0, ARTNET_BIND_ADDRESS);
 
 const wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
 wss.on('listening', () => {

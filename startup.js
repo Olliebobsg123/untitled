@@ -2,16 +2,13 @@ const { utilityProcess, app } = require('electron');
 const Module = require('module');
 const path = require('path');
 
-// In development __dirname points at the project. In a packaged build the
-// app lives inside app.asar, while utilityProcess needs real filesystem paths
-// for the child entrypoints and their dependencies. electron-builder unpacks
-// these service files into app.asar.unpacked.
+// Development services live beside the source files. Packaged builds use
+// electron-builder extraResources so the service entrypoints are guaranteed
+// to be real files outside app.asar.
 const root = app.isPackaged
-  ? path.join(process.resourcesPath, 'app.asar.unpacked')
+  ? path.join(process.resourcesPath, 'services')
   : __dirname;
-const moduleRoot = app.isPackaged
-  ? path.join(process.resourcesPath, 'app.asar.unpacked')
-  : __dirname;
+const moduleRoot = root;
 const children = [];
 let shuttingDown = false;
 
@@ -37,7 +34,9 @@ function startNodeService(label, script) {
     child.on('spawn', () => console.log(`▶️ Started ${label}: ${scriptPath}`));
     child.on('error', err => console.error(`❌ ${label} process failed:`, err));
     child.on('exit', (code, signal) => {
-      if (!shuttingDown) console.error(`❌ ${label} exited (code=${code}, signal=${signal || 'none'})`);
+      if (!shuttingDown) {
+        console.error(`❌ ${label} exited (code=${code}, signal=${signal || 'none'})`);
+      }
     });
 
     children.push({ label, child });
@@ -46,8 +45,9 @@ function startNodeService(label, script) {
   }
 }
 
-// main.js has legacy require() calls for these services. Patch those requires
-// first so the real service processes are only started once, below.
+// main.js contains legacy require() calls for these services. Replace those
+// requires with harmless stubs so packaged and development startup only run
+// one real copy of each service process.
 const originalLoad = Module._load;
 const serviceFiles = new Set([
   path.resolve(__dirname, 'relay.js'),
@@ -61,12 +61,16 @@ Module._load = function(request, parent, isMain) {
   return originalLoad.apply(this, arguments);
 };
 
-// Register main.js first so Electron can finish its normal startup sequence.
+// Register the Electron application first. utilityProcess.fork() is only
+// available after Electron has reached the ready state.
 require(path.join(__dirname, 'main.js'));
 
-// Electron only permits utilityProcess.fork() once app is ready. Starting the
-// services at module load time makes packaged builds fail before startup.
 const startServicesWhenReady = () => {
+  if (shuttingDown) return;
+
+  console.log(`📦 Service root: ${root}`);
+  console.log(`📦 Packaged: ${app.isPackaged}`);
+
   startNodeService('ART-NET relay', 'relay.js');
   startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));
 };

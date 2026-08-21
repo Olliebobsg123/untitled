@@ -1,75 +1,17 @@
 const { app } = require('electron');
-const { spawn } = require('child_process');
-const Module = require('module');
-const fs = require('fs');
 const path = require('path');
 
-const children = [];
-let shuttingDown = false;
-const serviceRoot = app.isPackaged ? path.join(process.resourcesPath, 'services') : __dirname;
-
-function startNodeService(label, relativeScript) {
-  const scriptPath = path.join(serviceRoot, relativeScript);
-  if (!fs.existsSync(scriptPath)) {
-    console.error(`❌ ${label} missing: ${scriptPath}`);
-    return null;
-  }
-
-  const child = spawn(process.execPath, [scriptPath], {
-    cwd: serviceRoot,
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '1',
-      LIGHTING_CONSOLE_SERVICE_CHILD: '1',
-      NODE_PATH: [path.join(serviceRoot, 'node_modules'), process.env.NODE_PATH || '']
-        .filter(Boolean).join(path.delimiter)
-    },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  children.push({ label, child });
-  child.stdout.on('data', data => process.stdout.write(`[${label}] ${data}`));
-  child.stderr.on('data', data => process.stderr.write(`[${label}] ${data}`));
-  child.on('spawn', () => console.log(`✅ ${label} process spawned (pid=${child.pid})`));
-  child.on('error', err => console.error(`❌ ${label} process error:`, err));
-  child.on('exit', (code, signal) => {
-    if (!shuttingDown) console.error(`❌ ${label} EXITED: code=${code}, signal=${signal || 'none'}`);
-  });
-  return child;
-}
-
-const originalLoad = Module._load;
-const serviceFiles = new Set([
-  path.resolve(__dirname, 'relay.js'),
-  path.resolve(__dirname, 'js/qlab-bridge.js')
-]);
-Module._load = function(request, parent, isMain) {
-  let resolved = null;
-  try { resolved = Module._resolveFilename(request, parent, isMain); } catch (_) {}
-  if (resolved && serviceFiles.has(path.resolve(resolved))) return { shutdown() {} };
-  return originalLoad.apply(this, arguments);
-};
-
+// Keep startup.js deliberately small. The services are started by main.js only
+// after Electron is ready, which works both from `npm start` and from the
+// packaged .app. Starting Electron's child processes here caused packaged
+// builds to report a successful launch while the relay itself never became a
+// real Node process.
 require(path.join(__dirname, 'main.js'));
 
-app.whenReady().then(() => {
-  console.log(`📦 Packaged: ${app.isPackaged}`);
-  console.log(`📦 Service root: ${serviceRoot}`);
-  console.log(`📦 Relay exists: ${fs.existsSync(path.join(serviceRoot, 'relay.js'))}`);
-  console.log(`📦 QLab exists: ${fs.existsSync(path.join(serviceRoot, 'js', 'qlab-bridge.js'))}`);
-  console.log(`📦 Node launcher: ${process.execPath}`);
-  startNodeService('ART-NET relay', 'relay.js');
-  startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));
-}).catch(err => console.error('❌ Electron readiness failed:', err));
+process.on('uncaughtException', err => {
+  console.error('❌ Lighting Console startup error:', err);
+});
 
-function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  for (const { label, child } of children) {
-    try { console.log(`🛑 Stopping ${label}...`); child.kill('SIGTERM'); } catch (_) {}
-  }
-}
-
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
-process.once('exit', shutdown);
+process.on('unhandledRejection', err => {
+  console.error('❌ Lighting Console unhandled startup error:', err);
+});

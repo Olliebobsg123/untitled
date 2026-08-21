@@ -520,26 +520,24 @@ window.QLab = {
   },
 
   addTimeTrigger(q) {
-  q = String(q);
+    q = String(q).trim();
+    if (!q) return;
 
-  // Save any existing edits first.
-  this.saveAllLinks();
+    if (!Array.isArray(this.timeTriggers[q])) {
+      this.timeTriggers[q] = [];
+    }
 
-  // Now add the new timed lighting cue.
-  if (!this.timeTriggers[q]) this.timeTriggers[q] = [];
+    this.timeTriggers[q].push({
+      time: 5,
+      lights: []
+    });
 
-  this.timeTriggers[q].push({
-    time: 5,
-    lights: []
-  });
-
-  // Persist the newly-added trigger and refresh the UI.
-  this.firedTriggers.clear();
-  this.saveStoredLinks();
-  this.sendTimeTriggers();
-  this.renderLinkEditor();
-  this.renderCueSync();
-},
+    this.firedTriggers.clear();
+    this.saveStoredLinks();
+    this.sendTimeTriggers();
+    this.renderLinkEditor();
+    this.renderCueSync();
+  },
   removeTimeTrigger(q, index) {
     q = String(q);
     if (!this.timeTriggers[q]) return;

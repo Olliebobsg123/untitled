@@ -26,6 +26,9 @@
       .safety-emergency.active{background:#e8e8e8;border-color:#111;box-shadow:0 0 12px rgba(255,255,255,.35)}
       .safety-blackout{color:#fff;background:#190b0e;border:1px solid #ff5265}
       .safety-blackout.active{background:#ff5265;color:#fff;border-color:#ff8996}
+      .fixture-number-field{display:flex;flex-direction:column;gap:6px}
+      .fixture-number-field input{width:100%}
+      .fixture-number-badge{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:22px;padding:0 7px;margin-right:8px;border:1px solid var(--border,#202a30);border-radius:6px;background:#0d1519;color:#8bc5ff;font:900 10px/1 var(--mono,monospace);letter-spacing:.5px}
       html.emergency-active,html.emergency-active body{background:#e9e9e9!important;color:#171717!important}
       html.emergency-active .sidebar,html.emergency-active .topbar,html.emergency-active .panel,html.emergency-active .controls,html.emergency-active .bottom-row,html.emergency-active .cmd-line,html.emergency-active .command-line{background:#e9e9e9!important;color:#171717!important;border-color:#c9c9c9!important;box-shadow:0 3px 14px rgba(0,0,0,.07)!important}
       html.emergency-active .panel-header,html.emergency-active .brand,html.emergency-active .sidebar-footer,html.emergency-active .topbar-divider,html.emergency-active .section-divider{border-color:#c9c9c9!important}
@@ -148,14 +151,9 @@
     stopRunningLooks();
     setEmergencyUI(false);
     setBlackoutUI(false);
-
-    // Blackout is an output lock, not a programmed-state change. Do not
-    // restore an old snapshot here because the programmer may have edited
-    // intensity/colour/etc. while the blackout was active.
     if(wasBlackout && window.State) State.blackout=false;
     if(!wasBlackout) restoreSnapshot();
     else if(typeof window.updateDMX==="function") window.updateDMX();
-
     const title=$("topPageTitle");
     if(title) title.textContent=mode==="BLIND"?"BLIND PROGRAMMER":"LIVE CONTROL";
     if(typeof window.log==="function") window.log("Safety override cleared — previous lighting state restored","ok");
@@ -182,14 +180,10 @@
     emergencyActive=false;
     setEmergencyUI(false);
     setMode("LIVE");
-
-    // Blackout must not modify the programmed fixture state. It is a
-    // separate output lock enforced by dmx.js via State.blackout.
     if(window.State) State.blackout=true;
     setBlackoutUI(true);
     if(typeof window.updateDMX==="function") window.updateDMX();
     if(typeof window.sendToVisualizer==="function") window.sendToVisualizer();
-
     const title=$("topPageTitle");
     if(title) title.textContent="BLACKOUT";
     if(typeof window.log==="function") window.log("BLACKOUT — output locked to 0% while programmed state is preserved","warn");
@@ -224,11 +218,112 @@
     status.prepend(wrap);
   }
 
+  function nextFixtureNumber(){
+    const used=new Set();
+    (Array.isArray(State?.fixtures)?State.fixtures:[]).forEach((fixture,index)=>{
+      const n=Number(fixture?.fixtureNumber);
+      if(Number.isInteger(n)&&n>0) used.add(n);
+      else if(!fixture?.fixtureNumber){
+        let fallback=index+1;
+        while(used.has(fallback)) fallback++;
+        fixture.fixtureNumber=fallback;
+        used.add(fallback);
+      }
+    });
+    let n=1;
+    while(used.has(n)) n++;
+    return n;
+  }
+
+  function installFixtureNumberField(){
+    const grid=document.querySelector("#page-patch .form-grid");
+    if(!grid || $("patchFixtureNumber")) return;
+    const row=document.createElement("div");
+    row.className="form-row fixture-number-field";
+    row.innerHTML='<label for="patchFixtureNumber">Fixture Number</label><input type="number" id="patchFixtureNumber" min="1" step="1">';
+    const typeRow=$("patchType")?.closest(".form-row");
+    if(typeRow) grid.insertBefore(row,typeRow);
+    else grid.prepend(row);
+    const input=$("patchFixtureNumber");
+    if(input) input.value=nextFixtureNumber();
+  }
+
+  function decorateFixtureList(){
+    const list=$("fixtureList");
+    if(!list || !Array.isArray(State?.fixtures)) return;
+    State.fixtures.forEach((fixture,index)=>{
+      if(!fixture || !Number.isInteger(Number(fixture.fixtureNumber)) || Number(fixture.fixtureNumber)<1){
+        fixture.fixtureNumber=index+1;
+      }
+    });
+    [...list.children].forEach((item,index)=>{
+      const fixture=State.fixtures[index];
+      if(!fixture) return;
+      const number=Number(fixture.fixtureNumber);
+      if(!Number.isInteger(number)||number<1) return;
+      let badge=item.querySelector(".fixture-number-badge");
+      if(!badge){
+        badge=document.createElement("span");
+        badge.className="fixture-number-badge";
+        item.prepend(badge);
+      }
+      badge.textContent=`#${number}`;
+    });
+  }
+
+  function installFixtureNumbering(){
+    installFixtureNumberField();
+    if(!window.__fixtureNumberPatchInstalled){
+      const button=$("btnPatch");
+      if(button){
+        const original=button.onclick;
+        button.onclick=function(event){
+          const input=$("patchFixtureNumber");
+          const number=Number(input?.value);
+          if(!Number.isInteger(number)||number<1){
+            log?.("Enter a valid Fixture Number", "warn");
+            input?.focus();
+            return;
+          }
+          const duplicate=(State.fixtures||[]).some(f=>Number(f?.fixtureNumber)===number);
+          if(duplicate){
+            log?.(`Fixture Number ${number} is already in use`, "warn");
+            input?.focus();
+            return;
+          }
+          const before=new Set((State.fixtures||[]).map(f=>f?.id));
+          if(typeof original==="function") original.call(button,event);
+          const added=(State.fixtures||[]).find(f=>f && !before.has(f.id));
+          if(added){
+            added.fixtureNumber=number;
+            State.fixtures.sort((a,b)=>Number(a.fixtureNumber||0)-Number(b.fixtureNumber||0));
+            State.selectedFixtureId=added.id;
+            State.selected?.clear?.();
+            State.selected?.add?.(added.id);
+            renderFixtures?.();
+            decorateFixtureList();
+            input.value=nextFixtureNumber();
+            log?.(`Patched Fixture #${number}: ${added.name||"Fixture"}`, "ok");
+          }
+        };
+        window.__fixtureNumberPatchInstalled=true;
+      }
+    }
+    decorateFixtureList();
+    const list=$("fixtureList");
+    if(list && !list.__fixtureNumberObserver){
+      const observer=new MutationObserver(()=>decorateFixtureList());
+      observer.observe(list,{childList:true,subtree:true});
+      list.__fixtureNumberObserver=observer;
+    }
+  }
+
   function install(){
     const live=$("consoleModeLive"), blind=$("consoleModeBlind");
     if(!live || !blind) return;
     installModeStyles();
     installSafetyControls();
+    installFixtureNumbering();
     live.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
     blind.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("BLIND");};
 

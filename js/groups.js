@@ -19,6 +19,106 @@
     return Number.isInteger(index) && index >= 0 ? fixtures[index] || null : null;
   }
 
+  function nextFixtureNumber(excludeId = null) {
+    const used = new Set(
+      (Array.isArray(State.fixtures) ? State.fixtures : [])
+        .filter(fixture => fixture?.id !== excludeId)
+        .map(fixture => Number(fixture?.fixtureNumber))
+        .filter(Number.isInteger)
+    );
+    let number = 1;
+    while (used.has(number)) number += 1;
+    return number;
+  }
+
+  function normaliseFixtureNumbers() {
+    if (!Array.isArray(State.fixtures)) return;
+
+    const used = new Set();
+    State.fixtures.forEach(fixture => {
+      const number = Number(fixture?.fixtureNumber);
+      if (!fixture || !Number.isInteger(number) || number < 1 || used.has(number)) {
+        if (fixture) {
+          let next = 1;
+          while (used.has(next)) next += 1;
+          fixture.fixtureNumber = next;
+          used.add(next);
+        }
+        return;
+      }
+      used.add(number);
+      fixture.fixtureNumber = number;
+    });
+
+    State.fixtures.sort((a, b) => {
+      const an = Number(a?.fixtureNumber);
+      const bn = Number(b?.fixtureNumber);
+      return (Number.isInteger(an) ? an : Number.MAX_SAFE_INTEGER) -
+        (Number.isInteger(bn) ? bn : Number.MAX_SAFE_INTEGER);
+    });
+  }
+
+  function installFixtureNumberField() {
+    if (getElement("patchFixtureNumber")) return;
+    const name = getElement("patchName");
+    const grid = name?.closest(".form-grid");
+    if (!grid) return;
+
+    const row = document.createElement("div");
+    row.className = "form-row";
+    row.innerHTML = '<label>Fixture Number</label><input type="number" id="patchFixtureNumber" value="1" min="1" step="1">';
+
+    const address = getElement("patchAddr")?.closest(".form-row");
+    if (address?.nextElementSibling) grid.insertBefore(row, address.nextElementSibling);
+    else grid.appendChild(row);
+
+    const input = getElement("patchFixtureNumber");
+    input.value = String(nextFixtureNumber());
+  }
+
+  function installPatchNumberCapture() {
+    const button = getElement("btnPatch");
+    if (!button || button.dataset.fixtureNumberCapture === "1") return;
+    button.dataset.fixtureNumberCapture = "1";
+
+    button.addEventListener("click", () => {
+      const requested = Number(getElement("patchFixtureNumber")?.value);
+      const before = new Set((Array.isArray(State.fixtures) ? State.fixtures : []).map(f => f?.id));
+
+      window.setTimeout(() => {
+        const fixtures = Array.isArray(State.fixtures) ? State.fixtures : [];
+        const added = fixtures.find(fixture => fixture?.id != null && !before.has(fixture.id));
+        if (!added) return;
+
+        let number = Number.isInteger(requested) && requested > 0 ? requested : nextFixtureNumber();
+        const conflict = fixtures.some(fixture => fixture !== added && Number(fixture?.fixtureNumber) === number);
+        if (conflict) number = nextFixtureNumber(added.id);
+
+        added.fixtureNumber = number;
+        normaliseFixtureNumbers();
+
+        if (typeof window.renderFixtures === "function") window.renderFixtures();
+        if (typeof window.log === "function") window.log(`Fixture ${number} patched: ${added.name || "Unnamed"}`, "ok");
+
+        const input = getElement("patchFixtureNumber");
+        if (input) input.value = String(nextFixtureNumber());
+      }, 0);
+    });
+  }
+
+  function patchFixtureListOrdering() {
+    if (window.__fixtureNumberRenderPatched) return;
+    if (typeof window.renderFixtures !== "function") return;
+
+    const originalRenderFixtures = window.renderFixtures;
+    window.renderFixtures = function renderFixturesWithNumbers(...args) {
+      normaliseFixtureNumbers();
+      return originalRenderFixtures.apply(this, args);
+    };
+    window.__fixtureNumberRenderPatched = true;
+    normaliseFixtureNumbers();
+  }
+
   window.renderGroups = function renderGroups() {
     const list = getElement("groupList");
     if (!list) return;
@@ -53,4 +153,21 @@
       list.appendChild(el);
     });
   };
+
+  function installFixtureNumberSupport() {
+    installFixtureNumberField();
+    installPatchNumberCapture();
+    patchFixtureListOrdering();
+    normaliseFixtureNumbers();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      window.setTimeout(installFixtureNumberSupport, 0);
+    }, { once: true });
+  } else {
+    window.setTimeout(installFixtureNumberSupport, 0);
+  }
+
+  window.addEventListener("load", installFixtureNumberSupport, { once: true });
 })();

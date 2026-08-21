@@ -17,8 +17,6 @@ function startNodeService(label, relativeScript) {
 
   const env = {
     ...process.env,
-    // Use Electron's bundled Node runtime instead of relying on the user's
-    // PATH. Finder-launched macOS apps do not get the same shell environment.
     ELECTRON_RUN_AS_NODE: '1',
     LIGHTING_CONSOLE_SERVICE_CHILD: '1',
     NODE_PATH: [path.join(serviceRoot, 'node_modules'), process.env.NODE_PATH || '']
@@ -51,17 +49,21 @@ function startNodeService(label, relativeScript) {
   }
 }
 
-// startup.js owns the service processes. main.js still contains legacy
-// in-process requires, so prevent those requires from creating a second copy.
+// startup.js owns the packaged service processes. main.js contains legacy
+// in-process requires, but electron-builder may resolve unpacked files from
+// app.asar.unpacked. Match by service filename so we never start a second
+// relay/QLab process in the Electron main process.
 const originalLoad = Module._load;
-const serviceFiles = new Set([
-  path.resolve(__dirname, 'relay.js'),
-  path.resolve(__dirname, 'js/qlab-bridge.js')
-]);
+const serviceNames = new Set(['relay.js', 'qlab-bridge.js']);
 Module._load = function(request, parent, isMain) {
   let resolved = null;
   try { resolved = Module._resolveFilename(request, parent, isMain); } catch (_) {}
-  if (resolved && serviceFiles.has(path.resolve(resolved))) return { shutdown() {} };
+
+  if (resolved && serviceNames.has(path.basename(path.resolve(resolved)))) {
+    console.log(`⏭️ Skipping in-process service require: ${resolved}`);
+    return { shutdown() {} };
+  }
+
   return originalLoad.apply(this, arguments);
 };
 

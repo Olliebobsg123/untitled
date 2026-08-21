@@ -56,16 +56,6 @@
   // ----------------------------------------------------------
   // STABLE FIXTURE LIST RENDERING
   // ----------------------------------------------------------
-  // Selecting a fixture used to call renderFixtures(), which did:
-  //
-  //   list.innerHTML = "";
-  //   recreate every fixture element;
-  //   recreate every click handler.
-  //
-  // That destroys the hovered DOM node underneath the mouse. The
-  // browser then has to recalculate layout/paint and the whole UI
-  // visibly flashes. Keep the original renderer for real patch
-  // changes, but make selection-only updates class/text changes.
   if (typeof window.renderFixtures === "function" && !window.__stableFixtureRenderer) {
     const originalRenderFixtures = window.renderFixtures;
     let lastFixtureSignature = null;
@@ -78,6 +68,7 @@
 
       return JSON.stringify(fixtures.map(f => ({
         id: f?.id ?? null,
+        fixtureNumber: f?.fixtureNumber ?? null,
         name: f?.name ?? null,
         uni: f?.uni ?? f?.universe ?? null,
         addr: f?.addr ?? f?.address ?? f?.startAddress ?? null
@@ -97,7 +88,6 @@
         ? window.State.fixtures
         : [];
 
-      // If the DOM does not match the patch, fall back to the real renderer.
       if (list.children.length !== fixtures.length) return false;
 
       fixtures.forEach((fixture, index) => {
@@ -109,7 +99,6 @@
         const isSelected = selected.has(fixture?.id);
         el.classList.toggle("sel", isSelected);
 
-        // Keep the displayed intensity/output current without replacing DOM.
         const state = window.State?.fixtureStates?.get(fixture?.id);
         const intensity = Number(state?.intensity ?? state?.dimmer ?? 100);
         const p = typeof window.getFixturePhotometrics === "function"
@@ -124,6 +113,7 @@
 
         const spans = el.children;
         if (spans.length >= 2) {
+          spans[0].textContent = `#${fixture?.fixtureNumber ?? index + 1} ${fixture?.name || `Fixture ${index + 1}`}`;
           spans[1].textContent =
             `Uni ${fixture?.uni} · Addr ${fixture?.addr} · ${Math.round(intensity)}% · ${outputText}`;
         }
@@ -131,6 +121,23 @@
 
       if (count) count.textContent = `(${selected.size} selected)`;
       return true;
+    }
+
+    function applyFixtureNumbers() {
+      const list = document.getElementById("fixtureList");
+      const fixtures = Array.isArray(window.State?.fixtures)
+        ? window.State.fixtures
+        : [];
+      if (!list || list.children.length !== fixtures.length) return;
+
+      fixtures.forEach((fixture, index) => {
+        const el = list.children[index];
+        if (!el) return;
+        const spans = el.children;
+        if (spans.length >= 1) {
+          spans[0].textContent = `#${fixture?.fixtureNumber ?? index + 1} ${fixture?.name || `Fixture ${index + 1}`}`;
+        }
+      });
     }
 
     window.renderFixtures = function stableRenderFixtures() {
@@ -141,7 +148,6 @@
         originalRenderFixtures();
         hasRendered = true;
 
-        // Mark the DOM so later selection changes can update it in place.
         const list = document.getElementById("fixtureList");
         const fixtures = Array.isArray(window.State?.fixtures)
           ? window.State.fixtures
@@ -152,12 +158,14 @@
             if (el) el.dataset.fixtureId = String(fixture?.id ?? "");
           });
         }
+        applyFixtureNumbers();
       } else {
         try {
           updateSelectionOnly();
         } catch (err) {
           console.warn("⚠️ Stable fixture update fell back to full render:", err.message);
           originalRenderFixtures();
+          applyFixtureNumbers();
         }
       }
 
@@ -183,6 +191,7 @@
 
       return JSON.stringify(fixtures.map(f => ({
         id: f?.id ?? null,
+        fixtureNumber: f?.fixtureNumber ?? null,
         name: f?.name ?? null,
         uni: f?.uni ?? f?.universe ?? null,
         addr: f?.addr ?? f?.address ?? f?.startAddress ?? null

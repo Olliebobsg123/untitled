@@ -23,24 +23,20 @@ function startNodeService(label, relativeScript) {
   const logPath = path.join(logDir, `${safeLabel}.log`);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
   const stamp = () => new Date().toISOString();
-  const writeLog = (prefix, data) => {
-    const text = String(data);
-    logStream.write(`[${stamp()}] ${prefix}${text}`);
-  };
+  const writeLog = (prefix, data) => logStream.write(`[${stamp()}] ${prefix}${String(data)}`);
 
-  // Run the relay/QLab scripts under Electron's bundled Node runtime, but as a
-  // normal Node process. Electron utilityProcess runs with Chromium's process
-  // environment; on macOS that can make ordinary UDP routing fail with
-  // EHOSTUNREACH even though the same dgram send works from Node. ELECTRON_RUN_AS_NODE
-  // gives the child the normal Node networking stack without requiring Node to
-  // be installed on the end user's machine.
+  // The relay and QLab bridge are ordinary Node services. Run them with
+  // Electron's bundled Node runtime in normal Node mode so UDP networking
+  // behaves exactly like `node relay.js` on macOS.
   const env = {
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
     LIGHTING_CONSOLE_SERVICE_CHILD: '1',
     LIGHTING_CONSOLE_LOG_DIR: logDir,
-    NODE_PATH: [path.join(serviceRoot, 'node_modules'), process.env.NODE_PATH || '']
-      .filter(Boolean).join(path.delimiter)
+    NODE_PATH: [
+      path.join(serviceRoot, 'node_modules'),
+      process.env.NODE_PATH || ''
+    ].filter(Boolean).join(path.delimiter)
   };
 
   try {
@@ -86,20 +82,22 @@ function startNodeService(label, relativeScript) {
   }
 }
 
-// main.js contains legacy in-process requires for development. startup.js owns
-// the service processes so the packaged app has the same lifecycle in Finder
-// and in Terminal, without creating duplicate relay/QLab listeners.
+// main.js historically required the services in-process. Do not allow those
+// legacy requires to start a second copy (or fail inside app.asar). Matching
+// the request directly is intentional: Electron's asar module resolver can
+// make _resolveFilename behave differently from a normal Node process.
 const originalLoad = Module._load;
-const serviceNames = new Set(['relay.js', 'qlab-bridge.js']);
+const legacyServiceRequests = new Set([
+  './relay.js',
+  'relay.js',
+  './js/qlab-bridge.js',
+  'js/qlab-bridge.js'
+]);
 Module._load = function(request, parent, isMain) {
-  let resolved = null;
-  try { resolved = Module._resolveFilename(request, parent, isMain); } catch (_) {}
-
-  if (resolved && serviceNames.has(path.basename(path.resolve(resolved)))) {
-    console.log(`⏭️ Skipping legacy service require: ${resolved}`);
+  if (typeof request === 'string' && legacyServiceRequests.has(request)) {
+    console.log(`⏭️ Skipping legacy service require: ${request}`);
     return { shutdown() {} };
   }
-
   return originalLoad.apply(this, arguments);
 };
 
@@ -111,6 +109,7 @@ app.whenReady().then(() => {
   console.log(`📦 Service logs: ${logDir}`);
   console.log(`📦 Relay exists: ${fs.existsSync(path.join(serviceRoot, 'relay.js'))}`);
   console.log(`📦 QLab exists: ${fs.existsSync(path.join(serviceRoot, 'js', 'qlab-bridge.js'))}`);
+  console.log(`📦 ws exists: ${fs.existsSync(path.join(serviceRoot, 'node_modules', 'ws'))}`);
 
   startNodeService('ART-NET relay', 'relay.js');
   startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));

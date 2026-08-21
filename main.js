@@ -241,7 +241,6 @@ function createWindow() {
         const originalRenderCueSync = qlab.renderCueSync.bind(qlab);
         let lastStructureSignature = null;
         let hasRendered = false;
-
         const getCueNumber = cue => String(cue?.number ?? '').trim();
 
         const getStructureSignature = () => JSON.stringify(
@@ -263,7 +262,6 @@ function createWindow() {
           const box = document.getElementById('qlabSyncList');
           const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
           if (!box) return;
-
           let rowIndex = 0;
           cues.forEach(cue => {
             const q = getCueNumber(cue);
@@ -276,22 +274,16 @@ function createWindow() {
         const updatePlaybackOnly = () => {
           const box = document.getElementById('qlabSyncList');
           const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
-          if (!box || !cues.length || box.children.length !== cues.filter(c => getCueNumber(c)).length) {
-            return false;
-          }
-
+          if (!box || !cues.length || box.children.length !== cues.filter(c => getCueNumber(c)).length) return false;
           let rowIndex = 0;
           for (const cue of cues) {
             const q = getCueNumber(cue);
             if (!q) continue;
-
             const row = box.children[rowIndex++];
             if (!row || row.dataset.qlabCueNumber !== q) return false;
-
             const active = q === String(qlab.activeCue ?? '');
             row.style.background = active ? '#1a3a2a' : '#2a2a3a';
             row.style.borderLeft = '3px solid ' + (active ? '#0f6' : '#444');
-
             let elapsed = row.querySelector('.qlab-active-time');
             if (active) {
               if (!elapsed) {
@@ -302,17 +294,13 @@ function createWindow() {
                 row.insertBefore(elapsed, goButton || null);
               }
               elapsed.textContent = '▶ ' + Number(qlab.activeElapsed || 0).toFixed(2) + 's';
-            } else if (elapsed) {
-              elapsed.remove();
-            }
+            } else if (elapsed) elapsed.remove();
           }
-
           return true;
         };
 
         qlab.renderCueSync = function stableRenderCueSync() {
           const signature = getStructureSignature();
-
           if (!hasRendered || signature !== lastStructureSignature) {
             originalRenderCueSync();
             lastStructureSignature = signature;
@@ -320,25 +308,20 @@ function createWindow() {
             annotateRows();
             return;
           }
-
           if (!updatePlaybackOnly()) {
             originalRenderCueSync();
             lastStructureSignature = signature;
             annotateRows();
           }
         };
-
         window.__qlabStableCueRenderer = true;
       })();
-    `).catch(err => {
-      console.error('❌ QLab stable cue renderer failed:', err);
-    });
+    `).catch(err => console.error('❌ QLab stable cue renderer failed:', err));
 
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__blindLiveMode) return;
         window.__blindLiveMode = true;
-
         const installStyles = () => {
           if (document.getElementById('__blindLiveStyles')) return;
           const style = document.createElement('style');
@@ -346,21 +329,16 @@ function createWindow() {
           style.textContent = '\n            .console-mode-switch{display:flex;align-items:center;gap:4px;margin-right:10px;padding:3px;background:#0b0b0b;border:1px solid #3b3b3b;border-radius:8px}\n            .console-mode-switch button{border:1px solid transparent;background:#151515;color:#999;border-radius:5px;padding:7px 13px;font:700 11px monospace;letter-spacing:.6px;cursor:pointer}\n            .console-mode-switch button.live.active{background:#315c35;color:#9dffad;border-color:#6fbd76;box-shadow:0 0 10px #315c3544}\n            .console-mode-switch button.blind.active{background:#173d70;color:#9ac9ff;border-color:#4b9cff;box-shadow:0 0 10px #2468b844}\n            body.console-blind .page-title strong{color:#75b8ff}\n            body.console-blind .control-deck-header strong{color:#75b8ff}\n          ';
           document.head.appendChild(style);
         };
-
         installStyles();
-
         const statusBar = document.querySelector('.topbar-status');
         if (!statusBar) return;
-
         const switcher = document.createElement('div');
         switcher.className = 'console-mode-switch';
         switcher.innerHTML = '<button class="live active" type="button">LIVE</button><button class="blind" type="button">BLIND</button>';
         statusBar.insertBefore(switcher, statusBar.firstChild);
-
         const liveButton = switcher.querySelector('.live');
         const blindButton = switcher.querySelector('.blind');
         let mode = 'LIVE';
-
         const notifyVisualizer = () => {
           try {
             if (typeof window.sendToVisualizer === 'function') window.sendToVisualizer();
@@ -368,7 +346,6 @@ function createWindow() {
             if (v && !v.closed) v.postMessage({type:'CONSOLE_MODE',mode}, '*');
           } catch (_) {}
         };
-
         const setMode = next => {
           mode = String(next).toUpperCase() === 'BLIND' ? 'BLIND' : 'LIVE';
           liveButton.classList.toggle('active', mode === 'LIVE');
@@ -384,7 +361,6 @@ function createWindow() {
           if (typeof window.sendToVisualizer === 'function') window.sendToVisualizer();
           console.log('🎛 Console mode:', mode);
         };
-
         const originalSend = window.ArtNet?.send?.bind(window.ArtNet);
         if (window.ArtNet && originalSend && !window.ArtNet.__blindPatched) {
           window.ArtNet.__blindPatched = true;
@@ -398,16 +374,25 @@ function createWindow() {
             return originalSend();
           };
         }
-
         liveButton.onclick = () => setMode('LIVE');
         blindButton.onclick = () => setMode('BLIND');
         window.setConsoleMode = setMode;
         window.getConsoleMode = () => mode;
         setMode('LIVE');
       })();
-    `).catch(err => {
-      console.error('❌ Blind/live mode initialisation failed:', err);
-    });
+    `).catch(err => console.error('❌ Blind/live mode initialisation failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__rdmScriptLoader) return;
+        window.__rdmScriptLoader = true;
+        const script = document.createElement('script');
+        script.src = 'js/rdm.js';
+        script.onload = () => console.log('✅ RDM patching UI loaded');
+        script.onerror = err => console.error('❌ RDM patching UI failed to load:', err);
+        document.head.appendChild(script);
+      })();
+    `).catch(err => console.error('❌ RDM UI loader failed:', err));
   });
 
   mainWindow.on('closed', () => {
@@ -419,11 +404,8 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   startServices();
   createWindow();
-
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 }).catch(err => {
   console.error('❌ Electron startup failed:', err);
@@ -431,10 +413,7 @@ app.whenReady().then(() => {
   app.quit();
 });
 
-app.on('before-quit', () => {
-  stopServices();
-});
-
+app.on('before-quit', () => stopServices());
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });

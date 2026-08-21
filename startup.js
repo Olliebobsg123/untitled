@@ -1,5 +1,6 @@
 const { app } = require('electron');
 const { spawn } = require('child_process');
+const dgram = require('dgram');
 const Module = require('module');
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +18,35 @@ const serviceRoot = app.isPackaged
 // Finder does not give us a useful terminal, so always persist service output.
 const logDir = path.join(app.getPath('logs'), 'services');
 fs.mkdirSync(logDir, { recursive: true });
+
+function requestLocalNetworkAccess() {
+  // macOS Local Network privacy is attached to the responsible GUI app.
+  // Terminal-launched command-line tools are automatically allowed, while a
+  // Finder-launched app must first perform a local-network operation so macOS
+  // can ask the user for permission. A UDP connect is enough to trigger the
+  // permission check and does not transmit an Art-Net packet.
+  const target = process.env.ARTNET_TARGET || '192.168.1.1';
+  const port = 6454;
+  const socket = dgram.createSocket('udp4');
+
+  socket.once('error', err => {
+    console.error(`❌ Local Network permission/network check failed → ${target}:${port}:`, err.message);
+    try { socket.close(); } catch (_) {}
+  });
+
+  try {
+    console.log(`🔐 Requesting macOS Local Network access for ${target}:${port}...`);
+    socket.connect(port, target, () => {
+      console.log('✅ Local Network access check completed.');
+      setTimeout(() => {
+        try { socket.close(); } catch (_) {}
+      }, 250);
+    });
+  } catch (err) {
+    console.error('❌ Could not perform Local Network access check:', err);
+    try { socket.close(); } catch (_) {}
+  }
+}
 
 function startNodeService(label, relativeScript) {
   const scriptPath = path.join(serviceRoot, relativeScript);
@@ -36,8 +66,7 @@ function startNodeService(label, relativeScript) {
 
   const env = {
     ...process.env,
-    // This is the important bit for Finder launches: run Electron's bundled
-    // runtime as ordinary Node so dgram uses the normal macOS network stack.
+    // Run the service with Electron's bundled runtime as ordinary Node.
     ELECTRON_RUN_AS_NODE: '1',
     LIGHTING_CONSOLE_SERVICE_CHILD: '1',
     LIGHTING_CONSOLE_LOG_DIR: logDir,
@@ -133,6 +162,11 @@ app.whenReady().then(() => {
   console.log(`📦 Service logs: ${logDir}`);
   console.log(`📦 Relay exists: ${fs.existsSync(path.join(serviceRoot, 'relay.js'))}`);
   console.log(`📦 QLab exists: ${fs.existsSync(path.join(serviceRoot, 'js', 'qlab-bridge.js'))}`);
+
+  // Do this from the Electron app itself, not the child process. This is
+  // important for Finder launches because macOS Local Network privacy tracks
+  // the responsible GUI app and its helper processes together.
+  requestLocalNetworkAccess();
 
   startNodeService('ART-NET relay', 'relay.js');
   startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));

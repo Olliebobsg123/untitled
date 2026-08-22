@@ -22,18 +22,19 @@
       const centralSettings = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
       const merged = { ...oldSettings, ...centralSettings };
 
-      // Repair the bad value introduced by the previous settings build.
-      // This migration runs exactly once. After it has run, universe 3 (or
-      // any other universe) is a perfectly valid programmer choice and is
-      // never changed automatically again.
+      // The previous builds could leave universe 3 in localStorage.  Use a
+      // NEW migration version so that an installation which already ran the
+      // older migration is repaired too.  This happens once only; after the
+      // value is repaired, choosing universe 3 is completely valid and will
+      // be preserved.
       const migrationKey = "output-universe-migration";
-      if (localStorage.getItem(migrationKey) !== "2" && Number(merged.universe) === 3) {
-        merged.universe = 1;
-        localStorage.setItem(migrationKey, "2");
-        localStorage.setItem("dmxOutputSettings", JSON.stringify({ ...oldSettings, universe: 1 }));
-        localStorage.setItem("lighting-output-settings", JSON.stringify({ ...centralSettings, universe: 1 }));
-      } else if (localStorage.getItem(migrationKey) !== "2") {
-        localStorage.setItem(migrationKey, "2");
+      if (localStorage.getItem(migrationKey) !== "3") {
+        if (Number(merged.universe) === 3) {
+          merged.universe = 1;
+          localStorage.setItem("dmxOutputSettings", JSON.stringify({ ...oldSettings, universe: 1 }));
+          localStorage.setItem("lighting-output-settings", JSON.stringify({ ...centralSettings, universe: 1 }));
+        }
+        localStorage.setItem(migrationKey, "3");
       }
       return merged;
     } catch (_) { return {}; }
@@ -121,7 +122,6 @@
   let reconnectTimer = null;
   let usbReconnectTimer = null;
   let frameTimer = null;
-  let stopping = false;
 
   const sendConfig = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -167,11 +167,10 @@
   const connect = () => {
     clearTimeout(reconnectTimer);
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
-    stopping = false;
     try {
       socket = new WebSocket("ws://localhost:8081");
       socket.onopen = () => { sendConfig(); if (settings.enabled && settings.protocol !== "usb" && !isBlind()) sendDMX(); };
-      socket.onclose = () => { socket = null; if (!stopping) reconnectTimer = setTimeout(connect, 1500); };
+      socket.onclose = () => { socket = null; reconnectTimer = setTimeout(connect, 1500); };
       socket.onerror = () => {};
     } catch (_) { reconnectTimer = setTimeout(connect, 1500); }
   };
@@ -205,8 +204,12 @@
   const applyOutputSettings = () => {
     settings.protocol = normaliseProtocol($("outMode")?.value || "Art-Net");
     if (settings.protocol !== "usb") settings.target = String($("artnetIp")?.value || settings.target).trim() || "127.0.0.1";
-    const raw = Number($("artnetUni")?.value ?? settings.universe);
-    settings.universe = settings.protocol === "sacn" ? clamp(raw, 1, 63999, 1) : clamp(raw, 0, 32767, 1);
+    const raw = Number($("artnetUni")?.value);
+    // Never fall back to a hard-coded universe when the field contains a
+    // valid programmer value. An empty/invalid field falls back to 1 only.
+    settings.universe = settings.protocol === "sacn"
+      ? clamp(raw, 1, 63999, 1)
+      : clamp(raw, 0, 32767, 1);
     if (window.ArtNet) {
       ArtNet.ip = settings.target;
       ArtNet.universe = settings.universe;
@@ -220,7 +223,9 @@
     log(`Output settings → ${settings.protocol === "usb" ? "USB DMX" : settings.protocol.toUpperCase()} / universe ${settings.universe}`, "ok");
   };
 
-  ["artnetIp", "artnetUni", "outMode"].forEach(id => $(id)?.addEventListener("change", applyOutputSettings));
+  ["artnetIp", "artnetUni", "outMode"].forEach(id => {
+    $(id)?.addEventListener("change", applyOutputSettings);
+  });
 
   $("artnetStart")?.addEventListener("click", e => {
     e?.preventDefault();

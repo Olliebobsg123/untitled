@@ -94,6 +94,9 @@ function fxSetEffectTargets(ids, mode = "custom") {
   return [...State.effectTargetIds];
 }
 function fxCaptureEffectTargets(options = {}) {
+  if (Array.isArray(options.fixtureIds) || options.fixtureIds instanceof Set) {
+    return { fixtureMode: options.fixtureMode || options.targetMode || "custom", fixtureIds: fxNormaliseIds(options.fixtureIds) };
+  }
   const modeSelect = document.getElementById("effectFixtureMode");
   const mode = options.fixtureMode || options.targetMode || (modeSelect ? modeSelect.value : State.effectTargetMode || "selected");
   if (mode === "all") return { fixtureMode: "all", fixtureIds: fxAllFixtures().map(fxGetFixtureId) };

@@ -265,7 +265,7 @@ function createWindow() {
               triggers: triggers.map(t => ({
                 time: Number(t?.time) || 0,
                 lights: Array.isArray(t?.lights) ? t.lights : []
-              })
+              }))
             };
           })
         );

@@ -63,6 +63,18 @@ function createWindow() {
   mainWindow.webContents.once('did-finish-load', () => {
     mainWindow.webContents.executeJavaScript(`
       (() => {
+        if (window.__centralOutputLoader) return;
+        window.__centralOutputLoader = true;
+        const script = document.createElement('script');
+        script.src = 'js/central-output.js';
+        script.onload = () => console.log('✅ Central Art-Net/sACN output policy loaded');
+        script.onerror = err => console.error('❌ Central output policy failed to load:', err);
+        document.head.appendChild(script);
+      })();
+    `).catch(err => console.error('❌ Central output policy loader failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
         if (window.__visualiserPerformancePatch) return;
         window.__visualiserPerformancePatch = true;
 
@@ -253,7 +265,7 @@ function createWindow() {
               triggers: triggers.map(t => ({
                 time: Number(t?.time) || 0,
                 lights: Array.isArray(t?.lights) ? t.lights : []
-              }))
+              })
             };
           })
         );

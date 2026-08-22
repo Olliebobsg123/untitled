@@ -22,6 +22,7 @@ const cid = crypto.randomBytes(16);
 
 const output = {
   protocol: 'artnet',
+  enabled: false,
   target: ARTNET_TARGET,
   universe: 0,
   priority: 100,
@@ -110,11 +111,9 @@ function buildArtDMX(dmx, universe = 0) {
   for (let i = 0; i < length; i++) packet[18 + i] = Number(values[i]) & 0xff;
   return packet;
 }
-
 function setFlagsAndLength(packet, offset, length) {
   packet.writeUInt16BE(0x7000 | (length & 0x0fff), offset);
 }
-
 function buildSacnDMX(dmx, universe = 1, priority = 100) {
   const values = Array.isArray(dmx) || ArrayBuffer.isView(dmx) ? Array.from(dmx) : [];
   const length = Math.max(2, Math.min(512, values.length));
@@ -122,12 +121,10 @@ function buildSacnDMX(dmx, universe = 1, priority = 100) {
   packet.writeUInt16BE(0x0010, 0);
   packet.writeUInt16BE(0x0000, 2);
   Buffer.from([0x41,0x53,0x43,0x2d,0x45,0x31,0x2e,0x31,0x37,0x00,0x00,0x00]).copy(packet, 4);
-
   const rootPduLength = 108 + length;
   setFlagsAndLength(packet, 16, rootPduLength);
   packet.writeUInt32BE(0x00000004, 18);
   cid.copy(packet, 22);
-
   const frameOffset = 38;
   const framePduLength = 86 + length;
   setFlagsAndLength(packet, frameOffset, framePduLength);
@@ -140,9 +137,8 @@ function buildSacnDMX(dmx, universe = 1, priority = 100) {
   packet[111] = sacnSequence = (sacnSequence + 1) & 0xff;
   packet[112] = 0;
   packet.writeUInt16BE(Math.max(1, Math.min(63999, Number(universe) || 1)), 113);
-
   const dmpOffset = 115;
-  const dmpPduLength = 7 + (length + 1);
+  const dmpPduLength = 8 + length;
   setFlagsAndLength(packet, dmpOffset, dmpPduLength);
   packet[dmpOffset + 2] = 0x02;
   packet[dmpOffset + 3] = 0xa1;
@@ -153,12 +149,10 @@ function buildSacnDMX(dmx, universe = 1, priority = 100) {
   for (let i = 0; i < length; i++) packet[dmpOffset + 11 + i] = Number(values[i]) & 0xff;
   return packet;
 }
-
 function sacnTarget(universe) {
   const u = Math.max(1, Math.min(63999, Number(universe) || 1));
   return `239.255.${(u >> 8) & 0xff}.${u & 0xff}`;
 }
-
 function sendArtNet(packet, target = ARTNET_TARGET) {
   if (shuttingDown || !udpReady) { packetsRejected++; return false; }
   udp.send(packet, ARTNET_PORT, target, err => {
@@ -167,7 +161,6 @@ function sendArtNet(packet, target = ARTNET_TARGET) {
   });
   return true;
 }
-
 function sendSacn(packet, target) {
   if (shuttingDown || !udpReady) { packetsRejected++; return false; }
   udp.send(packet, SACN_PORT, target, err => {
@@ -176,34 +169,29 @@ function sendSacn(packet, target) {
   });
   return true;
 }
-
 function sendDMXBuffer(dmx, universe) {
+  if (!output.enabled) return false;
   if (output.protocol === 'sacn') {
     const u = Math.max(1, Math.min(63999, Number(universe ?? output.universe) || 1));
     const target = output.multicast ? sacnTarget(u) : (output.target || '127.0.0.1');
-    const packet = buildSacnDMX(dmx, u, output.priority);
-    console.log(`📤 sACN → ${target}:${SACN_PORT} universe=${u} priority=${output.priority}`);
-    return sendSacn(packet, target);
+    return sendSacn(buildSacnDMX(dmx, u, output.priority), target);
   }
-
   const u = Math.max(0, Math.min(32767, Number(universe ?? output.universe) || 0));
   const packet = buildArtDMX(dmx, u);
-  console.log(`📤 ART-DMX → ${output.target}:${ARTNET_PORT} universe=${u} channels=${packet.readUInt16BE(16)}`);
   return sendArtNet(packet, output.target || ARTNET_TARGET);
 }
-
 function applyOutputConfig(message) {
   const protocol = String(message.protocol || 'artnet').toLowerCase() === 'sacn' ? 'sacn' : 'artnet';
   output.protocol = protocol;
+  output.enabled = Boolean(message.enabled);
   output.target = String(message.target || (protocol === 'artnet' ? ARTNET_TARGET : '127.0.0.1'));
   output.universe = Math.max(0, Math.min(63999, Number(message.universe) || (protocol === 'sacn' ? 1 : 0)));
   output.priority = Math.max(0, Math.min(200, Number(message.priority) || 100));
   output.multicast = Boolean(message.multicast);
   output.sourceName = String(message.sourceName || 'Lighting Console').slice(0, 64);
-  console.log(`🔄 OUTPUT → ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe} multicast=${output.multicast}`);
+  console.log(`🔄 OUTPUT → ${output.enabled ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe}`);
   broadcast({ type: 'OUTPUT_STATUS', ...output, online: udpReady });
 }
-
 function broadcast(message) {
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
@@ -211,7 +199,6 @@ function broadcast(message) {
     }
   });
 }
-
 function buildTodRequest(universe) {
   const portAddress = Math.max(0, Math.min(32767, Number(universe) || 0));
   const packet = Buffer.alloc(24);
@@ -251,7 +238,6 @@ function parseTodData(packet, sourceIp) {
 }
 udp.on('message', (packet, rinfo) => {
   if (isArtNetPacket(packet, 0x2100)) {
-    console.log(`✅ ART-NET NODE REPLIED ← ${rinfo.address}`);
     broadcast({ type: 'ARTNET_NODE', ip: rinfo.address });
     return;
   }
@@ -261,7 +247,7 @@ udp.on('message', (packet, rinfo) => {
     return;
   }
   if (isArtNetDMX(packet)) {
-    wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) { try { client.send(packet, { binary: true }); } catch (err) { console.error('❌ Visualiser broadcast failed:', err.message); } } });
+    wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) { try { client.send(packet, { binary: true }); } catch (_) {} } });
   }
 });
 wss.on('connection', (ws, request) => {
@@ -274,28 +260,25 @@ wss.on('connection', (ws, request) => {
       try {
         const message = JSON.parse(String(data));
         if (message?.type === 'OUTPUT_CONFIG') { applyOutputConfig(message); return; }
-        if (message?.type === 'RDM_TOD_REQUEST') { sendArtNet(buildTodRequest(message.universe), output.target || ARTNET_TARGET); return; }
-        if (message?.type === 'RDM_TOD_FLUSH') { sendArtNet(buildTodControl(message.universe, 1), output.target || ARTNET_TARGET); setTimeout(() => sendArtNet(buildTodRequest(message.universe), output.target || ARTNET_TARGET), 150); return; }
+        if (message?.type === 'RDM_TOD_REQUEST') { if (output.protocol === 'artnet') sendArtNet(buildTodRequest(message.universe), output.target || ARTNET_TARGET); return; }
+        if (message?.type === 'RDM_TOD_FLUSH') { if (output.protocol === 'artnet') { sendArtNet(buildTodControl(message.universe, 1), output.target || ARTNET_TARGET); setTimeout(() => sendArtNet(buildTodRequest(message.universe), output.target || ARTNET_TARGET), 150); } return; }
         if (message?.type === 'DMX_UPDATE' && message.dmx) { sendDMXBuffer(message.dmx, message.universe ?? message.portAddress); return; }
         if (Array.isArray(message?.dmx)) { sendDMXBuffer(message.dmx, message.universe); return; }
       } catch (err) { console.warn('⚠️ Invalid WebSocket JSON:', err.message); }
       packetsRejected++; return;
     }
-
     const pkt = Buffer.from(data);
-    if (!isArtNetDMX(pkt)) { packetsRejected++; console.warn(`⚠️ REJECTED invalid/non-DMX Art-Net packet (${pkt.length} bytes)`); return; }
+    if (!isArtNetDMX(pkt)) { packetsRejected++; return; }
     const universe = pkt.readUInt16LE(14);
     const length = pkt.readUInt16BE(16);
     const dmx = pkt.subarray(18, 18 + length);
     sendDMXBuffer(dmx, universe);
-
-    wss.clients.forEach(client => { if (client !== ws && client.readyState === WebSocket.OPEN) { try { client.send(pkt, { binary: true }); } catch (err) { console.error('❌ Visualiser broadcast failed:', err.message); } } });
+    wss.clients.forEach(client => { if (client !== ws && client.readyState === WebSocket.OPEN) { try { client.send(pkt, { binary: true }); } catch (_) {} } });
   });
   ws.on('error', err => console.error(`❌ WebSocket client ERROR (${remote}):`, err.message));
-  ws.on('close', (code, reason) => { console.log(`🔌 WebSocket client disconnected ← ${remote}`); });
+  ws.on('close', () => console.log(`🔌 WebSocket client disconnected ← ${remote}`));
 });
-
-const statsTimer = setInterval(() => console.log(`📊 RELAY STATUS — protocol=${output.protocol}, target=${output.target}, universe=${output.universe}, clients=${wss.clients.size}, received=${packetsReceived}, sent=${packetsSent}, rejected=${packetsRejected}, udpReady=${udpReady}`), 10000);
+const statsTimer = setInterval(() => console.log(`📊 RELAY STATUS — ${output.enabled ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe}, clients=${wss.clients.size}, received=${packetsReceived}, sent=${packetsSent}, rejected=${packetsRejected}, udpReady=${udpReady}`), 10000);
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;

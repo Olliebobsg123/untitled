@@ -22,20 +22,26 @@
       const centralSettings = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
       const merged = { ...oldSettings, ...centralSettings };
 
-      // A previous USB/settings build accidentally left universe 3 as the
-      // initial value. Migrate that broken default once; after this, whatever
-      // universe the programmer chooses is preserved normally.
-      if (!localStorage.getItem("output-universe-default-fixed") && Number(merged.universe) === 3) {
+      // Repair the bad value introduced by the previous settings build.
+      // This migration runs exactly once. After it has run, universe 3 (or
+      // any other universe) is a perfectly valid programmer choice and is
+      // never changed automatically again.
+      const migrationKey = "output-universe-migration";
+      if (localStorage.getItem(migrationKey) !== "2" && Number(merged.universe) === 3) {
         merged.universe = 1;
-        localStorage.setItem("output-universe-default-fixed", "1");
+        localStorage.setItem(migrationKey, "2");
+        localStorage.setItem("dmxOutputSettings", JSON.stringify({ ...oldSettings, universe: 1 }));
+        localStorage.setItem("lighting-output-settings", JSON.stringify({ ...centralSettings, universe: 1 }));
+      } else if (localStorage.getItem(migrationKey) !== "2") {
+        localStorage.setItem(migrationKey, "2");
       }
       return merged;
     } catch (_) { return {}; }
   })();
 
   const normaliseProtocol = value => {
-    const p = String(value || "Art-Net").toLowerCase();
-    if (p === "sacn") return "sacn";
+    const p = String(value || "Art-Net").toLowerCase().trim();
+    if (p === "sacn" || p === "s-acn") return "sacn";
     if (p === "usb dmx" || p === "usb" || p === "usb-dmx") return "usb";
     return "artnet";
   };
@@ -81,11 +87,12 @@
   const syncUI = () => {
     ensureUsbOption();
     if ($("artnetIp")) $("artnetIp").value = settings.target;
+    if ($("artnetPort")) $("artnetPort").value = settings.protocol === "sacn" ? 5568 : 6454;
     if ($("artnetUni")) {
       $("artnetUni").min = settings.protocol === "sacn" ? "1" : "0";
       $("artnetUni").max = settings.protocol === "sacn" ? "63999" : "32767";
       $("artnetUni").step = "1";
-      $("artnetUni").value = settings.universe;
+      $("artnetUni").value = String(settings.universe);
     }
     if ($("outMode")) {
       $("outMode").value = settings.protocol === "sacn" ? "sACN" : settings.protocol === "usb" ? "USB DMX" : "Art-Net";
@@ -122,6 +129,7 @@
       type: "OUTPUT_CONFIG",
       protocol: settings.protocol,
       enabled: settings.enabled && !isBlind() && settings.protocol !== "usb",
+      mode: isBlind() ? "BLIND" : "LIVE",
       target: settings.target,
       universe: settings.universe,
       priority: 100,

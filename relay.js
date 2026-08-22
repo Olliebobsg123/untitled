@@ -23,6 +23,7 @@ const cid = crypto.randomBytes(16);
 const output = {
   protocol: 'artnet',
   enabled: true,
+  mode: 'LIVE',
   target: ARTNET_TARGET,
   universe: 0,
   priority: 100,
@@ -97,7 +98,7 @@ function buildArtPoll() {
   packet[13] = 0;
   return packet;
 }
-function buildArtDMX(dmx, universe = 0) {
+function buildArtDMX(dmx, universe = output.universe) {
   const values = Array.isArray(dmx) || ArrayBuffer.isView(dmx) ? Array.from(dmx) : [];
   const length = Math.max(2, Math.min(512, values.length));
   const packet = Buffer.alloc(18 + length);
@@ -106,7 +107,8 @@ function buildArtDMX(dmx, universe = 0) {
   packet.writeUInt16BE(14, 10);
   packet[12] = sequence = (sequence + 1) & 0xff;
   packet[13] = 0;
-  packet.writeUInt16LE(Math.max(0, Math.min(32767, Number(universe) || 0)), 14);
+  const u = Math.max(0, Math.min(32767, Number(universe ?? output.universe)));
+  packet.writeUInt16LE(Number.isFinite(u) ? u : 0, 14);
   packet.writeUInt16BE(length, 16);
   for (let i = 0; i < length; i++) packet[18 + i] = Number(values[i]) & 0xff;
   return packet;
@@ -114,7 +116,7 @@ function buildArtDMX(dmx, universe = 0) {
 function setFlagsAndLength(packet, offset, length) {
   packet.writeUInt16BE(0x7000 | (length & 0x0fff), offset);
 }
-function buildSacnDMX(dmx, universe = 1, priority = 100) {
+function buildSacnDMX(dmx, universe = output.universe, priority = 100) {
   const values = Array.isArray(dmx) || ArrayBuffer.isView(dmx) ? Array.from(dmx) : [];
   const length = Math.max(2, Math.min(512, values.length));
   const packet = Buffer.alloc(126 + length);
@@ -122,12 +124,10 @@ function buildSacnDMX(dmx, universe = 1, priority = 100) {
   packet.writeUInt16BE(0x0000, 2);
   Buffer.from([0x41,0x53,0x43,0x2d,0x45,0x31,0x2e,0x31,0x37,0x00,0x00,0x00]).copy(packet, 4);
 
-  // Root layer: vector + CID + framing PDU.
   setFlagsAndLength(packet, 16, 620);
   packet.writeUInt32BE(0x00000004, 18);
   cid.copy(packet, 22);
 
-  // Framing layer: source name, priority, sequence and universe + DMP PDU.
   const frameOffset = 38;
   setFlagsAndLength(packet, frameOffset, 598);
   packet.writeUInt32BE(0x00000002, 40);
@@ -137,10 +137,9 @@ function buildSacnDMX(dmx, universe = 1, priority = 100) {
   packet[109] = 0;
   packet[110] = 0;
   packet[111] = sacnSequence = (sacnSequence + 1) & 0xff;
-  packet[112] = 0;
-  packet.writeUInt16BE(Math.max(1, Math.min(63999, Number(universe) || 1)), 113);
+  const u = Math.max(1, Math.min(63999, Number(universe ?? output.universe)));
+  packet.writeUInt16BE(Number.isFinite(u) ? u : 1, 113);
 
-  // DMP layer: one start-code byte followed by the 512 DMX slots.
   const dmpOffset = 115;
   setFlagsAndLength(packet, dmpOffset, 521);
   packet[dmpOffset + 2] = 0x02;
@@ -173,25 +172,30 @@ function sendSacn(packet, target) {
   return true;
 }
 function sendDMXBuffer(dmx, universe) {
-  if (!output.enabled) return false;
+  if (!output.enabled || output.mode !== 'LIVE') return false;
   if (output.protocol === 'sacn') {
-    const u = Math.max(1, Math.min(63999, Number(universe ?? output.universe) || 1));
+    const u = Math.max(1, Math.min(63999, Number(universe ?? output.universe)));
     const target = output.multicast ? sacnTarget(u) : (output.target || '127.0.0.1');
     return sendSacn(buildSacnDMX(dmx, u, output.priority), target);
   }
-  const u = Math.max(0, Math.min(32767, Number(universe ?? output.universe) || 0));
+  const u = Math.max(0, Math.min(32767, Number(universe ?? output.universe)));
   return sendArtNet(buildArtDMX(dmx, u), output.target || ARTNET_TARGET);
 }
 function applyOutputConfig(message) {
   const protocol = String(message.protocol || 'artnet').toLowerCase() === 'sacn' ? 'sacn' : 'artnet';
   output.protocol = protocol;
   output.enabled = Boolean(message.enabled);
+  output.mode = String(message.mode || 'LIVE').toUpperCase() === 'BLIND' ? 'BLIND' : 'LIVE';
   output.target = String(message.target || (protocol === 'artnet' ? ARTNET_TARGET : '127.0.0.1'));
-  output.universe = Math.max(0, Math.min(63999, Number(message.universe) || (protocol === 'sacn' ? 1 : 0)));
+  const rawUniverse = Number(message.universe);
+  const fallbackUniverse = protocol === 'sacn' ? 1 : 0;
+  output.universe = protocol === 'sacn'
+    ? Math.max(1, Math.min(63999, Number.isFinite(rawUniverse) ? Math.round(rawUniverse) : fallbackUniverse))
+    : Math.max(0, Math.min(32767, Number.isFinite(rawUniverse) ? Math.round(rawUniverse) : fallbackUniverse));
   output.priority = Math.max(0, Math.min(200, Number(message.priority) || 100));
   output.multicast = Boolean(message.multicast);
   output.sourceName = String(message.sourceName || 'Lighting Console').slice(0, 64);
-  console.log(`🔄 OUTPUT → ${output.enabled ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe}`);
+  console.log(`🔄 OUTPUT → ${output.enabled && output.mode === 'LIVE' ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe} mode=${output.mode}`);
   broadcast({ type: 'OUTPUT_STATUS', ...output, online: udpReady });
 }
 function broadcast(message) {
@@ -252,30 +256,28 @@ wss.on('connection', (ws, request) => {
         if (message?.type === 'OUTPUT_CONFIG') { applyOutputConfig(message); return; }
         if (message?.type === 'RDM_TOD_REQUEST') { if (output.protocol === 'artnet') sendArtNet(buildTodRequest(message.universe), output.target || ARTNET_TARGET); return; }
         if (message?.type === 'RDM_TOD_FLUSH') { if (output.protocol === 'artnet') { sendArtNet(buildTodControl(message.universe, 1), output.target || ARTNET_TARGET); setTimeout(() => sendArtNet(buildTodRequest(message.universe), output.target || ARTNET_TARGET), 150); } return; }
-        if (message?.type === 'DMX_UPDATE' && message.dmx) { sendDMXBuffer(message.dmx, message.universe ?? message.portAddress); return; }
+        if (message?.type === 'DMX_UPDATE' && message.dmx) { sendDMXBuffer(message.dmx, message.universe); return; }
         if (Array.isArray(message?.dmx)) { sendDMXBuffer(message.dmx, message.universe); return; }
       } catch (err) { console.warn('⚠️ Invalid WebSocket JSON:', err.message); }
       packetsRejected++; return;
     }
     const pkt = Buffer.from(data);
     if (!isArtNetDMX(pkt)) { packetsRejected++; return; }
-    const universe = pkt.readUInt16LE(14);
+    if (output.mode !== 'LIVE' || !output.enabled) return;
     const length = pkt.readUInt16BE(16);
-    sendDMXBuffer(pkt.subarray(18, 18 + length), universe);
+    sendDMXBuffer(pkt.subarray(18, 18 + length), output.universe);
     wss.clients.forEach(client => { if (client !== ws && client.readyState === WebSocket.OPEN) { try { client.send(pkt, { binary: true }); } catch (_) {} } });
   });
   ws.on('error', err => console.error(`❌ WebSocket client ERROR (${remote}):`, err.message));
   ws.on('close', () => console.log(`🔌 WebSocket client disconnected ← ${remote}`));
 });
-const statsTimer = setInterval(() => console.log(`📊 RELAY STATUS — ${output.enabled ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe}, clients=${wss.clients.size}, received=${packetsReceived}, sent=${packetsSent}, rejected=${packetsRejected}, udpReady=${udpReady}`), 10000);
+const statsTimer = setInterval(() => console.log(`📊 RELAY STATUS — ${output.enabled && output.mode === 'LIVE' ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe} mode=${output.mode}, clients=${wss.clients.size}, rx=${packetsReceived}, tx=${packetsSent}, rejected=${packetsRejected}`), 10000);
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(statsTimer);
-  console.log('🛑 Shutting down DMX output relay...');
-  wss.clients.forEach(client => { try { client.close(); } catch (_) {} });
-  wss.close(() => { try { udp.close(); } catch (_) {} try { logStream?.end(); } catch (_) {} });
+  try { wss.close(); } catch (_) {}
+  try { udp.close(); } catch (_) {}
+  try { logStream?.end(); } catch (_) {}
 }
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
-module.exports = { sendArtNet, sendSacn, shutdown, buildTodRequest, buildTodControl, buildArtDMX, buildSacnDMX, applyOutputConfig };
+module.exports = { shutdown, output };

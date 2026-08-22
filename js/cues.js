@@ -36,10 +36,29 @@ function num(value, fallback = 0) {
     return Number.isFinite(n) ? n : fallback;
 }
 
+function normaliseEffectFixtureIds(ids) {
+    if (!Array.isArray(ids) && !(ids instanceof Set)) return [];
+    return [...new Set([...ids].filter(id => id != null).map(String))];
+}
+
 function snapshotCueEffect() {
     const effect = State.activeEffect;
     if (!effect || !effect.type) return null;
-    return { type: String(effect.type), speed: num(effect.speed, 1) };
+
+    // IMPORTANT: the effect type alone is not enough. Two saved effects can
+    // both be "rainbow" but target completely different fixtures. Store the
+    // exact target IDs with the cue so replaying a cue never falls back to
+    // whatever fixtures happen to be selected at the time.
+    const fixtureIds = normaliseEffectFixtureIds(effect.fixtureIds);
+    const snapshot = {
+        type: String(effect.type),
+        speed: num(effect.speed, 1),
+        fixtureMode: effect.fixtureMode || (fixtureIds.length ? "custom" : "selected"),
+        fixtureIds
+    };
+
+    if (effect.name) snapshot.name = String(effect.name);
+    return snapshot;
 }
 
 function stopCueEffect() {
@@ -55,7 +74,31 @@ function startCueEffectIfNeeded(cue) {
         cueLog("Cue contains an effect but the Effects Engine is unavailable", "warn");
         return;
     }
-    const effect = { type: cue.effect.type, speed: num(cue.effect.speed, 1) };
+
+    const saved = cue.effect;
+    const fixtureIds = normaliseEffectFixtureIds(saved.fixtureIds);
+    const effect = {
+        type: String(saved.type),
+        speed: num(saved.speed, 1)
+    };
+
+    // If the cue recorded a target list, replay that exact list. This is the
+    // crucial distinction between two effects such as "Rainbow" and
+    // "PAR Rainbow": both may have type="rainbow", but their fixtureIds are
+    // different and must remain different when a cue is played.
+    if (fixtureIds.length) {
+        effect.fixtureMode = "custom";
+        effect.fixtureIds = fixtureIds;
+    } else if (saved.fixtureMode === "all") {
+        effect.fixtureMode = "all";
+    } else {
+        // Older cues did not store effect targets. Keep their old behaviour
+        // rather than inventing a fixture list that could be wrong.
+        effect.fixtureMode = saved.fixtureMode || "selected";
+    }
+
+    if (saved.name) effect.name = String(saved.name);
+
     const started = window.startEffect(effect.type, effect);
     if (!started) cueLog("Cue effect could not be started: " + effect.type, "warn");
 }
@@ -210,7 +253,7 @@ function renderCues() {
         el.appendChild(small);
         if (cue.effect && cue.effect.type) {
             const effect = document.createElement("small");
-            effect.textContent = " ✦ " + cue.effect.type;
+            effect.textContent = " ✦ " + (cue.effect.name || cue.effect.type);
             el.appendChild(effect);
         }
         el.onclick = event => {
@@ -329,7 +372,7 @@ function recordCue(number, name, fadeMs = 800, follow = 0, followEnabled = false
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
     let message = "Recorded Cue " + number + ": " + State.cues[index].name + " - " + fixtureStates.length + " fixtures saved";
-    message += effect ? " - Effect: " + effect.type : " - No effect";
+    message += effect ? " - Effect: " + (effect.name || effect.type) : " - No effect";
     cueLog(message, "ok");
     return true;
 }

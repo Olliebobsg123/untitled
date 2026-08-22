@@ -20,7 +20,16 @@
     try {
       const oldSettings = JSON.parse(localStorage.getItem("dmxOutputSettings") || "{}");
       const centralSettings = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
-      return { ...oldSettings, ...centralSettings };
+      const merged = { ...oldSettings, ...centralSettings };
+
+      // A previous USB/settings build accidentally left universe 3 as the
+      // initial value. Migrate that broken default once; after this, whatever
+      // universe the programmer chooses is preserved normally.
+      if (!localStorage.getItem("output-universe-default-fixed") && Number(merged.universe) === 3) {
+        merged.universe = 1;
+        localStorage.setItem("output-universe-default-fixed", "1");
+      }
+      return merged;
     } catch (_) { return {}; }
   })();
 
@@ -85,9 +94,6 @@
   };
   syncUI();
 
-  $("patchUni")?.closest(".form-row")?.remove();
-  if (Array.isArray(window.State?.fixtures)) State.fixtures.forEach(fixture => { if (fixture) delete fixture.uni; });
-
   if (!WebSocket.prototype.__blindDMXGuard) {
     const originalSend = WebSocket.prototype.send;
     WebSocket.prototype.send = function(data) {
@@ -131,7 +137,8 @@
       enabled: settings.enabled && settings.protocol === "usb" && !isBlind(),
       mode: isBlind() ? "BLIND" : "LIVE",
       device: settings.usbDevice,
-      driver: settings.usbDriver
+      driver: settings.usbDriver,
+      universe: settings.universe
     }));
   };
 
@@ -142,7 +149,7 @@
     }
     const dmx = window.State?.dmx instanceof Uint8Array ? Array.from(State.dmx) : Array.from(window.State?.dmx || []);
     if (settings.protocol === "usb") {
-      if (usbSocket?.readyState === WebSocket.OPEN && settings.enabled) usbSocket.send(JSON.stringify({ type: "USB_DMX_UPDATE", dmx }));
+      if (usbSocket?.readyState === WebSocket.OPEN && settings.enabled) usbSocket.send(JSON.stringify({ type: "USB_DMX_UPDATE", dmx, universe: settings.universe }));
     } else if (socket?.readyState === WebSocket.OPEN && settings.enabled) {
       socket.send(JSON.stringify({ type: "DMX_UPDATE", dmx }));
     }
@@ -170,12 +177,8 @@
       usbSocket.onmessage = event => {
         try {
           const message = JSON.parse(event.data);
-          if (message?.type === "USB_DMX_STATUS") {
-            window.dispatchEvent(new CustomEvent("usb-dmx-status", { detail: message }));
-          }
-          if (message?.type === "USB_DMX_PORTS") {
-            window.dispatchEvent(new CustomEvent("usb-dmx-ports", { detail: message.ports || [] }));
-          }
+          if (message?.type === "USB_DMX_STATUS") window.dispatchEvent(new CustomEvent("usb-dmx-status", { detail: message }));
+          if (message?.type === "USB_DMX_PORTS") window.dispatchEvent(new CustomEvent("usb-dmx-ports", { detail: message.ports || [] }));
         } catch (_) {}
       };
       usbSocket.onclose = () => { usbSocket = null; usbReconnectTimer = setTimeout(connectUSB, 2000); };

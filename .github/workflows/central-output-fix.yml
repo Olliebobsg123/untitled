@@ -1,0 +1,74 @@
+name: Apply central DMX output routing
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/central-output-fix.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch central output routing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('js/dmx.js')
+          s = p.read_text()
+          start = s.find('// Multi-universe output:')
+          if start != -1:
+              s = s[:start].rstrip() + '\n'
+          old = '''send(){
+          if(this.enabled&&ws?.readyState===WebSocket.OPEN)ws.send(this.makePacket(State.dmx,this.universe));
+          sendVisualizerDMX();
+          },'''
+          new = '''send(){
+          if(this.enabled&&ws?.readyState===WebSocket.OPEN){
+            const protocol=String(window.DMXOutputProtocol||this.outputProtocol||"artnet").toLowerCase();
+            const settings=window.DMXOutputSettings||{};
+            const configured=Number(settings.universe);
+            const universe=Number.isFinite(configured)?configured:(protocol==="sacn"?1:0);
+            ws.send(JSON.stringify({type:"DMX_UPDATE",universe:protocol==="sacn"?Math.max(1,universe):Math.max(0,universe-1),dmx:Array.from(State.dmx)}));
+          }
+          sendVisualizerDMX();
+          },'''
+          if old not in s:
+              raise SystemExit('expected ArtNet.send block not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          m = Path('js/modes.js')
+          s = m.read_text()
+          marker = '  function sendOutputConfig(enabled){'
+          insert = '''  function syncCentralOutputSettings(){
+            const cfg=outputSettings||{};
+            window.DMXOutputSettings={...cfg};
+            window.DMXOutputProtocol=String(cfg.protocol||"artnet").toLowerCase();
+            if(window.ArtNet){window.ArtNet.outputProtocol=window.DMXOutputProtocol;window.ArtNet.universe=Number(cfg.universe)||0;}
+          }
+
+'''
+          if insert.strip() not in s:
+              if marker not in s: raise SystemExit('modes marker not found')
+              s=s.replace(marker, insert+marker, 1)
+          s=s.replace('    const message={type:"OUTPUT_CONFIG",enabled:Boolean(enabled),...cfg};', '    syncCentralOutputSettings();\n    const message={type:"OUTPUT_CONFIG",enabled:Boolean(enabled),...cfg};', 1)
+          s=s.replace('    modeSelect.value=outputSettings.protocol==="sacn"?"sACN":"Art-Net";', '    modeSelect.value=outputSettings.protocol==="sacn"?"sACN":"Art-Net";\n    syncCentralOutputSettings();', 1)
+          s=s.replace('    modeSelect.onchange=()=>{syncOutputFields();};', '    modeSelect.onchange=()=>{syncOutputFields();syncCentralOutputSettings();};', 1)
+          m.write_text(s)
+
+          i = Path('index.html')
+          s = i.read_text()
+          import re
+          s = re.sub(r'<div class="form-row">\s*<label>Universe</label>\s*<input[^>]*id="patchUni"[^>]*>\s*</div>', '', s, flags=re.I)
+          i.write_text(s)
+          PY
+      - name: Commit patched files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/dmx.js js/modes.js index.html
+          git diff --cached --quiet && exit 0
+          git commit -m 'Centralize DMX protocol and universe settings'
+          git push

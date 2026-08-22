@@ -1,4 +1,4 @@
-const { app } = require('electron');
+const { app, session } = require('electron');
 const { spawn } = require('child_process');
 const Module = require('module');
 const fs = require('fs');
@@ -46,6 +46,99 @@ Module._load = function(request, parent, isMain) {
 };
 
 require(path.join(__dirname, 'main.js'));
+
+// The renderer previously had two competing output-settings implementations.
+// One of them read the old persisted Universe 3 value before central-output.js
+// repaired it, then restored that stale value whenever the number field changed.
+// Clear the old renderer storage before the first BrowserWindow is created.
+app.whenReady().then(async () => {
+  try {
+    await session.defaultSession.clearStorageData({ storages: ['localstorage'] });
+    console.log('🧹 Cleared stale renderer localStorage before startup');
+  } catch (err) {
+    console.warn('⚠️ Could not clear renderer localStorage:', err.message);
+  }
+});
+
+// Keep the Universe field under one source of truth. This runs in the renderer
+// after all existing scripts have loaded, and captures changes before the old
+// modes.js change handler can overwrite the user's value.
+app.on('browser-window-created', (_event, window) => {
+  window.webContents.once('did-finish-load', () => {
+    window.webContents.executeJavaScript(`
+      (() => {
+        if (window.__universeInputFix) return;
+        window.__universeInputFix = true;
+
+        const applyUniverse = () => {
+          const input = document.getElementById('artnetUni');
+          if (!input) return;
+          const value = Number(input.value);
+          if (!Number.isInteger(value) || value < 0) {
+            input.value = '1';
+            return;
+          }
+
+          // Keep both legacy and central settings in sync so neither code path
+          // can resurrect an old Universe 3 value.
+          try {
+            const current = JSON.parse(localStorage.getItem('lighting-output-settings') || '{}');
+            const data = { ...current, universe: value };
+            localStorage.setItem('lighting-output-settings', JSON.stringify(data));
+            localStorage.setItem('dmxOutputSettings', JSON.stringify(data));
+          } catch (_) {}
+
+          if (window.ArtNet) window.ArtNet.universe = value;
+          window.dispatchEvent(new CustomEvent('dmx-universe-changed', { detail: value }));
+          console.log('🎛 DMX universe set to', value);
+        };
+
+        const input = document.getElementById('artnetUni');
+        if (input) {
+          input.min = '0';
+          input.step = '1';
+          input.value = '1';
+
+          // Capture phase runs before the old modes.js listener.
+          input.addEventListener('change', event => {
+            event.stopImmediatePropagation();
+            applyUniverse();
+          }, true);
+
+          input.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            applyUniverse();
+          }, true);
+        }
+
+        // The settings UI may be created/re-rendered later, so re-apply the
+        // guard whenever the settings page changes the DOM.
+        const observer = new MutationObserver(() => {
+          const next = document.getElementById('artnetUni');
+          if (!next || next.dataset.universeFixInstalled) return;
+          next.dataset.universeFixInstalled = '1';
+          next.min = '0';
+          next.step = '1';
+          next.addEventListener('change', event => {
+            event.stopImmediatePropagation();
+            applyUniverse();
+          }, true);
+          next.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            applyUniverse();
+          }, true);
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+
+        console.log('✅ Universe input fix installed');
+      })();
+    `).catch(err => console.error('❌ Universe input fix failed:', err));
+  });
+});
 
 function startRelayInElectronMainProcess() {
   const relayPath = path.join(serviceRoot, 'relay.js');

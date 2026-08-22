@@ -2,10 +2,16 @@
 
 (() => {
   const MODE_KEY = "consoleMode";
+  const OUTPUT_KEY = "dmxOutputSettings";
   let mode = localStorage.getItem(MODE_KEY) === "blind" ? "BLIND" : "LIVE";
   let emergencyActive = false;
   let blackoutActive = false;
   let savedState = null;
+  let outputSocket = null;
+  let outputReconnectTimer = null;
+  let outputSettings = { protocol:"artnet", target:"192.168.1.1", universe:0, priority:100, multicast:false, sourceName:"Lighting Console" };
+
+  try { outputSettings = {...outputSettings, ...(JSON.parse(localStorage.getItem(OUTPUT_KEY) || "{}") || {})}; } catch (_) {}
 
   const $ = id => document.getElementById(id);
 
@@ -26,6 +32,9 @@
       .safety-emergency.active{background:#e8e8e8;border-color:#111;box-shadow:0 0 12px rgba(255,255,255,.35)}
       .safety-blackout{color:#fff;background:#190b0e;border:1px solid #ff5265}
       .safety-blackout.active{background:#ff5265;color:#fff;border-color:#ff8996}
+      .output-status{font:800 8px/1 var(--mono,monospace);letter-spacing:.7px;min-width:130px;text-align:center}
+      .output-status.online{color:#19d6a3}.output-status.offline{color:#ff7a86}
+      .sacn-only{display:none}.sacn-only.visible{display:block}
       html.emergency-active,html.emergency-active body{background:#e9e9e9!important;color:#171717!important}
       html.emergency-active .sidebar,html.emergency-active .topbar,html.emergency-active .panel,html.emergency-active .controls,html.emergency-active .bottom-row,html.emergency-active .cmd-line,html.emergency-active .command-line{background:#e9e9e9!important;color:#171717!important;border-color:#c9c9c9!important;box-shadow:0 3px 14px rgba(0,0,0,.07)!important}
       html.emergency-active .panel-header,html.emergency-active .brand,html.emergency-active .sidebar-footer,html.emergency-active .topbar-divider,html.emergency-active .section-divider{border-color:#c9c9c9!important}
@@ -148,14 +157,9 @@
     stopRunningLooks();
     setEmergencyUI(false);
     setBlackoutUI(false);
-
-    // Blackout is an output lock, not a programmed-state change. Do not
-    // restore an old snapshot here because the programmer may have edited
-    // intensity/colour/etc. while the blackout was active.
     if(wasBlackout && window.State) State.blackout=false;
     if(!wasBlackout) restoreSnapshot();
     else if(typeof window.updateDMX==="function") window.updateDMX();
-
     const title=$("topPageTitle");
     if(title) title.textContent=mode==="BLIND"?"BLIND PROGRAMMER":"LIVE CONTROL";
     if(typeof window.log==="function") window.log("Safety override cleared — previous lighting state restored","ok");
@@ -182,14 +186,10 @@
     emergencyActive=false;
     setEmergencyUI(false);
     setMode("LIVE");
-
-    // Blackout must not modify the programmed fixture state. It is a
-    // separate output lock enforced by dmx.js via State.blackout.
     if(window.State) State.blackout=true;
     setBlackoutUI(true);
     if(typeof window.updateDMX==="function") window.updateDMX();
     if(typeof window.sendToVisualizer==="function") window.sendToVisualizer();
-
     const title=$("topPageTitle");
     if(title) title.textContent="BLACKOUT";
     if(typeof window.log==="function") window.log("BLACKOUT — output locked to 0% while programmed state is preserved","warn");
@@ -203,7 +203,6 @@
     wrap.id="safetyControls";
     wrap.className="safety-controls";
     wrap.setAttribute("aria-label","Emergency lighting controls");
-
     const emergency=document.createElement("button");
     emergency.type="button";
     emergency.id="btnEmergencyWhite";
@@ -211,7 +210,6 @@
     emergency.title="Force all patched fixtures to a safe white";
     emergency.textContent="🚨 WHITE";
     emergency.addEventListener("click",e=>{e.preventDefault();emergencyWhite();});
-
     const black=document.createElement("button");
     black.type="button";
     black.id="btnEmergencyBlackout";
@@ -219,9 +217,154 @@
     black.title="Force all patched fixtures to 0%";
     black.textContent="BLACKOUT";
     black.addEventListener("click",e=>{e.preventDefault();blackout();});
-
     wrap.append(emergency,black);
     status.prepend(wrap);
+  }
+
+  function ensureOutputFields(){
+    const modeSelect=$("outMode");
+    const grid=modeSelect?.closest(".form-grid");
+    if(!grid || grid.dataset.outputFieldsInstalled) return;
+    grid.dataset.outputFieldsInstalled="1";
+    const row=document.createElement("div");
+    row.className="form-row sacn-only";
+    row.id="sacnPriorityRow";
+    row.innerHTML='<label>sACN Priority</label><input type="number" id="sacnPriority" value="100" min="0" max="200">';
+    grid.appendChild(row);
+    const multi=document.createElement("div");
+    multi.className="form-row sacn-only";
+    multi.id="sacnMulticastRow";
+    multi.innerHTML='<label>Multicast</label><input type="checkbox" id="sacnMulticast">';
+    grid.appendChild(multi);
+    const source=document.createElement("div");
+    source.className="form-row form-span sacn-only";
+    source.id="sacnSourceRow";
+    source.innerHTML='<label>Source Name</label><input id="sacnSourceName" value="Lighting Console" maxlength="64">';
+    grid.appendChild(source);
+    const status=document.createElement("div");
+    status.id="dmxOutputStatus";
+    status.className="inline-status output-status offline";
+    status.textContent="OUTPUT: STOPPED";
+    grid.parentElement?.appendChild(status);
+  }
+
+  function syncOutputFields(){
+    const modeSelect=$("outMode");
+    const protocol=String(modeSelect?.value||outputSettings.protocol||"Art-Net").toLowerCase();
+    const sacn=protocol==="sacn";
+    const ip=$("artnetIp"),port=$("artnetPort"),uni=$("artnetUni");
+    if(ip) ip.value=outputSettings.target||"192.168.1.1";
+    if(port) port.value=sacn?5568:6454;
+    if(uni) uni.value=Number(outputSettings.universe ?? (sacn?1:0));
+    $("sacnPriority")?.setAttribute("value",String(outputSettings.priority??100));
+    if($("sacnPriority")) $("sacnPriority").value=String(outputSettings.priority??100);
+    if($("sacnMulticast")) $("sacnMulticast").checked=Boolean(outputSettings.multicast);
+    if($("sacnSourceName")) $("sacnSourceName").value=outputSettings.sourceName||"Lighting Console";
+    ["sacnPriorityRow","sacnMulticastRow","sacnSourceRow"].forEach(id=>$(id)?.classList.toggle("visible",sacn));
+    if(ip) ip.disabled=sacn&&Boolean(outputSettings.multicast);
+  }
+
+  function readOutputSettings(){
+    const protocol=String($("outMode")?.value||"Art-Net").toLowerCase()==="sacn"?"sacn":"artnet";
+    outputSettings={
+      protocol,
+      target:String($("artnetIp")?.value||"192.168.1.1").trim()||"127.0.0.1",
+      universe:Math.max(0,Number($("artnetUni")?.value||0)||0),
+      priority:Math.max(0,Math.min(200,Number($("sacnPriority")?.value||100)||100)),
+      multicast:Boolean($("sacnMulticast")?.checked),
+      sourceName:String($("sacnSourceName")?.value||"Lighting Console").trim().slice(0,64)||"Lighting Console"
+    };
+    localStorage.setItem(OUTPUT_KEY,JSON.stringify(outputSettings));
+    return outputSettings;
+  }
+
+  function connectOutputSocket(){
+    if(outputSocket&&outputSocket.readyState<=1) return;
+    try{
+      outputSocket=new WebSocket("ws://localhost:8081");
+      outputSocket.onopen=()=>{sendOutputConfig(false);};
+      outputSocket.onmessage=e=>{
+        if(typeof e.data!=="string") return;
+        try{
+          const msg=JSON.parse(e.data);
+          if(msg.type!=="OUTPUT_STATUS") return;
+          const status=$("dmxOutputStatus");
+          if(status){status.classList.toggle("online",Boolean(msg.enabled&&msg.online));status.classList.toggle("offline",!(msg.enabled&&msg.online));status.textContent=`OUTPUT: ${msg.enabled?msg.protocol.toUpperCase()+" ACTIVE":"STOPPED"}`;}
+        }catch(_){}
+      };
+      outputSocket.onclose=()=>{outputSocket=null;clearTimeout(outputReconnectTimer);outputReconnectTimer=setTimeout(connectOutputSocket,2000);};
+      outputSocket.onerror=()=>{};
+    }catch(_){outputSocket=null;}
+  }
+
+  function sendOutputConfig(enabled){
+    const cfg=readOutputSettings();
+    const message={type:"OUTPUT_CONFIG",enabled:Boolean(enabled),...cfg};
+    if(outputSocket?.readyState===WebSocket.OPEN) outputSocket.send(JSON.stringify(message));
+    const status=$("dmxOutputStatus");
+    if(status){status.textContent=enabled?`OUTPUT: ${cfg.protocol.toUpperCase()} STARTING`:`OUTPUT: STOPPED`;status.classList.toggle("online",Boolean(enabled));status.classList.toggle("offline",!enabled);}
+    const top=document.querySelector(".topbar-status .status-pill:first-of-type");
+    const label=top?.querySelector(".status-label");
+    if(label) label.textContent=enabled?cfg.protocol.toUpperCase():"OUTPUT";
+    else if(top&&enabled) top.childNodes.forEach(n=>{if(n.nodeType===Node.TEXT_NODE&&n.textContent.trim())n.textContent=` ${cfg.protocol.toUpperCase()}`;});
+  }
+
+  function installOutputSettings(){
+    const modeSelect=$("outMode"),start=$("artnetStart"),stop=$("artnetStop");
+    if(!modeSelect||!start||!stop) return;
+    ensureOutputFields();
+    const stored=localStorage.getItem(OUTPUT_KEY);
+    if(stored){try{outputSettings={...outputSettings,...JSON.parse(stored)};}catch(_) {}}
+    modeSelect.value=outputSettings.protocol==="sacn"?"sACN":"Art-Net";
+    syncOutputFields();
+    modeSelect.onchange=()=>{syncOutputFields();};
+    start.onclick=e=>{e.preventDefault();connectOutputSocket();setTimeout(()=>sendOutputConfig(true),50);};
+    stop.onclick=e=>{e.preventDefault();connectOutputSocket();setTimeout(()=>sendOutputConfig(false),50);};
+    [$("artnetIp"),$("artnetUni"),$("sacnPriority"),$("sacnMulticast"),$("sacnSourceName")].forEach(el=>el?.addEventListener("change",()=>{syncOutputFields();}));
+    connectOutputSocket();
+  }
+
+  function clearSafetyOverride(){
+    const wasBlackout=blackoutActive;
+    stopRunningLooks();
+    setEmergencyUI(false);
+    setBlackoutUI(false);
+    if(wasBlackout && window.State) State.blackout=false;
+    if(!wasBlackout) restoreSnapshot();
+    else if(typeof window.updateDMX==="function") window.updateDMX();
+    const title=$("topPageTitle");
+    if(title) title.textContent=mode==="BLIND"?"BLIND PROGRAMMER":"LIVE CONTROL";
+    if(typeof window.log==="function") window.log("Safety override cleared — previous lighting state restored","ok");
+  }
+
+  function emergencyWhite(){
+    if(emergencyActive){clearSafetyOverride();return;}
+    stopRunningLooks(); snapshotState(); blackoutActive=false;
+    if(window.State) State.blackout=false;
+    setBlackoutUI(false); setMode("LIVE");
+    applyAllFixturesState({intensity:70,master:100,hue:0,sat:0,light:50,strobe:0,gobo:0,gobo2:0,prism:0,prismr:0,focus:0,zoom:0,frost:0,iris:0,rot:0,effect:0,speed:0,macro:0,preset:0,shake:0,mode:0});
+    setEmergencyUI(true);
+    const title=$("topPageTitle"); if(title) title.textContent="EMERGENCY WHITE";
+    if(typeof window.log==="function") window.log("EMERGENCY WHITE — safe white at 70% output","warn");
+  }
+
+  function blackout(){
+    if(blackoutActive){clearSafetyOverride();return;}
+    stopRunningLooks(); emergencyActive=false; setEmergencyUI(false); setMode("LIVE");
+    if(window.State) State.blackout=true; setBlackoutUI(true);
+    if(typeof window.updateDMX==="function") window.updateDMX();
+    if(typeof window.sendToVisualizer==="function") window.sendToVisualizer();
+    const title=$("topPageTitle"); if(title) title.textContent="BLACKOUT";
+    if(typeof window.log==="function") window.log("BLACKOUT — output locked to 0% while programmed state is preserved","warn");
+  }
+
+  function installSafetyControls(){
+    if(document.getElementById("safetyControls")) return;
+    const status=document.querySelector(".topbar-status"); if(!status) return;
+    const wrap=document.createElement("div"); wrap.id="safetyControls"; wrap.className="safety-controls"; wrap.setAttribute("aria-label","Emergency lighting controls");
+    const emergency=document.createElement("button"); emergency.type="button"; emergency.id="btnEmergencyWhite"; emergency.className="safety-control safety-emergency"; emergency.title="Force all patched fixtures to a safe white"; emergency.textContent="🚨 WHITE"; emergency.addEventListener("click",e=>{e.preventDefault();emergencyWhite();});
+    const black=document.createElement("button"); black.type="button"; black.id="btnEmergencyBlackout"; black.className="safety-control safety-blackout"; black.title="Force all patched fixtures to 0%"; black.textContent="BLACKOUT"; black.addEventListener("click",e=>{e.preventDefault();blackout();});
+    wrap.append(emergency,black); status.prepend(wrap);
   }
 
   function install(){
@@ -229,9 +372,9 @@
     if(!live || !blind) return;
     installModeStyles();
     installSafetyControls();
+    installOutputSettings();
     live.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
     blind.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("BLIND");};
-
     if(window.ArtNet && !window.ArtNet.__blindLiveModePatched){
       const originalSend=window.ArtNet.send.bind(window.ArtNet);
       window.ArtNet.__blindLiveModePatched=true;
@@ -253,11 +396,9 @@
   window.emergencyWhite=emergencyWhite;
   window.consoleBlackout=blackout;
   window.clearSafetyOverride=clearSafetyOverride;
+  window.configureDMXOutput=sendOutputConfig;
 
-  window.addEventListener("message",event=>{
-    if(event.data?.type==="VISUALIZER_READY") sendVisualizerMode();
-  });
-
+  window.addEventListener("message",event=>{ if(event.data?.type==="VISUALIZER_READY") sendVisualizerMode(); });
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",install,{once:true});
   else install();
 })();

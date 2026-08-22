@@ -7,11 +7,17 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test:syntax": "node --check main.js && node --check startup.js && node --check relay.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
+    "test:syntax": "node --check main.js && node --check startup.js && node --check relay.js && node --check usb-dmx.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
     "build-mac": "rm -rf Build && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never"
   },
-  "dependencies": {"ws": "^8.18.1"},
-  "devDependencies": {"electron": "^43.3.0", "electron-builder": "^26.15.3"},
+  "dependencies": {
+    "serialport": "^12.0.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3"
+  },
   "build": {
     "appId": "com.olivergrainger.lightingconsole",
     "productName": "Lighting Console",

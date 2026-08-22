@@ -252,6 +252,8 @@
     const modeSelect=$("outMode");
     const protocol=String(modeSelect?.value||outputSettings.protocol||"Art-Net").toLowerCase();
     const sacn=protocol==="sacn";
+    window.DMXOutputProtocol = sacn ? "sacn" : "artnet";
+    if(window.ArtNet) window.ArtNet.outputProtocol = window.DMXOutputProtocol;
     const ip=$("artnetIp"),port=$("artnetPort"),uni=$("artnetUni");
     if(ip) ip.value=outputSettings.target||"192.168.1.1";
     if(port) port.value=sacn?5568:6454;
@@ -266,6 +268,8 @@
 
   function readOutputSettings(){
     const protocol=String($("outMode")?.value||"Art-Net").toLowerCase()==="sacn"?"sacn":"artnet";
+    window.DMXOutputProtocol = protocol;
+    if(window.ArtNet) window.ArtNet.outputProtocol = protocol;
     outputSettings={
       protocol,
       target:String($("artnetIp")?.value||"192.168.1.1").trim()||"127.0.0.1",

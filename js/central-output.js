@@ -1,7 +1,7 @@
 "use strict";
 
-// Single source of truth for network DMX output.
-// GLOBAL universe for Art-Net/sACN; BLIND mode is a hard no-DMX-output state.
+// Central output policy. Network output remains unchanged; USB DMX is an
+// additional transport selected from the same Output Mode control.
 (() => {
   if (window.__centralOutputPatch) return;
   window.__centralOutputPatch = true;
@@ -16,8 +16,6 @@
   };
   const isBlind = () => String(document.documentElement.dataset.consoleMode || "live").toLowerCase() === "blind";
 
-  // Support both old settings keys so an older saved configuration cannot overwrite
-  // the selected global universe with the old default.
   const stored = (() => {
     try {
       const oldSettings = JSON.parse(localStorage.getItem("dmxOutputSettings") || "{}");
@@ -26,14 +24,23 @@
     } catch (_) { return {}; }
   })();
 
-  const protocol = String(stored.protocol || $("outMode")?.value || "Art-Net").toLowerCase() === "sacn" ? "sacn" : "artnet";
+  const normaliseProtocol = value => {
+    const p = String(value || "Art-Net").toLowerCase();
+    if (p === "sacn") return "sacn";
+    if (p === "usb dmx" || p === "usb" || p === "usb-dmx") return "usb";
+    return "artnet";
+  };
+
+  const initialProtocol = normaliseProtocol(stored.protocol || $("outMode")?.value || "Art-Net");
   const settings = {
     target: String(stored.target || $("artnetIp")?.value || "192.168.1.1").trim(),
-    universe: protocol === "sacn"
+    universe: initialProtocol === "sacn"
       ? clamp(stored.universe ?? $("artnetUni")?.value, 1, 63999, 1)
       : clamp(stored.universe ?? $("artnetUni")?.value, 0, 32767, 1),
-    protocol,
-    enabled: Boolean(stored.enabled) && !isBlind()
+    protocol: initialProtocol,
+    enabled: Boolean(stored.enabled) && !isBlind(),
+    usbDevice: String(stored.usbDevice || ""),
+    usbDriver: stored.usbDriver || null
   };
 
   const saveSettings = () => {
@@ -44,7 +51,26 @@
     } catch (_) {}
   };
 
+  const ensureUsbOption = () => {
+    const select = $("outMode");
+    if (!select) return;
+    if (![...select.options].some(o => String(o.value).toLowerCase() === "usb dmx")) {
+      const option = document.createElement("option");
+      option.value = "USB DMX";
+      option.textContent = "USB DMX";
+      select.appendChild(option);
+    }
+  };
+
+  const setNetworkFieldsVisible = visible => {
+    const ip = $("artnetIp")?.closest(".form-row");
+    const port = $("artnetPort")?.closest(".form-row");
+    if (ip) ip.style.display = visible ? "" : "none";
+    if (port) port.style.display = visible ? "" : "none";
+  };
+
   const syncUI = () => {
+    ensureUsbOption();
     if ($("artnetIp")) $("artnetIp").value = settings.target;
     if ($("artnetUni")) {
       $("artnetUni").min = settings.protocol === "sacn" ? "1" : "0";
@@ -52,26 +78,24 @@
       $("artnetUni").step = "1";
       $("artnetUni").value = settings.universe;
     }
-    if ($("outMode")) $("outMode").value = settings.protocol === "sacn" ? "sACN" : "Art-Net";
+    if ($("outMode")) {
+      $("outMode").value = settings.protocol === "sacn" ? "sACN" : settings.protocol === "usb" ? "USB DMX" : "Art-Net";
+    }
+    setNetworkFieldsVisible(settings.protocol !== "usb");
   };
   syncUI();
 
-  // Global universe: remove the obsolete per-fixture universe field.
   $("patchUni")?.closest(".form-row")?.remove();
-  if (Array.isArray(window.State?.fixtures)) {
-    State.fixtures.forEach(fixture => { if (fixture) delete fixture.uni; });
-  }
+  if (Array.isArray(window.State?.fixtures)) State.fixtures.forEach(fixture => { if (fixture) delete fixture.uni; });
 
-  // Last-line safety guard. Even if another renderer script tries to send a DMX
-  // WebSocket message while BLIND is active, it is discarded here.
   if (!WebSocket.prototype.__blindDMXGuard) {
     const originalSend = WebSocket.prototype.send;
     WebSocket.prototype.send = function(data) {
       if (isBlind() && typeof data === "string") {
         try {
           const message = JSON.parse(data);
-          if (message?.type === "DMX_UPDATE") return;
-          if (message?.type === "OUTPUT_CONFIG") data = JSON.stringify({ ...message, enabled: false });
+          if (message?.type === "DMX_UPDATE" || message?.type === "USB_DMX_UPDATE") return;
+          if (message?.type === "OUTPUT_CONFIG" || message?.type === "USB_DMX_CONFIG") data = JSON.stringify({ ...message, enabled: false });
         } catch (_) {}
       }
       return originalSend.call(this, data);
@@ -80,7 +104,9 @@
   }
 
   let socket = null;
+  let usbSocket = null;
   let reconnectTimer = null;
+  let usbReconnectTimer = null;
   let frameTimer = null;
   let stopping = false;
 
@@ -89,7 +115,7 @@
     socket.send(JSON.stringify({
       type: "OUTPUT_CONFIG",
       protocol: settings.protocol,
-      enabled: settings.enabled && !isBlind(),
+      enabled: settings.enabled && !isBlind() && settings.protocol !== "usb",
       target: settings.target,
       universe: settings.universe,
       priority: 100,
@@ -98,13 +124,26 @@
     }));
   };
 
+  const sendUSBConfig = () => {
+    if (!usbSocket || usbSocket.readyState !== WebSocket.OPEN) return;
+    usbSocket.send(JSON.stringify({
+      type: "USB_DMX_CONFIG",
+      enabled: settings.enabled && settings.protocol === "usb" && !isBlind(),
+      mode: isBlind() ? "BLIND" : "LIVE",
+      device: settings.usbDevice,
+      driver: settings.usbDriver
+    }));
+  };
+
   const sendDMX = () => {
     if (isBlind()) {
       try { window.sendVisualizerDMX?.(); } catch (_) {}
       return;
     }
-    if (socket && socket.readyState === WebSocket.OPEN && settings.enabled) {
-      const dmx = window.State?.dmx instanceof Uint8Array ? Array.from(State.dmx) : Array.from(window.State?.dmx || []);
+    const dmx = window.State?.dmx instanceof Uint8Array ? Array.from(State.dmx) : Array.from(window.State?.dmx || []);
+    if (settings.protocol === "usb") {
+      if (usbSocket?.readyState === WebSocket.OPEN && settings.enabled) usbSocket.send(JSON.stringify({ type: "USB_DMX_UPDATE", dmx }));
+    } else if (socket?.readyState === WebSocket.OPEN && settings.enabled) {
       socket.send(JSON.stringify({ type: "DMX_UPDATE", dmx }));
     }
     try { window.sendVisualizerDMX?.(); } catch (_) {}
@@ -116,10 +155,32 @@
     stopping = false;
     try {
       socket = new WebSocket("ws://localhost:8081");
-      socket.onopen = () => { sendConfig(); if (settings.enabled && !isBlind()) sendDMX(); log(`Output ready → ${settings.protocol.toUpperCase()} universe ${settings.universe}`, "ok"); };
+      socket.onopen = () => { sendConfig(); if (settings.enabled && settings.protocol !== "usb" && !isBlind()) sendDMX(); };
       socket.onclose = () => { socket = null; if (!stopping) reconnectTimer = setTimeout(connect, 1500); };
       socket.onerror = () => {};
     } catch (_) { reconnectTimer = setTimeout(connect, 1500); }
+  };
+
+  const connectUSB = () => {
+    clearTimeout(usbReconnectTimer);
+    if (usbSocket && (usbSocket.readyState === WebSocket.OPEN || usbSocket.readyState === WebSocket.CONNECTING)) return;
+    try {
+      usbSocket = new WebSocket("ws://localhost:8082");
+      usbSocket.onopen = () => sendUSBConfig();
+      usbSocket.onmessage = event => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message?.type === "USB_DMX_STATUS") {
+            window.dispatchEvent(new CustomEvent("usb-dmx-status", { detail: message }));
+          }
+          if (message?.type === "USB_DMX_PORTS") {
+            window.dispatchEvent(new CustomEvent("usb-dmx-ports", { detail: message.ports || [] }));
+          }
+        } catch (_) {}
+      };
+      usbSocket.onclose = () => { usbSocket = null; usbReconnectTimer = setTimeout(connectUSB, 2000); };
+      usbSocket.onerror = () => {};
+    } catch (_) { usbReconnectTimer = setTimeout(connectUSB, 2000); }
   };
 
   const startFrameLoop = () => {
@@ -131,16 +192,21 @@
   const stopFrameLoop = () => { clearInterval(frameTimer); frameTimer = null; };
 
   const applyOutputSettings = () => {
-    settings.target = String($("artnetIp")?.value || settings.target).trim() || "127.0.0.1";
-    settings.protocol = String($("outMode")?.value || "Art-Net").toLowerCase() === "sacn" ? "sacn" : "artnet";
+    settings.protocol = normaliseProtocol($("outMode")?.value || "Art-Net");
+    if (settings.protocol !== "usb") settings.target = String($("artnetIp")?.value || settings.target).trim() || "127.0.0.1";
     const raw = Number($("artnetUni")?.value ?? settings.universe);
     settings.universe = settings.protocol === "sacn" ? clamp(raw, 1, 63999, 1) : clamp(raw, 0, 32767, 1);
-    if (window.ArtNet) { ArtNet.ip = settings.target; ArtNet.universe = settings.universe; ArtNet.protocol = settings.protocol; }
+    if (window.ArtNet) {
+      ArtNet.ip = settings.target;
+      ArtNet.universe = settings.universe;
+      ArtNet.protocol = settings.protocol;
+    }
     saveSettings();
     syncUI();
     sendConfig();
+    sendUSBConfig();
     if (settings.enabled && !isBlind()) sendDMX();
-    log(`Output settings → ${settings.protocol.toUpperCase()} / universe ${settings.universe}`, "ok");
+    log(`Output settings → ${settings.protocol === "usb" ? "USB DMX" : settings.protocol.toUpperCase()} / universe ${settings.universe}`, "ok");
   };
 
   ["artnetIp", "artnetUni", "outMode"].forEach(id => $(id)?.addEventListener("change", applyOutputSettings));
@@ -151,9 +217,10 @@
     settings.enabled = !isBlind();
     saveSettings();
     sendConfig();
+    sendUSBConfig();
     startFrameLoop();
-    if (window.ArtNet) ArtNet.enabled = settings.enabled;
-    log(isBlind() ? "BLIND mode — network output remains stopped" : "Network output enabled", isBlind() ? "warn" : "ok");
+    if (window.ArtNet) ArtNet.enabled = settings.enabled && settings.protocol !== "usb";
+    log(isBlind() ? "BLIND mode — hardware output remains stopped" : `${settings.protocol === "usb" ? "USB DMX" : "Network"} output enabled`, isBlind() ? "warn" : "ok");
   });
 
   $("artnetStop")?.addEventListener("click", e => {
@@ -162,35 +229,36 @@
     saveSettings();
     stopFrameLoop();
     sendConfig();
+    sendUSBConfig();
     if (window.ArtNet) ArtNet.enabled = false;
-    log("Network output stopped", "warn");
+    log("Output stopped", "warn");
   });
 
   if (window.ArtNet) {
     ArtNet.ip = settings.target;
     ArtNet.universe = settings.universe;
     ArtNet.protocol = settings.protocol;
-    ArtNet.enabled = settings.enabled;
+    ArtNet.enabled = settings.enabled && settings.protocol !== "usb";
     ArtNet.send = sendDMX;
-    ArtNet.start = () => { settings.enabled = !isBlind(); ArtNet.enabled = settings.enabled; saveSettings(); sendConfig(); startFrameLoop(); };
-    ArtNet.stop = () => { settings.enabled = false; ArtNet.enabled = false; saveSettings(); stopFrameLoop(); sendConfig(); };
+    ArtNet.start = () => { settings.enabled = !isBlind(); ArtNet.enabled = settings.enabled && settings.protocol !== "usb"; saveSettings(); sendConfig(); sendUSBConfig(); startFrameLoop(); };
+    ArtNet.stop = () => { settings.enabled = false; ArtNet.enabled = false; saveSettings(); stopFrameLoop(); sendConfig(); sendUSBConfig(); };
   }
 
-  // Blind/live is owned by modes.js. Watch the HTML mode attribute so switching
-  // to BLIND immediately stops the relay and switching back to LIVE resumes only
-  // if the user had output enabled.
   new MutationObserver(() => {
     if (isBlind()) {
       stopFrameLoop();
       if (window.ArtNet) ArtNet.enabled = false;
       sendConfig();
+      sendUSBConfig();
     } else {
-      if (window.ArtNet) ArtNet.enabled = settings.enabled;
+      if (window.ArtNet) ArtNet.enabled = settings.enabled && settings.protocol !== "usb";
       sendConfig();
+      sendUSBConfig();
       startFrameLoop();
     }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-console-mode"] });
 
   connect();
+  connectUSB();
   if (settings.enabled && !isBlind()) startFrameLoop();
 })();

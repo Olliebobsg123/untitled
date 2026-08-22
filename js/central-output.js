@@ -1,59 +1,83 @@
 "use strict";
 
+// Single source of truth for network DMX output.
+// GLOBAL universe for Art-Net/sACN; BLIND mode is a hard no-DMX-output state.
 (() => {
   if (window.__centralOutputPatch) return;
   window.__centralOutputPatch = true;
 
   const $ = id => document.getElementById(id);
   const log = (message, type = "info") => {
+    try { if (typeof window.log === "function") window.log(message, type); else console.log(`[${String(type).toUpperCase()}] ${message}`); } catch (_) {}
+  };
+  const clamp = (value, min, max, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
+  };
+  const isBlind = () => String(document.documentElement.dataset.consoleMode || "live").toLowerCase() === "blind";
+
+  // Support both old settings keys so an older saved configuration cannot overwrite
+  // the selected global universe with the old default.
+  const stored = (() => {
     try {
-      if (typeof window.log === "function") window.log(message, type);
-      else console.log(`[${String(type).toUpperCase()}] ${message}`);
+      const oldSettings = JSON.parse(localStorage.getItem("dmxOutputSettings") || "{}");
+      const centralSettings = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
+      return { ...oldSettings, ...centralSettings };
+    } catch (_) { return {}; }
+  })();
+
+  const protocol = String(stored.protocol || $("outMode")?.value || "Art-Net").toLowerCase() === "sacn" ? "sacn" : "artnet";
+  const settings = {
+    target: String(stored.target || $("artnetIp")?.value || "192.168.1.1").trim(),
+    universe: protocol === "sacn"
+      ? clamp(stored.universe ?? $("artnetUni")?.value, 1, 63999, 1)
+      : clamp(stored.universe ?? $("artnetUni")?.value, 0, 32767, 1),
+    protocol,
+    enabled: Boolean(stored.enabled) && !isBlind()
+  };
+
+  const saveSettings = () => {
+    const data = { ...settings, priority: 100, multicast: false, sourceName: "Lighting Console" };
+    try {
+      localStorage.setItem("lighting-output-settings", JSON.stringify(data));
+      localStorage.setItem("dmxOutputSettings", JSON.stringify(data));
     } catch (_) {}
   };
 
-  const stored = (() => {
-    try { return JSON.parse(localStorage.getItem("lighting-output-settings") || "{}"); }
-    catch (_) { return {}; }
-  })();
-
-  const settings = {
-    target: String(stored.target || $("artnetIp")?.value || "192.168.1.1").trim(),
-    universe: Number.isInteger(Number(stored.universe)) ? Number(stored.universe) : Number($("artnetUni")?.value || 0),
-    protocol: String(stored.protocol || $("outMode")?.value || "Art-Net").toLowerCase() === "sacn" ? "sacn" : "artnet",
-    enabled: Boolean(stored.enabled)
-  };
-
-  settings.universe = settings.protocol === "sacn"
-    ? Math.max(1, Math.min(63999, settings.universe || 1))
-    : Math.max(0, Math.min(32767, settings.universe || 0));
-
-  const saveSettings = () => {
-    try { localStorage.setItem("lighting-output-settings", JSON.stringify(settings)); } catch (_) {}
-  };
-
-  const syncSettingsUI = () => {
+  const syncUI = () => {
     if ($("artnetIp")) $("artnetIp").value = settings.target;
-    if ($("artnetUni")) $("artnetUni").value = settings.universe;
+    if ($("artnetUni")) {
+      $("artnetUni").min = settings.protocol === "sacn" ? "1" : "0";
+      $("artnetUni").max = settings.protocol === "sacn" ? "63999" : "32767";
+      $("artnetUni").step = "1";
+      $("artnetUni").value = settings.universe;
+    }
     if ($("outMode")) $("outMode").value = settings.protocol === "sacn" ? "sACN" : "Art-Net";
   };
+  syncUI();
 
-  syncSettingsUI();
-
-  // Universe is a global output setting. A patched fixture only has an address.
-  const patchUni = $("patchUni");
-  if (patchUni) {
-    const row = patchUni.closest(".form-row");
-    if (row) row.remove();
+  // Global universe: remove the obsolete per-fixture universe field.
+  $("patchUni")?.closest(".form-row")?.remove();
+  if (Array.isArray(window.State?.fixtures)) {
+    State.fixtures.forEach(fixture => { if (fixture) delete fixture.uni; });
   }
 
-  const normaliseLegacyFixtures = () => {
-    if (!Array.isArray(window.State?.fixtures)) return;
-    State.fixtures.forEach(fixture => {
-      if (fixture && Object.prototype.hasOwnProperty.call(fixture, "uni")) delete fixture.uni;
-    });
-  };
-  normaliseLegacyFixtures();
+  // Last-line safety guard. Even if another renderer script tries to send a DMX
+  // WebSocket message while BLIND is active, it is discarded here.
+  if (!WebSocket.prototype.__blindDMXGuard) {
+    const originalSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function(data) {
+      if (isBlind() && typeof data === "string") {
+        try {
+          const message = JSON.parse(data);
+          if (message?.type === "DMX_UPDATE") return;
+          if (message?.type === "OUTPUT_CONFIG") data = JSON.stringify({ ...message, enabled: false });
+        } catch (_) {}
+      }
+      return originalSend.call(this, data);
+    };
+    WebSocket.prototype.__blindDMXGuard = true;
+  }
 
   let socket = null;
   let reconnectTimer = null;
@@ -65,7 +89,7 @@
     socket.send(JSON.stringify({
       type: "OUTPUT_CONFIG",
       protocol: settings.protocol,
-      enabled: settings.enabled,
+      enabled: settings.enabled && !isBlind(),
       target: settings.target,
       universe: settings.universe,
       priority: 100,
@@ -75,13 +99,15 @@
   };
 
   const sendDMX = () => {
+    if (isBlind()) {
+      try { window.sendVisualizerDMX?.(); } catch (_) {}
+      return;
+    }
     if (socket && socket.readyState === WebSocket.OPEN && settings.enabled) {
-      const dmx = window.State?.dmx instanceof Uint8Array
-        ? Array.from(State.dmx)
-        : Array.from(window.State?.dmx || []);
+      const dmx = window.State?.dmx instanceof Uint8Array ? Array.from(State.dmx) : Array.from(window.State?.dmx || []);
       socket.send(JSON.stringify({ type: "DMX_UPDATE", dmx }));
     }
-    try { if (typeof window.sendVisualizerDMX === "function") window.sendVisualizerDMX(); } catch (_) {}
+    try { window.sendVisualizerDMX?.(); } catch (_) {}
   };
 
   const connect = () => {
@@ -90,69 +116,47 @@
     stopping = false;
     try {
       socket = new WebSocket("ws://localhost:8081");
-      socket.onopen = () => {
-        sendConfig();
-        if (settings.enabled) sendDMX();
-        log(`Output ready → ${settings.protocol.toUpperCase()} universe ${settings.universe}`, "ok");
-      };
-      socket.onclose = () => {
-        socket = null;
-        if (!stopping) reconnectTimer = setTimeout(connect, 1500);
-      };
+      socket.onopen = () => { sendConfig(); if (settings.enabled && !isBlind()) sendDMX(); log(`Output ready → ${settings.protocol.toUpperCase()} universe ${settings.universe}`, "ok"); };
+      socket.onclose = () => { socket = null; if (!stopping) reconnectTimer = setTimeout(connect, 1500); };
       socket.onerror = () => {};
-    } catch (_) {
-      reconnectTimer = setTimeout(connect, 1500);
-    }
+    } catch (_) { reconnectTimer = setTimeout(connect, 1500); }
   };
 
   const startFrameLoop = () => {
     clearInterval(frameTimer);
-    if (!settings.enabled) return;
+    if (!settings.enabled || isBlind()) return;
     frameTimer = setInterval(sendDMX, 40);
     sendDMX();
   };
-
-  const stopFrameLoop = () => {
-    clearInterval(frameTimer);
-    frameTimer = null;
-  };
+  const stopFrameLoop = () => { clearInterval(frameTimer); frameTimer = null; };
 
   const applyOutputSettings = () => {
     settings.target = String($("artnetIp")?.value || settings.target).trim() || "127.0.0.1";
-    const rawUniverse = Number($("artnetUni")?.value ?? settings.universe);
     settings.protocol = String($("outMode")?.value || "Art-Net").toLowerCase() === "sacn" ? "sacn" : "artnet";
-    settings.universe = settings.protocol === "sacn"
-      ? Math.max(1, Math.min(63999, Number.isFinite(rawUniverse) ? Math.round(rawUniverse) : 1))
-      : Math.max(0, Math.min(32767, Number.isFinite(rawUniverse) ? Math.round(rawUniverse) : 0));
-
-    if (window.ArtNet) {
-      ArtNet.ip = settings.target;
-      ArtNet.universe = settings.universe;
-      ArtNet.protocol = settings.protocol;
-    }
-
+    const raw = Number($("artnetUni")?.value ?? settings.universe);
+    settings.universe = settings.protocol === "sacn" ? clamp(raw, 1, 63999, 1) : clamp(raw, 0, 32767, 1);
+    if (window.ArtNet) { ArtNet.ip = settings.target; ArtNet.universe = settings.universe; ArtNet.protocol = settings.protocol; }
     saveSettings();
-    syncSettingsUI();
+    syncUI();
     sendConfig();
-    if (settings.enabled) sendDMX();
+    if (settings.enabled && !isBlind()) sendDMX();
     log(`Output settings → ${settings.protocol.toUpperCase()} / universe ${settings.universe}`, "ok");
   };
 
   ["artnetIp", "artnetUni", "outMode"].forEach(id => $(id)?.addEventListener("change", applyOutputSettings));
 
-  const startButton = $("artnetStart");
-  const stopButton = $("artnetStop");
-  if (startButton) startButton.onclick = e => {
+  $("artnetStart")?.addEventListener("click", e => {
     e?.preventDefault();
     applyOutputSettings();
-    settings.enabled = true;
+    settings.enabled = !isBlind();
     saveSettings();
     sendConfig();
     startFrameLoop();
-    if (window.ArtNet) ArtNet.enabled = true;
-    log("Network output enabled", "ok");
-  };
-  if (stopButton) stopButton.onclick = e => {
+    if (window.ArtNet) ArtNet.enabled = settings.enabled;
+    log(isBlind() ? "BLIND mode — network output remains stopped" : "Network output enabled", isBlind() ? "warn" : "ok");
+  });
+
+  $("artnetStop")?.addEventListener("click", e => {
     e?.preventDefault();
     settings.enabled = false;
     saveSettings();
@@ -160,7 +164,7 @@
     sendConfig();
     if (window.ArtNet) ArtNet.enabled = false;
     log("Network output stopped", "warn");
-  };
+  });
 
   if (window.ArtNet) {
     ArtNet.ip = settings.target;
@@ -168,74 +172,25 @@
     ArtNet.protocol = settings.protocol;
     ArtNet.enabled = settings.enabled;
     ArtNet.send = sendDMX;
-    ArtNet.start = () => {
-      settings.enabled = true;
-      ArtNet.enabled = true;
-      saveSettings();
+    ArtNet.start = () => { settings.enabled = !isBlind(); ArtNet.enabled = settings.enabled; saveSettings(); sendConfig(); startFrameLoop(); };
+    ArtNet.stop = () => { settings.enabled = false; ArtNet.enabled = false; saveSettings(); stopFrameLoop(); sendConfig(); };
+  }
+
+  // Blind/live is owned by modes.js. Watch the HTML mode attribute so switching
+  // to BLIND immediately stops the relay and switching back to LIVE resumes only
+  // if the user had output enabled.
+  new MutationObserver(() => {
+    if (isBlind()) {
+      stopFrameLoop();
+      if (window.ArtNet) ArtNet.enabled = false;
+      sendConfig();
+    } else {
+      if (window.ArtNet) ArtNet.enabled = settings.enabled;
       sendConfig();
       startFrameLoop();
-    };
-    ArtNet.stop = () => {
-      settings.enabled = false;
-      ArtNet.enabled = false;
-      saveSettings();
-      stopFrameLoop();
-      sendConfig();
-    };
-  }
-
-  // Replace the legacy per-universe patch action with a single global-output patch.
-  const patchButton = $("btnPatch");
-  if (patchButton) {
-    patchButton.onclick = e => {
-      e?.preventDefault();
-      const name = $("patchName")?.value;
-      const addr = Number($("patchAddr")?.value || 1);
-      const fixtureNumber = Number($("patchFixtureNumber")?.value || 0);
-
-      if (!name || !window.FixtureLibrary?.[name]) return log("Select a valid fixture first", "warn");
-      if (!Number.isInteger(addr) || addr < 1 || addr > 512) return log("Invalid DMX address", "warn");
-      if (!Number.isInteger(fixtureNumber) || fixtureNumber < 1) return log("Invalid fixture number", "warn");
-      if (State.fixtures.some(f => Number(f?.fixtureNumber) === fixtureNumber)) return log(`Fixture number ${fixtureNumber} is already patched`, "warn");
-
-      const definition = FixtureLibrary[name];
-      const channels = Number(definition.channels || 1);
-      const end = addr + channels - 1;
-      if (end > 512) return log("Fixture extends beyond DMX address 512", "warn");
-
-      const overlap = State.fixtures.some(fixture => {
-        const existing = FixtureLibrary[fixture.name];
-        if (!existing) return false;
-        const start = Number(fixture.addr);
-        const finish = start + Number(existing.channels || 1) - 1;
-        return addr <= finish && end >= start;
-      });
-      if (overlap && !confirm(`DMX ${addr}-${end} is already used. Overwrite?`)) return;
-
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const fixture = { id, name, addr, fixtureNumber };
-      State.fixtures.push(fixture);
-
-      const initialState = {
-        ...(State.current || {}),
-        pan: Number(State.current?.pan ?? 128),
-        tilt: Number(State.current?.tilt ?? 128),
-        zoom: Number($("zoom")?.value ?? 0),
-        intensity: Number($("intensity")?.value ?? 100)
-      };
-      State.fixtureStates.set(id, typeof createFixtureState === "function" ? createFixtureState(initialState) : initialState);
-      State.selectedFixtureId = id;
-      State.selected ||= new Set();
-      State.selected.clear();
-      State.selected.add(id);
-
-      try { window.renderFixtures?.(); } catch (_) {}
-      try { window.updateDMX?.(); } catch (_) {}
-      try { window.sendToVisualizer?.(); } catch (_) {}
-      log(`Patched: #${fixtureNumber} ${name} → Addr ${addr} / global ${settings.protocol.toUpperCase()} universe ${settings.universe}`, "ok");
-    };
-  }
+    }
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-console-mode"] });
 
   connect();
-  if (settings.enabled) startFrameLoop();
+  if (settings.enabled && !isBlind()) startFrameLoop();
 })();

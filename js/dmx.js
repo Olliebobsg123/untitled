@@ -356,3 +356,96 @@ return State.blackout;
 
 window.testArtNet=()=>{State.dmx.fill(0);State.dmx.set([255,255,255,255],0);ArtNet.send();};
 document.addEventListener("DOMContentLoaded",()=>{console.log("DMX controller starting...");initFixtureStates();connectArtNet();installBlackoutGuard();});
+
+// Multi-universe output: the console supports up to 10 patched DMX universes.
+// Fixture patch universes are 1-10. Art-Net uses 0-9 on the wire, while sACN
+// uses 1-10. The existing single 512-channel State.dmx remains the programmer
+// buffer; this routing layer copies each fixture's channels into its universe.
+(() => {
+  const MAX_UNIVERSES = 10;
+  const DMX_CHANNELS = 512;
+  const activeUniverses = new Set();
+
+  function universeForFixture(fixture) {
+    const n = Number(fixture?.uni ?? fixture?.universe ?? 1);
+    return Number.isInteger(n) && n >= 1 && n <= MAX_UNIVERSES ? n : null;
+  }
+
+  function channelsForFixture(fixture) {
+    const def = getFixtureDefinition(fixture);
+    const n = Number(def?.channels ?? def?.channelCount ?? 1);
+    return Number.isInteger(n) && n > 0 ? Math.min(n, DMX_CHANNELS) : 1;
+  }
+
+  function buildUniverseBuffers() {
+    const buffers = new Map();
+    const fixtures = Array.isArray(State.fixtures) ? State.fixtures : [];
+    const source = State.dmx instanceof Uint8Array ? State.dmx : new Uint8Array(DMX_CHANNELS);
+
+    fixtures.forEach(fixture => {
+      const universe = universeForFixture(fixture);
+      const base = getFixtureBaseAddress(fixture);
+      if (universe == null || base < 0) return;
+      if (!buffers.has(universe)) buffers.set(universe, new Uint8Array(DMX_CHANNELS));
+      const target = buffers.get(universe);
+      const end = Math.min(DMX_CHANNELS, base + channelsForFixture(fixture));
+      for (let i = base; i < end; i++) target[i] = source[i];
+    });
+
+    return buffers;
+  }
+
+  function protocolUniverse(consoleUniverse) {
+    const protocol = String(window.DMXOutputProtocol || window.ArtNet?.outputProtocol || "artnet").toLowerCase();
+    return protocol === "sacn" ? consoleUniverse : consoleUniverse - 1;
+  }
+
+  function sendUniverse(universe, data) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      type: "DMX_UPDATE",
+      universe: protocolUniverse(universe),
+      dmx: Array.from(data)
+    }));
+  }
+
+  function installMultiUniverse() {
+    if (!window.ArtNet || window.ArtNet.__multiUniverseInstalled) return;
+    window.ArtNet.__multiUniverseInstalled = true;
+    window.DMXUniverses = { max: MAX_UNIVERSES, channels: DMX_CHANNELS };
+
+    const originalSend = window.ArtNet.send.bind(window.ArtNet);
+    window.ArtNet.send = function multiUniverseSend() {
+      const buffers = buildUniverseBuffers();
+      const next = new Set(buffers.keys());
+
+      activeUniverses.forEach(universe => {
+        if (!next.has(universe)) sendUniverse(universe, new Uint8Array(DMX_CHANNELS));
+      });
+
+      if (!buffers.size) {
+        originalSend();
+        activeUniverses.clear();
+        return;
+      }
+
+      buffers.forEach((data, universe) => sendUniverse(universe, data));
+      activeUniverses.clear();
+      next.forEach(universe => activeUniverses.add(universe));
+      sendVisualizerDMX();
+    };
+
+    const patchUniverse = $("patchUni");
+    if (patchUniverse) {
+      patchUniverse.min = "1";
+      patchUniverse.max = String(MAX_UNIVERSES);
+      patchUniverse.step = "1";
+      if (Number(patchUniverse.value) < 1 || Number(patchUniverse.value) > MAX_UNIVERSES) patchUniverse.value = "1";
+    }
+
+    console.log(`🌐 Multi-universe DMX enabled: ${MAX_UNIVERSES} universes × ${DMX_CHANNELS} channels`);
+  }
+
+  if (window.ArtNet) installMultiUniverse();
+  else document.addEventListener("DOMContentLoaded", installMultiUniverse, { once: true });
+})();

@@ -45,20 +45,23 @@ Module._load = function(request, parent, isMain) {
   return originalLoad.apply(this, arguments);
 };
 
-require(path.join(__dirname, 'main.js'));
-
-// The renderer previously had two competing output-settings implementations.
-// One of them read the old persisted Universe 3 value before central-output.js
-// repaired it, then restored that stale value whenever the number field changed.
-// Clear the old renderer storage before the first BrowserWindow is created.
+// Clear the stale renderer storage BEFORE main.js registers its window startup.
+// The old modes.js code reads output settings during page load, so clearing it
+// after the BrowserWindow exists is too late to prevent Universe 3 being cached
+// in memory and restored when the number field changes.
 app.whenReady().then(async () => {
   try {
     await session.defaultSession.clearStorageData({ storages: ['localstorage'] });
-    console.log('🧹 Cleared stale renderer localStorage before startup');
+    console.log('🧹 Cleared stale renderer localStorage before renderer startup');
   } catch (err) {
     console.warn('⚠️ Could not clear renderer localStorage:', err.message);
   }
-});
+
+  // Require main.js only after the storage purge has completed. Its
+  // app.whenReady() handler resolves immediately afterwards and creates the
+  // BrowserWindow with a clean renderer storage state.
+  require(path.join(__dirname, 'main.js'));
+}).catch(err => console.error('❌ Renderer storage reset failed:', err));
 
 // Keep the Universe field under one source of truth. This runs in the renderer
 // after all existing scripts have loaded, and captures changes before the old
@@ -79,8 +82,6 @@ app.on('browser-window-created', (_event, window) => {
             return;
           }
 
-          // Keep both legacy and central settings in sync so neither code path
-          // can resurrect an old Universe 3 value.
           try {
             const current = JSON.parse(localStorage.getItem('lighting-output-settings') || '{}');
             const data = { ...current, universe: value };
@@ -93,13 +94,13 @@ app.on('browser-window-created', (_event, window) => {
           console.log('🎛 DMX universe set to', value);
         };
 
-        const input = document.getElementById('artnetUni');
-        if (input) {
+        const install = input => {
+          if (!input || input.dataset.universeFixInstalled) return;
+          input.dataset.universeFixInstalled = '1';
           input.min = '0';
           input.step = '1';
           input.value = '1';
 
-          // Capture phase runs before the old modes.js listener.
           input.addEventListener('change', event => {
             event.stopImmediatePropagation();
             applyUniverse();
@@ -111,26 +112,12 @@ app.on('browser-window-created', (_event, window) => {
             event.stopImmediatePropagation();
             applyUniverse();
           }, true);
-        }
+        };
 
-        // The settings UI may be created/re-rendered later, so re-apply the
-        // guard whenever the settings page changes the DOM.
+        install(document.getElementById('artnetUni'));
+
         const observer = new MutationObserver(() => {
-          const next = document.getElementById('artnetUni');
-          if (!next || next.dataset.universeFixInstalled) return;
-          next.dataset.universeFixInstalled = '1';
-          next.min = '0';
-          next.step = '1';
-          next.addEventListener('change', event => {
-            event.stopImmediatePropagation();
-            applyUniverse();
-          }, true);
-          next.addEventListener('keydown', event => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            applyUniverse();
-          }, true);
+          install(document.getElementById('artnetUni'));
         });
         observer.observe(document.documentElement, { childList: true, subtree: true });
 

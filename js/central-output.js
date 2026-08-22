@@ -6,6 +6,11 @@
   if (window.__centralOutputPatch) return;
   window.__centralOutputPatch = true;
 
+  // main.js contains a legacy blind/live injector. This file is loaded first;
+  // claim the initialiser so the legacy injector exits instead of creating a
+  // second set of controls and throwing during startup.
+  window.__blindLiveMode = true;
+
   const $ = id => document.getElementById(id);
   const log = (message, type = "info") => {
     try { if (typeof window.log === "function") window.log(message, type); else console.log(`[${String(type).toUpperCase()}] ${message}`); } catch (_) {}
@@ -21,10 +26,6 @@
       const oldSettings = JSON.parse(localStorage.getItem("dmxOutputSettings") || "{}");
       const centralSettings = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
       const merged = { ...oldSettings, ...centralSettings };
-
-      // Universe 3 was an unwanted startup value in an older build. Do not
-      // depend on a one-time migration flag: if an old setting is restored
-      // or remains in localStorage, repair it every time the app starts.
       if (Number(merged.universe) === 3) {
         merged.universe = 1;
         localStorage.setItem("dmxOutputSettings", JSON.stringify({ ...oldSettings, universe: 1 }));

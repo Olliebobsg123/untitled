@@ -1,5 +1,10 @@
 "use strict";
 
+// main.js historically injected a second blind/live initialiser after the
+// page loaded. modes.js is now the single owner of console mode UI, so mark
+// that legacy hook as already handled before main.js gets to its injection.
+window.__blindLiveMode = true;
+
 // Console mode / safety controls only.
 // DMX output configuration is owned by js/central-output.js. Keeping a second
 // output controller here caused two WebSocket clients to race when changing

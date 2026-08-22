@@ -22,7 +22,7 @@ const cid = crypto.randomBytes(16);
 
 const output = {
   protocol: 'artnet',
-  enabled: false,
+  enabled: true,
   target: ARTNET_TARGET,
   universe: 0,
   priority: 100,
@@ -121,13 +121,15 @@ function buildSacnDMX(dmx, universe = 1, priority = 100) {
   packet.writeUInt16BE(0x0010, 0);
   packet.writeUInt16BE(0x0000, 2);
   Buffer.from([0x41,0x53,0x43,0x2d,0x45,0x31,0x2e,0x31,0x37,0x00,0x00,0x00]).copy(packet, 4);
-  const rootPduLength = 108 + length;
-  setFlagsAndLength(packet, 16, rootPduLength);
+
+  // Root layer: vector + CID + framing PDU.
+  setFlagsAndLength(packet, 16, 620);
   packet.writeUInt32BE(0x00000004, 18);
   cid.copy(packet, 22);
+
+  // Framing layer: source name, priority, sequence and universe + DMP PDU.
   const frameOffset = 38;
-  const framePduLength = 86 + length;
-  setFlagsAndLength(packet, frameOffset, framePduLength);
+  setFlagsAndLength(packet, frameOffset, 598);
   packet.writeUInt32BE(0x00000002, 40);
   const name = Buffer.from(String(output.sourceName || 'Lighting Console').slice(0, 64), 'utf8');
   name.copy(packet, 44);
@@ -137,9 +139,10 @@ function buildSacnDMX(dmx, universe = 1, priority = 100) {
   packet[111] = sacnSequence = (sacnSequence + 1) & 0xff;
   packet[112] = 0;
   packet.writeUInt16BE(Math.max(1, Math.min(63999, Number(universe) || 1)), 113);
+
+  // DMP layer: one start-code byte followed by the 512 DMX slots.
   const dmpOffset = 115;
-  const dmpPduLength = 8 + length;
-  setFlagsAndLength(packet, dmpOffset, dmpPduLength);
+  setFlagsAndLength(packet, dmpOffset, 521);
   packet[dmpOffset + 2] = 0x02;
   packet[dmpOffset + 3] = 0xa1;
   packet.writeUInt16BE(0x0000, dmpOffset + 4);
@@ -177,8 +180,7 @@ function sendDMXBuffer(dmx, universe) {
     return sendSacn(buildSacnDMX(dmx, u, output.priority), target);
   }
   const u = Math.max(0, Math.min(32767, Number(universe ?? output.universe) || 0));
-  const packet = buildArtDMX(dmx, u);
-  return sendArtNet(packet, output.target || ARTNET_TARGET);
+  return sendArtNet(buildArtDMX(dmx, u), output.target || ARTNET_TARGET);
 }
 function applyOutputConfig(message) {
   const protocol = String(message.protocol || 'artnet').toLowerCase() === 'sacn' ? 'sacn' : 'artnet';
@@ -193,11 +195,7 @@ function applyOutputConfig(message) {
   broadcast({ type: 'OUTPUT_STATUS', ...output, online: udpReady });
 }
 function broadcast(message) {
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(JSON.stringify(message)); } catch (_) {}
-    }
-  });
+  wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) { try { client.send(JSON.stringify(message)); } catch (_) {} } });
 }
 function buildTodRequest(universe) {
   const portAddress = Math.max(0, Math.min(32767, Number(universe) || 0));
@@ -237,18 +235,10 @@ function parseTodData(packet, sourceIp) {
   return { uidTotal, devices };
 }
 udp.on('message', (packet, rinfo) => {
-  if (isArtNetPacket(packet, 0x2100)) {
-    broadcast({ type: 'ARTNET_NODE', ip: rinfo.address });
-    return;
-  }
+  if (isArtNetPacket(packet, 0x2100)) { broadcast({ type: 'ARTNET_NODE', ip: rinfo.address }); return; }
   const tod = parseTodData(packet, rinfo.address);
-  if (tod) {
-    broadcast({ type: 'RDM_TOD', ...tod });
-    return;
-  }
-  if (isArtNetDMX(packet)) {
-    wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) { try { client.send(packet, { binary: true }); } catch (_) {} } });
-  }
+  if (tod) { broadcast({ type: 'RDM_TOD', ...tod }); return; }
+  if (isArtNetDMX(packet)) wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) { try { client.send(packet, { binary: true }); } catch (_) {} } });
 });
 wss.on('connection', (ws, request) => {
   const remote = request?.socket?.remoteAddress || 'unknown';
@@ -271,8 +261,7 @@ wss.on('connection', (ws, request) => {
     if (!isArtNetDMX(pkt)) { packetsRejected++; return; }
     const universe = pkt.readUInt16LE(14);
     const length = pkt.readUInt16BE(16);
-    const dmx = pkt.subarray(18, 18 + length);
-    sendDMXBuffer(dmx, universe);
+    sendDMXBuffer(pkt.subarray(18, 18 + length), universe);
     wss.clients.forEach(client => { if (client !== ws && client.readyState === WebSocket.OPEN) { try { client.send(pkt, { binary: true }); } catch (_) {} } });
   });
   ws.on('error', err => console.error(`❌ WebSocket client ERROR (${remote}):`, err.message));

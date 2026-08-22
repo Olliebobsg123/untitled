@@ -1,12 +1,20 @@
 "use strict";
 
 // Console mode / safety controls only.
-// DMX output configuration is owned by js/central-output.js.  Keeping a
-// second output controller here caused two WebSocket clients to race when
-// changing the Art-Net universe (the stale controller could put universe 3
-// straight back after the user selected another universe).
+// DMX output configuration is owned by js/central-output.js. Keeping a second
+// output controller here caused two WebSocket clients to race when changing
+// the Art-Net universe; the stale controller could put universe 3 straight
+// back after the user selected another universe.
 (() => {
   const MODE_KEY = "consoleMode";
+
+  // Remove the old output settings completely. central-output.js starts from
+  // a clean default (Universe 1) and is now the only owner of output state.
+  try {
+    localStorage.removeItem("dmxOutputSettings");
+    localStorage.removeItem("lighting-output-settings");
+  } catch (_) {}
+
   let mode = localStorage.getItem(MODE_KEY) === "blind" ? "BLIND" : "LIVE";
   let emergencyActive = false;
   let blackoutActive = false;
@@ -193,8 +201,7 @@
     if(!live || !blind) return;
     installModeStyles();
     installSafetyControls();
-    // IMPORTANT: do not install another DMX output controller here.
-    // js/central-output.js owns the output socket and universe state.
+    // central-output.js is the ONLY DMX output controller.
     live.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
     blind.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("BLIND");};
     if(window.ArtNet && !window.ArtNet.__blindLiveModePatched){

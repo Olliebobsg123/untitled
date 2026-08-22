@@ -22,18 +22,13 @@
       const centralSettings = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
       const merged = { ...oldSettings, ...centralSettings };
 
-      // Repair the old broken build which persisted universe 3 as its startup
-      // value. This migration deliberately uses version 4 because version 3
-      // was already marked complete by the previous attempted fix.
-      // It runs once, then universe 3 is a perfectly valid user choice.
-      const migrationKey = "output-universe-migration";
-      if (localStorage.getItem(migrationKey) !== "4") {
-        if (Number(merged.universe) === 3) {
-          merged.universe = 1;
-          localStorage.setItem("dmxOutputSettings", JSON.stringify({ ...oldSettings, universe: 1 }));
-          localStorage.setItem("lighting-output-settings", JSON.stringify({ ...centralSettings, universe: 1 }));
-        }
-        localStorage.setItem(migrationKey, "4");
+      // Universe 3 was an unwanted startup value in an older build. Do not
+      // depend on a one-time migration flag: if an old setting is restored
+      // or remains in localStorage, repair it every time the app starts.
+      if (Number(merged.universe) === 3) {
+        merged.universe = 1;
+        localStorage.setItem("dmxOutputSettings", JSON.stringify({ ...oldSettings, universe: 1 }));
+        localStorage.setItem("lighting-output-settings", JSON.stringify({ ...centralSettings, universe: 1 }));
       }
       return merged;
     } catch (_) { return {}; }
@@ -158,7 +153,7 @@
     if (settings.protocol === "usb") {
       if (usbSocket?.readyState === WebSocket.OPEN && settings.enabled) usbSocket.send(JSON.stringify({ type: "USB_DMX_UPDATE", dmx, universe: settings.universe }));
     } else if (socket?.readyState === WebSocket.OPEN && settings.enabled) {
-      socket.send(JSON.stringify({ type: "DMX_UPDATE", dmx }));
+      socket.send(JSON.stringify({ type: "DMX_UPDATE", dmx, universe: settings.universe }));
     }
     try { window.sendVisualizerDMX?.(); } catch (_) {}
   };
@@ -220,7 +215,7 @@
     log(`Output settings → ${settings.protocol === "usb" ? "USB DMX" : settings.protocol.toUpperCase()} / universe ${settings.universe}`, "ok");
   };
 
-  ["artnetIp", "artnetUni", "outMode"].forEach(id => $(id)?.addEventListener("change", applyOutputSettings));
+  ["artnetIp", "artnetUni", "outMode"].forEach(id => $("" + id)?.addEventListener("change", applyOutputSettings));
 
   $("artnetStart")?.addEventListener("click", e => {
     e?.preventDefault();

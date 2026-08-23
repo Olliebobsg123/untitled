@@ -130,10 +130,10 @@ class Driver {
 
   setRefreshRate(value) {
     const next = clampRefreshRate(value);
-    if (next === refreshRate) return;
+    const changed = next !== refreshRate;
     refreshRate = next;
     if (this.connected) this.start();
-    broadcastStatus();
+    if (changed) broadcastStatus();
   }
 
   setFrame(values) {
@@ -215,9 +215,13 @@ wss.on('error', err => console.error('USB DMX SERVICE ERROR:', err.message));
 async function applyConfigNow(message) {
   enabled = Boolean(message.enabled);
   mode = String(message.mode || 'LIVE').toUpperCase() === 'BLIND' ? 'BLIND' : 'LIVE';
-  if (message.refreshRate != null) refreshRate = clampRefreshRate(message.refreshRate);
+
+  const requestedRefreshRate = message.refreshRate != null
+    ? clampRefreshRate(message.refreshRate)
+    : refreshRate;
 
   if (!enabled || mode !== 'LIVE') {
+    refreshRate = requestedRefreshRate;
     await usb.close();
     broadcastStatus();
     return;
@@ -225,6 +229,7 @@ async function applyConfigNow(message) {
 
   const devicePath = String(message.device || '').trim();
   if (!devicePath) {
+    refreshRate = requestedRefreshRate;
     await usb.close();
     usb.lastError = 'No USB DMX device selected';
     broadcastStatus();
@@ -242,8 +247,17 @@ async function applyConfigNow(message) {
       (requestedDriverId !== null && requestedDriverId !== currentDriverId) ||
       (requestedProtocol !== null && requestedProtocol !== currentProtocol);
 
-    if (needsReopen) await usb.open(preferredPath, driverInfo || usb.info);
-    else usb.setRefreshRate(refreshRate);
+    if (needsReopen) {
+      // Set the rate before opening so the newly-created timer uses it.
+      refreshRate = requestedRefreshRate;
+      await usb.open(preferredPath, driverInfo || usb.info);
+    } else {
+      // The serial port stays open. setRefreshRate() restarts only the DMX
+      // transmission timer, so changing Hz takes effect immediately without
+      // disconnecting/reconnecting the USB interface.
+      usb.setRefreshRate(requestedRefreshRate);
+    }
+
     broadcastStatus();
   } catch (err) {
     await usb.close();
@@ -254,9 +268,6 @@ async function applyConfigNow(message) {
 }
 
 function applyConfig(message) {
-  // WebSocket messages can arrive back-to-back while SerialPort.open() is
-  // still awaiting the macOS device. SerialPort is not safe to open twice at
-  // once, so serialize configuration changes through one queue.
   configQueue = configQueue
     .then(() => applyConfigNow(message))
     .catch(err => {

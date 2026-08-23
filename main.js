@@ -24,8 +24,6 @@ function stopServices() {
   }
 }
 
-// The show-file controls live in Settings. Do not install a native Electron
-// File menu; this also avoids the native menu calling loadShow() without a file.
 function buildApplicationMenu() {
   Menu.setApplicationMenu(null);
 }
@@ -37,6 +35,46 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
+    // Electron can finish loading the HTML before the QLab script has exposed
+    // its final API. Chrome normally has enough startup time for this race not
+    // to matter, but Electron can hit it consistently. Retry the QLab bootstrap
+    // until the frontend is ready, then force a fresh connection + cue sync.
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__electronQLabBootstrap) return;
+        window.__electronQLabBootstrap = true;
+        let attempts = 0;
+        const bootstrap = () => {
+          attempts++;
+          try {
+            if (!window.QLab) {
+              if (attempts < 150) return setTimeout(bootstrap, 100);
+              console.error('❌ Electron QLab bootstrap timed out: window.QLab missing');
+              return;
+            }
+            if (typeof window.QLab.loadSettings === 'function') window.QLab.loadSettings();
+            if (typeof window.QLab.renderSettings === 'function') window.QLab.renderSettings();
+            if (typeof window.QLab.connect === 'function') {
+              console.log('🎵 Electron: starting QLab bridge connection');
+              window.QLab.connect();
+            }
+            setTimeout(() => {
+              try {
+                if (window.QLab && typeof window.QLab.syncCues === 'function') {
+                  console.log('🎵 Electron: forcing QLab cue sync');
+                  window.QLab.syncCues();
+                }
+              } catch (err) { console.error('❌ Electron QLab sync failed:', err); }
+            }, 750);
+          } catch (err) {
+            if (attempts < 150) return setTimeout(bootstrap, 100);
+            console.error('❌ Electron QLab bootstrap failed:', err);
+          }
+        };
+        bootstrap();
+      })();
+    `).catch(err => console.error('❌ Electron QLab bootstrap script failed:', err));
+
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__multiOutputLoader) return;
@@ -116,38 +154,52 @@ function createWindow() {
       })();
     `).catch(err => console.error('❌ Visualiser performance patch failed:', err));
 
+    // Install the renderer with the same retry strategy. The previous code only
+    // tried once, so an Electron startup race permanently disabled cue rendering.
     mainWindow.webContents.executeJavaScript(`
       (() => {
-        if (window.__qlabStableCueRenderer) return;
-        if (!window.QLab || typeof window.QLab.renderCueSync !== 'function') { console.warn('⚠️ QLab stable cue renderer could not initialise'); return; }
-        const qlab = window.QLab;
-        const originalRenderCueSync = qlab.renderCueSync.bind(qlab);
-        let lastStructureSignature = null; let hasRendered = false;
-        const getCueNumber = cue => String(cue?.number ?? '').trim();
-        const getStructureSignature = () => JSON.stringify((Array.isArray(qlab.cues) ? qlab.cues : []).map(cue => {
-          const q = getCueNumber(cue); const triggers = qlab.timeTriggers?.[q] || [];
-          return { q, name: cue?.name ?? cue?.displayName ?? cue?.type ?? cue?.cueType ?? 'Unnamed', triggers: triggers.map(t => ({ time: Number(t?.time) || 0, lights: Array.isArray(t?.lights) ? t.lights : [] })) };
-        }));
-        const annotateRows = () => { const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : []; if (!box) return; let rowIndex = 0; cues.forEach(cue => { const q = getCueNumber(cue); if (!q) return; const row = box.children[rowIndex++]; if (row) row.dataset.qlabCueNumber = q; }); };
-        const updatePlaybackOnly = () => {
-          const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
-          if (!box || !cues.length || box.children.length !== cues.filter(c => getCueNumber(c)).length) return false;
-          let rowIndex = 0;
-          for (const cue of cues) {
-            const q = getCueNumber(cue); if (!q) continue; const row = box.children[rowIndex++]; if (!row || row.dataset.qlabCueNumber !== q) return false;
-            const active = q === String(qlab.activeCue ?? ''); row.style.background = active ? '#1a3a2a' : '#2a2a3a'; row.style.borderLeft = '3px solid ' + (active ? '#0f6' : '#444');
-            let elapsed = row.querySelector('.qlab-active-time');
-            if (active) { if (!elapsed) { elapsed = document.createElement('span'); elapsed.className = 'qlab-active-time'; elapsed.style.cssText = 'font-size:11px;color:#0f6;'; const goButton = row.querySelector('button'); row.insertBefore(elapsed, goButton || null); } elapsed.textContent = '▶ ' + Number(qlab.activeElapsed || 0).toFixed(2) + 's'; }
-            else if (elapsed) elapsed.remove();
+        if (window.__qlabStableCueRendererLoader) return;
+        window.__qlabStableCueRendererLoader = true;
+        let attempts = 0;
+        const install = () => {
+          attempts++;
+          if (!window.QLab || typeof window.QLab.renderCueSync !== 'function') {
+            if (attempts < 150) return setTimeout(install, 100);
+            console.warn('⚠️ QLab stable cue renderer could not initialise after 15s');
+            return;
           }
-          return true;
+          if (window.__qlabStableCueRenderer) return;
+          const qlab = window.QLab;
+          const originalRenderCueSync = qlab.renderCueSync.bind(qlab);
+          let lastStructureSignature = null; let hasRendered = false;
+          const getCueNumber = cue => String(cue?.number ?? '').trim();
+          const getStructureSignature = () => JSON.stringify((Array.isArray(qlab.cues) ? qlab.cues : []).map(cue => {
+            const q = getCueNumber(cue); const triggers = qlab.timeTriggers?.[q] || [];
+            return { q, name: cue?.name ?? cue?.displayName ?? cue?.type ?? cue?.cueType ?? 'Unnamed', triggers: triggers.map(t => ({ time: Number(t?.time) || 0, lights: Array.isArray(t?.lights) ? t.lights : [] })) };
+          }));
+          const annotateRows = () => { const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : []; if (!box) return; let rowIndex = 0; cues.forEach(cue => { const q = getCueNumber(cue); if (!q) return; const row = box.children[rowIndex++]; if (row) row.dataset.qlabCueNumber = q; }); };
+          const updatePlaybackOnly = () => {
+            const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
+            if (!box || !cues.length || box.children.length !== cues.filter(c => getCueNumber(c)).length) return false;
+            let rowIndex = 0;
+            for (const cue of cues) {
+              const q = getCueNumber(cue); if (!q) continue; const row = box.children[rowIndex++]; if (!row || row.dataset.qlabCueNumber !== q) return false;
+              const active = q === String(qlab.activeCue ?? ''); row.style.background = active ? '#1a3a2a' : '#2a2a3a'; row.style.borderLeft = '3px solid ' + (active ? '#0f6' : '#444');
+              let elapsed = row.querySelector('.qlab-active-time');
+              if (active) { if (!elapsed) { elapsed = document.createElement('span'); elapsed.className = 'qlab-active-time'; elapsed.style.cssText = 'font-size:11px;color:#0f6;'; const goButton = row.querySelector('button'); row.insertBefore(elapsed, goButton || null); } elapsed.textContent = '▶ ' + Number(qlab.activeElapsed || 0).toFixed(2) + 's'; }
+              else if (elapsed) elapsed.remove();
+            }
+            return true;
+          };
+          qlab.renderCueSync = function stableRenderCueSync() {
+            const signature = getStructureSignature();
+            if (!hasRendered || signature !== lastStructureSignature) { originalRenderCueSync(); lastStructureSignature = signature; hasRendered = true; annotateRows(); return; }
+            if (!updatePlaybackOnly()) { originalRenderCueSync(); lastStructureSignature = signature; annotateRows(); }
+          };
+          window.__qlabStableCueRenderer = true;
+          console.log('✅ Electron: QLab stable cue renderer installed');
         };
-        qlab.renderCueSync = function stableRenderCueSync() {
-          const signature = getStructureSignature();
-          if (!hasRendered || signature !== lastStructureSignature) { originalRenderCueSync(); lastStructureSignature = signature; hasRendered = true; annotateRows(); return; }
-          if (!updatePlaybackOnly()) { originalRenderCueSync(); lastStructureSignature = signature; annotateRows(); }
-        };
-        window.__qlabStableCueRenderer = true;
+        install();
       })();
     `).catch(err => console.error('❌ QLab stable cue renderer failed:', err));
 

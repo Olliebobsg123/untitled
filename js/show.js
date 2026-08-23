@@ -113,9 +113,6 @@ function loadShow(jsonData) {
       }, 300);
     }
 
-    // Restore the complete multi-universe output setup saved with the show.
-    // This includes each output's protocol, universe, IP, enabled state,
-    // sACN multicast/priority settings and USB configuration.
     if (Array.isArray(data.multiOutputs)) {
       restoreMultiOutputShowState(data.multiOutputs);
       console.log(`✅ Restored ${data.multiOutputs.length} multi-universe outputs`);
@@ -157,8 +154,7 @@ function loadShow(jsonData) {
       if (typeof workOn !== 'undefined') {
         workOn = viz.workOn ?? false;
         const el = document.getElementById("work") || document.querySelector('[data-toggle="work"]');
-        if (el) { el.textContent = `WORK LIGHTS: ${workOn ? "ON" : "OFF"}`; el.classList.toggle("on", workOn);
-        }
+        if (el) { el.textContent = `WORK LIGHTS: ${workOn ? "ON" : "OFF"}`; el.classList.toggle("on", workOn); }
         if (Viz.work) Viz.work.forEach(l => l.intensity = workOn ? 7 : 0);
       }
     } else {
@@ -196,9 +192,27 @@ function loadShow(jsonData) {
   }
 }
 
-// Keep the two show-file buttons working even if another UI change removes
-// their handlers. The controls remain in Settings and use the existing IDs.
 document.addEventListener('DOMContentLoaded', () => {
+  // The Settings page currently has no static show-file controls, so create
+  // them here without replacing or altering any existing Settings controls.
+  const settingsPage = document.getElementById('page-settings');
+  if (settingsPage && !document.getElementById('showFileControls')) {
+    const panel = document.createElement('section');
+    panel.id = 'showFileControls';
+    panel.className = 'panel';
+    panel.style.marginTop = '16px';
+    panel.innerHTML = `
+      <div class="panel-header"><div><span class="eyebrow">SHOW</span> Show File</div><span class="panel-meta">SAVE / LOAD</span></div>
+      <div class="panel-body">
+        <div class="action-row">
+          <button class="btn-primary" id="btnSaveShow" type="button">💾 Save Show</button>
+          <button class="btn-secondary" id="btnLoadShow" type="button">📂 Load Show</button>
+        </div>
+        <input id="showFileInput" type="file" accept=".json,application/json" style="display:none">
+      </div>`;
+    settingsPage.appendChild(panel);
+  }
+
   const saveButton = document.getElementById('btnSaveShow');
   const loadButton = document.getElementById('btnLoadShow');
   const fileInput = document.getElementById('showFileInput');

@@ -25,21 +25,13 @@ function stopServices() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
-    title: 'Lighting Console',
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true }
-  });
-
+  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
-    // Multi-output is now the single authoritative output UI. Do not load the
-    // old central-output policy alongside it: that code opens a second set of
-    // WebSockets/controls and can disable the new transport by accident.
+    // Multi-output is the single authoritative DMX output UI. The previous
+    // central-output script is deliberately not loaded because it creates a
+    // second output controller and can disable the multi-output transports.
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__multiOutputLoader) return;
@@ -66,14 +58,12 @@ function createWindow() {
             try {
               if (!child.document || !child.document.documentElement) return false;
               if (child.document.getElementById('__photometricBeamPatch')) return true;
-              const script = child.document.createElement('script');
-              script.id = '__photometricBeamPatch';
-              script.textContent = `(() => {
+              const script = child.document.createElement('script'); script.id = '__photometricBeamPatch';
+              script.textContent = \`(() => {
                 if (window.__photometricBeamPatch) return;
                 window.__photometricBeamPatch = true;
                 const syncBeams = () => {
-                  const state = window.S;
-                  if (!state || !Array.isArray(state.objects)) return;
+                  const state = window.S; if (!state || !Array.isArray(state.objects)) return;
                   for (const fixture of state.objects) {
                     if (!fixture || !fixture.haze || !fixture.spot) continue;
                     const active = fixture.spot.visible && fixture.spot.intensity > 0.001;
@@ -86,61 +76,37 @@ function createWindow() {
                 };
                 const originalRAF = window.requestAnimationFrame;
                 window.requestAnimationFrame = function(callback) { return originalRAF.call(this, time => { syncBeams(); callback(time); }); };
-                syncBeams();
-              })();`;
-              child.document.documentElement.appendChild(script);
-              return true;
+                syncBeams(); console.log('🟣 Photometric beam patch enabled');
+              })();\`;
+              child.document.documentElement.appendChild(script); return true;
             } catch (_) { return false; }
           };
-          const beamTimer = setInterval(() => { if (installPhotometricBeamPatch()) clearInterval(beamTimer); }, 100);
-          setTimeout(() => clearInterval(beamTimer), 15000);
-          const originalPostMessage = child.postMessage.bind(child);
-          let pendingDMX = null;
-          let frameQueued = false;
-          let lastDMX = null;
+          const beamTimer = setInterval(() => { if (installPhotometricBeamPatch()) clearInterval(beamTimer); }, 100); setTimeout(() => clearInterval(beamTimer), 15000);
+          const originalPostMessage = child.postMessage.bind(child); let pendingDMX = null; let frameQueued = false; let lastDMX = null;
           child.postMessage = function(message, targetOrigin, transfer) {
             if (!message || message.type !== 'DMX_UPDATE') return originalPostMessage(message, targetOrigin, transfer);
-            const dmx = Array.isArray(message.dmx) ? message.dmx : null;
-            if (!dmx) return;
-            let unchanged = !!lastDMX && lastDMX.length === dmx.length;
-            if (unchanged) for (let i = 0; i < dmx.length; i++) if (dmx[i] !== lastDMX[i]) { unchanged = false; break; }
-            if (unchanged) return;
-            lastDMX = dmx.slice();
-            pendingDMX = message;
-            if (frameQueued) return;
-            frameQueued = true;
-            requestAnimationFrame(() => {
-              frameQueued = false;
-              if (!pendingDMX) return;
-              const next = pendingDMX;
-              pendingDMX = null;
-              try { originalPostMessage(next, targetOrigin, transfer); } catch (err) { console.warn('⚠️ Visualiser DMX update failed:', err.message); }
-            });
+            const dmx = Array.isArray(message.dmx) ? message.dmx : null; if (!dmx) return;
+            let unchanged = !!lastDMX && lastDMX.length === dmx.length; if (unchanged) for (let i = 0; i < dmx.length; i++) if (dmx[i] !== lastDMX[i]) { unchanged = false; break; }
+            if (unchanged) return; lastDMX = dmx.slice(); pendingDMX = message; if (frameQueued) return; frameQueued = true;
+            requestAnimationFrame(() => { frameQueued = false; if (!pendingDMX) return; const next = pendingDMX; pendingDMX = null; try { originalPostMessage(next, targetOrigin, transfer); } catch (err) { console.warn('⚠️ Visualiser DMX update failed:', err.message); } });
           };
           const installVisualiserModePatch = () => {
             try {
               if (!child.document || !child.document.documentElement) return false;
               if (child.document.getElementById('__consoleModePatch')) return true;
-              const script = child.document.createElement('script');
-              script.id = '__consoleModePatch';
-              script.textContent = `(() => {
-                if (window.__consoleModePatch) return;
-                window.__consoleModePatch = true;
-                const style = document.createElement('style');
-                style.textContent = '#consoleModeBanner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:100;background:#10351d;color:#8cffaa;border:1px solid #55d879;border-radius:7px;padding:8px 18px;font:700 12px monospace;letter-spacing:1px;box-shadow:0 0 18px #0008}#consoleModeBanner.blind{background:#102d55;color:#8fc4ff;border-color:#4b9cff;box-shadow:0 0 18px #1d73c755}';
-                document.head.appendChild(style);
+              const script = child.document.createElement('script'); script.id = '__consoleModePatch';
+              script.textContent = \`(() => {
+                if (window.__consoleModePatch) return; window.__consoleModePatch = true;
+                const style = document.createElement('style'); style.textContent = '#consoleModeBanner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:100;background:#10351d;color:#8cffaa;border:1px solid #55d879;border-radius:7px;padding:8px 18px;font:700 12px monospace;letter-spacing:1px;box-shadow:0 0 18px #0008}#consoleModeBanner.blind{background:#102d55;color:#8fc4ff;border-color:#4b9cff;box-shadow:0 0 18px #1d73c755}'; document.head.appendChild(style);
                 const banner = document.createElement('div'); banner.id = 'consoleModeBanner'; document.body.appendChild(banner);
                 const setMode = mode => { const blind = String(mode).toUpperCase() === 'BLIND'; banner.classList.toggle('blind', blind); banner.textContent = blind ? '● BLIND — VISUALIZER PROGRAMMER' : '● LIVE — DMX OUTPUT'; };
-                window.addEventListener('message', e => { if (e.data?.type === 'CONSOLE_MODE') setMode(e.data.mode); });
-                setMode('LIVE');
-              })();`;
-              child.document.documentElement.appendChild(script);
-              return true;
+                window.addEventListener('message', e => { if (e.data?.type === 'CONSOLE_MODE') setMode(e.data.mode); }); setMode('LIVE');
+              })();\`;
+              child.document.documentElement.appendChild(script); return true;
             } catch (_) { return false; }
           };
-          const modeTimer = setInterval(() => { if (installVisualiserModePatch()) clearInterval(modeTimer); }, 100);
-          setTimeout(() => clearInterval(modeTimer), 15000);
-          return child;
+          const modeTimer = setInterval(() => { if (installVisualiserModePatch()) clearInterval(modeTimer); }, 100); setTimeout(() => clearInterval(modeTimer), 15000);
+          console.log('🖥️ Visualiser performance patch enabled'); return child;
         };
       })();
     `).catch(err => console.error('❌ Visualiser performance patch failed:', err));
@@ -148,40 +114,26 @@ function createWindow() {
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__qlabStableCueRenderer) return;
-        if (!window.QLab || typeof window.QLab.renderCueSync !== 'function') return;
+        if (!window.QLab || typeof window.QLab.renderCueSync !== 'function') { console.warn('⚠️ QLab stable cue renderer could not initialise'); return; }
         const qlab = window.QLab;
         const originalRenderCueSync = qlab.renderCueSync.bind(qlab);
-        let lastStructureSignature = null;
-        let hasRendered = false;
+        let lastStructureSignature = null; let hasRendered = false;
         const getCueNumber = cue => String(cue?.number ?? '').trim();
         const getStructureSignature = () => JSON.stringify((Array.isArray(qlab.cues) ? qlab.cues : []).map(cue => {
-          const q = getCueNumber(cue);
-          const triggers = qlab.timeTriggers?.[q] || [];
+          const q = getCueNumber(cue); const triggers = qlab.timeTriggers?.[q] || [];
           return { q, name: cue?.name ?? cue?.displayName ?? cue?.type ?? cue?.cueType ?? 'Unnamed', triggers: triggers.map(t => ({ time: Number(t?.time) || 0, lights: Array.isArray(t?.lights) ? t.lights : [] })) };
         }));
-        const annotateRows = () => {
-          const box = document.getElementById('qlabSyncList');
-          const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
-          if (!box) return;
-          let rowIndex = 0;
-          cues.forEach(cue => { const q = getCueNumber(cue); if (!q) return; const row = box.children[rowIndex++]; if (row) row.dataset.qlabCueNumber = q; });
-        };
+        const annotateRows = () => { const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : []; if (!box) return; let rowIndex = 0; cues.forEach(cue => { const q = getCueNumber(cue); if (!q) return; const row = box.children[rowIndex++]; if (row) row.dataset.qlabCueNumber = q; }); };
         const updatePlaybackOnly = () => {
-          const box = document.getElementById('qlabSyncList');
-          const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
+          const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
           if (!box || !cues.length || box.children.length !== cues.filter(c => getCueNumber(c)).length) return false;
           let rowIndex = 0;
           for (const cue of cues) {
-            const q = getCueNumber(cue); if (!q) continue;
-            const row = box.children[rowIndex++]; if (!row || row.dataset.qlabCueNumber !== q) return false;
-            const active = q === String(qlab.activeCue ?? '');
-            row.style.background = active ? '#1a3a2a' : '#2a2a3a';
-            row.style.borderLeft = '3px solid ' + (active ? '#0f6' : '#444');
+            const q = getCueNumber(cue); if (!q) continue; const row = box.children[rowIndex++]; if (!row || row.dataset.qlabCueNumber !== q) return false;
+            const active = q === String(qlab.activeCue ?? ''); row.style.background = active ? '#1a3a2a' : '#2a2a3a'; row.style.borderLeft = '3px solid ' + (active ? '#0f6' : '#444');
             let elapsed = row.querySelector('.qlab-active-time');
-            if (active) {
-              if (!elapsed) { elapsed = document.createElement('span'); elapsed.className = 'qlab-active-time'; elapsed.style.cssText = 'font-size:11px;color:#0f6;'; const goButton = row.querySelector('button'); row.insertBefore(elapsed, goButton || null); }
-              elapsed.textContent = '▶ ' + Number(qlab.activeElapsed || 0).toFixed(2) + 's';
-            } else if (elapsed) elapsed.remove();
+            if (active) { if (!elapsed) { elapsed = document.createElement('span'); elapsed.className = 'qlab-active-time'; elapsed.style.cssText = 'font-size:11px;color:#0f6;'; const goButton = row.querySelector('button'); row.insertBefore(elapsed, goButton || null); } elapsed.textContent = '▶ ' + Number(qlab.activeElapsed || 0).toFixed(2) + 's'; }
+            else if (elapsed) elapsed.remove();
           }
           return true;
         };
@@ -210,11 +162,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
-  startServices();
-  createWindow();
+  Menu.setApplicationMenu(null); startServices(); createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
-
 app.on('before-quit', () => stopServices());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

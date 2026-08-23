@@ -29,9 +29,6 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
-    // Multi-output is the single authoritative DMX output UI. The previous
-    // central-output script is deliberately not loaded because it creates a
-    // second output controller and can disable the multi-output transports.
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__multiOutputLoader) return;
@@ -161,8 +158,41 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+function buildApplicationMenu() {
+  const template = [
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Save Show',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.executeJavaScript("typeof window.saveShow === 'function' ? window.saveShow() : (typeof window.ShowManager?.saveShow === 'function' ? window.ShowManager.saveShow() : console.warn('Save Show handler not found'))").catch(err => console.error('❌ Save Show failed:', err));
+            }
+          }
+        },
+        {
+          label: 'Load Show',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.executeJavaScript("typeof window.loadShow === 'function' ? window.loadShow() : (typeof window.ShowManager?.loadShow === 'function' ? window.ShowManager.loadShow() : console.warn('Load Show handler not found'))").catch(err => console.error('❌ Load Show failed:', err));
+            }
+          }
+        }
+      ]
+    },
+    { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+    { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { type: 'separator' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }] },
+    { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] },
+    { label: 'Help', submenu: [] }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null); startServices(); createWindow();
+  buildApplicationMenu(); startServices(); createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
 app.on('before-quit', () => stopServices());

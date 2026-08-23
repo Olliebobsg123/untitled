@@ -121,4 +121,37 @@
 
   function install(){try{window.ArtNet?.stop?.();}catch(_){}installUI();connect();setInterval(sendDMX,40);window.addEventListener("beforeunload",()=>{try{socket?.close();}catch(_){}});}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
+
+  // The native Electron File > Load Show menu calls window.loadShow().
+  // The show loader expects a file-input change event, so calling it directly
+  // made it report "invalid file" before the user had selected anything.
+  function installNativeShowLoadFix() {
+    if (window.__nativeShowLoadFix) return true;
+    if (typeof window.loadShow !== "function") return false;
+    const originalLoadShow = window.loadShow;
+    window.loadShow = function(...args) {
+      if (args.length) return originalLoadShow.apply(this, args);
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.style.display = "none";
+      input.addEventListener("change", event => {
+        try {
+          if (!input.files || !input.files.length) return;
+          originalLoadShow.call(this, event);
+        } finally {
+          setTimeout(() => input.remove(), 0);
+        }
+      }, { once: true });
+      document.body.appendChild(input);
+      input.click();
+      return input;
+    };
+    window.__nativeShowLoadFix = true;
+    return true;
+  }
+  if (!installNativeShowLoadFix()) {
+    const timer = setInterval(() => { if (installNativeShowLoadFix()) clearInterval(timer); }, 100);
+    setTimeout(() => clearInterval(timer), 15000);
+  }
 })();

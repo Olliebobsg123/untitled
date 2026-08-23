@@ -6,7 +6,7 @@ const dgram = require('dgram');
 const crypto = require('crypto');
 
 const WS_HOST = '127.0.0.1';
-const WS_PORT = 8083;
+const WS_PORT = 8084;
 const MAX_OUTPUTS = 10;
 const USB_RATES = [10, 15, 20, 25, 30, 35, 40];
 const NETWORK_REFRESH_RATE = 40;
@@ -62,8 +62,6 @@ function setFlagsAndLength(packet, offset, length) {
   packet.writeUInt16BE(0x7000 | (length & 0x0fff), offset);
 }
 
-// Correct E1.31 packet offsets. The previous version wrote the universe and
-// DMP fields one byte early, which made the packet invalid to sACN receivers.
 function buildSacn(frame, universe, priority = 100) {
   const packet = Buffer.alloc(638);
   packet.writeUInt16BE(0x0010, 0);

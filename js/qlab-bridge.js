@@ -12,7 +12,6 @@ const POLL_MS = 250;
 const END_EPSILON = 0.15;
 const EMPTY_ACTIVE_CONFIRMATIONS = 2;
 
-// QLAB_IP is the remote destination. Never bind a local UDP socket to it.
 const udp = dgram.createSocket("udp4");
 const wss = new WebSocket.Server({ host: "0.0.0.0", port: WS_PORT });
 const clients = new Map();
@@ -223,8 +222,8 @@ function handleReply(address, args) {
     const selected = workspaces[0];
     workspaceId = String(selected?.uniqueID ?? selected?.uniqueId ?? selected?.id ?? "").trim() || null;
     if (!workspaceId) { console.warn("QLab: workspace reply had no usable uniqueID"); return; }
-    console.log(`QLab: workspace found ${selected.displayName || workspaceId}; requesting cue lists`);
-    sendOsc(`/workspace/${workspaceId}/cueLists/shallow`);
+    console.log(`QLab: workspace found ${selected.displayName || workspaceId}; requesting full cue lists`);
+    sendOsc(`/workspace/${workspaceId}/cueLists`);
     return;
   }
   if (address.endsWith("/cueLists") || address.endsWith("/cueLists/shallow") || address === "/cueLists") return loadCues(data);
@@ -264,8 +263,6 @@ function pollQLab() {
   if (activeCue) queryActiveCueState();
 }
 function subscribe() {
-  // QLab 5 defaults to UDP reply port 53001; explicitly requesting it avoids
-  // failures when the workspace/client has a different reply-port setting.
   sendOsc("/udpReplyPort", QLAB_REPLY_PORT);
   sendOsc("/updates", 1);
   sendOsc("/alwaysReply", 1);
@@ -330,7 +327,6 @@ function shutdown() {
   try { udp.close(); } catch (_) {}
 }
 
-// Bind locally. QLAB_IP is only used as the outgoing destination.
 udp.bind(QLAB_REPLY_PORT, "0.0.0.0", () => {
   if (shuttingDown) return;
   console.log(`QLab bridge listening on UDP ${QLAB_REPLY_PORT}; QLab ${QLAB_IP}:${QLAB_PORT}; WebSocket ${WS_PORT}; polling ${POLL_MS}ms`);

@@ -194,6 +194,8 @@ class Driver {
 
 const usb = new Driver();
 let wss;
+let configQueue = Promise.resolve();
+
 function broadcast(message) {
   if (!wss) return;
   wss.clients.forEach(client => {
@@ -210,7 +212,7 @@ wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
 wss.on('listening', () => console.log(`USB DMX SERVICE READY — ws://${WS_HOST}:${WS_PORT}`));
 wss.on('error', err => console.error('USB DMX SERVICE ERROR:', err.message));
 
-async function applyConfig(message) {
+async function applyConfigNow(message) {
   enabled = Boolean(message.enabled);
   mode = String(message.mode || 'LIVE').toUpperCase() === 'BLIND' ? 'BLIND' : 'LIVE';
   if (message.refreshRate != null) refreshRate = clampRefreshRate(message.refreshRate);
@@ -251,6 +253,20 @@ async function applyConfig(message) {
   }
 }
 
+function applyConfig(message) {
+  // WebSocket messages can arrive back-to-back while SerialPort.open() is
+  // still awaiting the macOS device. SerialPort is not safe to open twice at
+  // once, so serialize configuration changes through one queue.
+  configQueue = configQueue
+    .then(() => applyConfigNow(message))
+    .catch(err => {
+      usb.lastError = err?.message || String(err);
+      console.error('USB DMX CONFIG ERROR:', usb.lastError);
+      broadcastStatus();
+    });
+  return configQueue;
+}
+
 wss.on('connection', ws => {
   ws.send(JSON.stringify({ type: 'USB_DMX_STATUS', enabled, mode, ...usb.status(), online: usb.connected && enabled && mode === 'LIVE' }));
   ws.on('message', async data => {
@@ -271,6 +287,7 @@ wss.on('connection', ws => {
 async function shutdown() {
   enabled = false;
   mode = 'BLIND';
+  await configQueue.catch(() => {});
   await usb.close();
   try { wss.close(); } catch (_) {}
 }

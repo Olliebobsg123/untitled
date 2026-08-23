@@ -1,5 +1,23 @@
 "use strict";
 
+function getMultiOutputShowState() {
+  try {
+    const raw = localStorage.getItem("lighting-multi-outputs");
+    const outputs = JSON.parse(raw || "[]");
+    return Array.isArray(outputs) ? outputs : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function restoreMultiOutputShowState(outputs) {
+  if (!Array.isArray(outputs)) return;
+  try {
+    localStorage.setItem("lighting-multi-outputs", JSON.stringify(outputs));
+  } catch (_) {}
+  window.dispatchEvent(new CustomEvent("show-multi-output-restore", { detail: { outputs } }));
+}
+
 function saveShow() {
   try {
     const vizState = {};
@@ -37,27 +55,28 @@ function saveShow() {
       console.warn("❌ saveShow: Visualizer state NOT FOUND — open/load visualizer first!");
     }
 
-    // ✅ SAVE CURRENT EFFECT + ALL CUE-EFFECT LINKS
     const activeEffectCopy = State.activeEffect ? { ...State.activeEffect } : null;
     const cuesWithEffects = State.cues.map(cue => {
-      if (cue && cue.effect) {
-        return { ...cue, effect: { ...cue.effect } };
-      }
+      if (cue && cue.effect) return { ...cue, effect: { ...cue.effect } };
       return cue;
     });
+
+    const multiOutputs = getMultiOutputShowState();
 
     const showData = {
       fixtures: State.fixtures || [],
       groups: State.groups || [],
-      cues: cuesWithEffects, // ✅ cues carry their saved effects
+      cues: cuesWithEffects,
       chases: State.chases || [],
       visualizer: vizState,
-      activeEffect: activeEffectCopy, // ✅ save currently running effect
+      activeEffect: activeEffectCopy,
+      multiOutputs,
       savedAt: new Date().toISOString()
     };
 
     const json = JSON.stringify(showData, null, 2);
     console.log("✅ FINAL SAVED JSON:", JSON.stringify(vizState, null, 2));
+    console.log(`💾 Saved ${multiOutputs.length} multi-universe outputs`);
     if (activeEffectCopy) console.log("💾 Saved active effect:", activeEffectCopy);
 
     const blob = new Blob([json], { type: 'application/json' });
@@ -67,7 +86,7 @@ function saveShow() {
     a.download = `LightingShow_${new Date().toISOString().slice(0,10)}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    log(`Show saved — ${Viz ? 'includes positions/aims' : 'no viz data'} ${activeEffectCopy ? '+ effect' : ''}`, 'ok');
+    log(`Show saved — ${Viz ? 'includes positions/aims' : 'no viz data'}${activeEffectCopy ? ' + effect' : ''} + ${multiOutputs.length} universe outputs`, 'ok');
   } catch (e) {
     console.error('Save failed:', e);
     log('Failed to save show', 'warn');
@@ -78,20 +97,15 @@ function loadShow(jsonData) {
   try {
     const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
 
-    // 1. Load core console state FIRST
     State.fixtures = Array.isArray(data.fixtures) ? data.fixtures : [];
     State.groups = Array.isArray(data.groups) ? data.groups : [];
     State.cues = Array.isArray(data.cues) ? data.cues.filter(Boolean) : [];
     State.chases = Array.isArray(data.chases) ? data.chases : [];
     State.currentCue = -1; State.currentChase = -1;
 
-    // ✅ CUE EFFECTS RESTORED — already inside State.cues
     const cueEffectCount = State.cues.filter(c => c && c.effect).length;
-    if (cueEffectCount > 0) {
-      console.log(`✅ ${cueEffectCount} cues have saved effects`);
-    }
+    if (cueEffectCount > 0) console.log(`✅ ${cueEffectCount} cues have saved effects`);
 
-    // ✅ RESTORE & AUTO-START PREVIOUS ACTIVE EFFECT
     if (data.activeEffect && data.activeEffect.type) {
       setTimeout(() => {
         startEffect(data.activeEffect.type, data.activeEffect);
@@ -99,7 +113,14 @@ function loadShow(jsonData) {
       }, 300);
     }
 
-    // 2. Restore Visualizer
+    // Restore the complete multi-universe output setup saved with the show.
+    // This includes each output's protocol, universe, IP, enabled state,
+    // sACN multicast/priority settings and USB configuration.
+    if (Array.isArray(data.multiOutputs)) {
+      restoreMultiOutputShowState(data.multiOutputs);
+      console.log(`✅ Restored ${data.multiOutputs.length} multi-universe outputs`);
+    }
+
     const Viz = window.S || window.VizState || (window.opener && (window.opener.S || window.opener.VizState));
     if (data.visualizer && Viz) {
       const viz = data.visualizer;
@@ -136,21 +157,20 @@ function loadShow(jsonData) {
       if (typeof workOn !== 'undefined') {
         workOn = viz.workOn ?? false;
         const el = document.getElementById("work") || document.querySelector('[data-toggle="work"]');
-        if (el) { el.textContent = `WORK LIGHTS: ${workOn ? "ON" : "OFF"}`; el.classList.toggle("on", workOn); }
+        if (el) { el.textContent = `WORK LIGHTS: ${workOn ? "ON" : "OFF"}`; el.classList.toggle("on", workOn);
+        }
         if (Viz.work) Viz.work.forEach(l => l.intensity = workOn ? 7 : 0);
       }
     } else {
       console.warn("❌ loadShow: missing viz data OR visualizer not ready");
     }
 
-    // 3. Update UI
     renderFixtures();
     renderGroups();
     renderCues();
     renderChases();
     if (typeof updateInspectorList === 'function') updateInspectorList();
 
-    // Rebuild visualizer
     if (window.opener && typeof window.opener.rebuildFixtures === 'function') {
       setTimeout(() => {
         window.opener.rebuildFixtures();
@@ -160,7 +180,7 @@ function loadShow(jsonData) {
       setTimeout(() => {
         rebuildFixtures();
         console.log("✅ local rebuildFixtures() ran");
-        if (window.vizWindow && !window.vizWindow.closed) {
+        if (window.vizWindow && !window.vizWindow.closed && Viz) {
           const posArray = Array.from(Viz.fixturePositions.entries()).map(([i, p]) => ({ fixtureIndex: i, x: p.x, y: p.y, z: p.z }));
           const rotArray = Array.from(Viz.fixtureManualRot.entries()).map(([i, r]) => ({ fixtureIndex: i, pan: r.pan, tilt: r.tilt }));
           window.vizWindow.postMessage({ type: "LOAD_VIZ_POSITIONS", positions: posArray, rotations: rotArray }, "*");
@@ -169,9 +189,36 @@ function loadShow(jsonData) {
       }, 100);
     }
 
-    log(`✅ Show loaded — ${cueEffectCount} cues with effects restored`, 'ok');
+    log(`✅ Show loaded — ${cueEffectCount} cues with effects restored${Array.isArray(data.multiOutputs) ? ` + ${data.multiOutputs.length} universe outputs` : ''}`, 'ok');
   } catch (e) {
     console.error('❌ Load failed:', e);
     log('Load failed: invalid file', 'warn');
   }
 }
+
+// Keep the two show-file buttons working even if another UI change removes
+// their handlers. The controls remain in Settings and use the existing IDs.
+document.addEventListener('DOMContentLoaded', () => {
+  const saveButton = document.getElementById('btnSaveShow');
+  const loadButton = document.getElementById('btnLoadShow');
+  const fileInput = document.getElementById('showFileInput');
+
+  if (saveButton) {
+    saveButton.type = 'button';
+    saveButton.onclick = e => { e.preventDefault(); saveShow(); };
+  }
+
+  if (loadButton && fileInput) {
+    loadButton.type = 'button';
+    loadButton.onclick = e => { e.preventDefault(); fileInput.click(); };
+    fileInput.onchange = async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        loadShow(await file.text());
+      } finally {
+        fileInput.value = '';
+      }
+    };
+  }
+});

@@ -7,6 +7,7 @@ const path = require('path');
 const children = [];
 let directRelayService = null;
 let directUsbService = null;
+let directMultiOutputService = null;
 let shuttingDown = false;
 
 const serviceRoot = app.isPackaged ? path.join(process.resourcesPath, 'services') : __dirname;
@@ -45,82 +46,35 @@ Module._load = function(request, parent, isMain) {
   return originalLoad.apply(this, arguments);
 };
 
-// Clear the stale renderer storage BEFORE main.js registers its window startup.
-// The old modes.js code reads output settings during page load, so clearing it
-// after the BrowserWindow exists is too late to prevent Universe 3 being cached
-// in memory and restored when the number field changes.
 app.whenReady().then(async () => {
-  try {
-    await session.defaultSession.clearStorageData({ storages: ['localstorage'] });
-    console.log('🧹 Cleared stale renderer localStorage before renderer startup');
-  } catch (err) {
-    console.warn('⚠️ Could not clear renderer localStorage:', err.message);
-  }
-
-  // Require main.js only after the storage purge has completed. Its
-  // app.whenReady() handler resolves immediately afterwards and creates the
-  // BrowserWindow with a clean renderer storage state.
+  try { await session.defaultSession.clearStorageData({ storages: ['localstorage'] }); console.log('🧹 Cleared stale renderer localStorage before renderer startup'); }
+  catch (err) { console.warn('⚠️ Could not clear renderer localStorage:', err.message); }
   require(path.join(__dirname, 'main.js'));
 }).catch(err => console.error('❌ Renderer storage reset failed:', err));
 
-// Keep the Universe field under one source of truth. This runs in the renderer
-// after all existing scripts have loaded, and captures changes before the old
-// modes.js change handler can overwrite the user's value.
 app.on('browser-window-created', (_event, window) => {
   window.webContents.once('did-finish-load', () => {
     window.webContents.executeJavaScript(`
       (() => {
         if (window.__universeInputFix) return;
         window.__universeInputFix = true;
-
         const applyUniverse = () => {
-          const input = document.getElementById('artnetUni');
-          if (!input) return;
-          const value = Number(input.value);
-          if (!Number.isInteger(value) || value < 0) {
-            input.value = '1';
-            return;
-          }
-
-          try {
-            const current = JSON.parse(localStorage.getItem('lighting-output-settings') || '{}');
-            const data = { ...current, universe: value };
-            localStorage.setItem('lighting-output-settings', JSON.stringify(data));
-            localStorage.setItem('dmxOutputSettings', JSON.stringify(data));
-          } catch (_) {}
-
+          const input = document.getElementById('artnetUni'); if (!input) return;
+          const value = Number(input.value); if (!Number.isInteger(value) || value < 0) { input.value = '1'; return; }
+          try { const current = JSON.parse(localStorage.getItem('lighting-output-settings') || '{}'); const data = { ...current, universe: value }; localStorage.setItem('lighting-output-settings', JSON.stringify(data)); localStorage.setItem('dmxOutputSettings', JSON.stringify(data)); } catch (_) {}
           if (window.ArtNet) window.ArtNet.universe = value;
           window.dispatchEvent(new CustomEvent('dmx-universe-changed', { detail: value }));
           console.log('🎛 DMX universe set to', value);
         };
-
         const install = input => {
           if (!input || input.dataset.universeFixInstalled) return;
-          input.dataset.universeFixInstalled = '1';
-          input.min = '0';
-          input.step = '1';
-          input.value = '1';
-
-          input.addEventListener('change', event => {
-            event.stopImmediatePropagation();
-            applyUniverse();
-          }, true);
-
-          input.addEventListener('keydown', event => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            applyUniverse();
-          }, true);
+          input.dataset.universeFixInstalled = '1'; input.min = '0'; input.step = '1'; input.value = '1';
+          input.addEventListener('change', event => { event.stopImmediatePropagation(); applyUniverse(); }, true);
+          input.addEventListener('keydown', event => { if (event.key !== 'Enter') return; event.preventDefault(); event.stopImmediatePropagation(); applyUniverse(); }, true);
         };
-
         install(document.getElementById('artnetUni'));
-
-        const observer = new MutationObserver(() => {
-          install(document.getElementById('artnetUni'));
-        });
+        const observer = new MutationObserver(() => install(document.getElementById('artnetUni')));
         observer.observe(document.documentElement, { childList: true, subtree: true });
-
         console.log('✅ Universe input fix installed');
       })();
     `).catch(err => console.error('❌ Universe input fix failed:', err));
@@ -130,39 +84,35 @@ app.on('browser-window-created', (_event, window) => {
 function startRelayInElectronMainProcess() {
   const relayPath = path.join(serviceRoot, 'relay.js');
   if (!fs.existsSync(relayPath)) { console.error(`❌ ART-NET relay missing: ${relayPath}`); return null; }
-  try {
-    const serviceNodeModules = path.join(serviceRoot, 'node_modules');
-    process.env.NODE_PATH = [serviceNodeModules, process.env.NODE_PATH || ''].filter(Boolean).join(path.delimiter);
-    Module._initPaths();
-    directRelayService = require(relayPath);
-    console.log('✅ ART-NET relay running inside Electron main process');
-    return directRelayService;
-  } catch (err) { console.error('❌ ART-NET relay failed to start in Electron main process:', err); return null; }
+  try { const serviceNodeModules = path.join(serviceRoot, 'node_modules'); process.env.NODE_PATH = [serviceNodeModules, process.env.NODE_PATH || ''].filter(Boolean).join(path.delimiter); Module._initPaths(); directRelayService = require(relayPath); console.log('✅ ART-NET relay running inside Electron main process'); return directRelayService; }
+  catch (err) { console.error('❌ ART-NET relay failed to start in Electron main process:', err); return null; }
 }
 
 function startUsbInElectronMainProcess() {
   const usbPath = path.join(serviceRoot, 'usb-dmx.js');
   if (!fs.existsSync(usbPath)) { console.error(`❌ USB DMX service missing: ${usbPath}`); return null; }
-  try {
-    const serviceNodeModules = path.join(serviceRoot, 'node_modules');
-    process.env.NODE_PATH = [serviceNodeModules, process.env.NODE_PATH || ''].filter(Boolean).join(path.delimiter);
-    Module._initPaths();
-    directUsbService = require(usbPath);
-    console.log('✅ USB DMX service running inside Electron main process');
-    return directUsbService;
-  } catch (err) { console.error('❌ USB DMX service failed to start:', err); return null; }
+  try { const serviceNodeModules = path.join(serviceRoot, 'node_modules'); process.env.NODE_PATH = [serviceNodeModules, process.env.NODE_PATH || ''].filter(Boolean).join(path.delimiter); Module._initPaths(); directUsbService = require(usbPath); console.log('✅ USB DMX service running inside Electron main process'); return directUsbService; }
+  catch (err) { console.error('❌ USB DMX service failed to start:', err); return null; }
+}
+
+function startMultiOutputInElectronMainProcess() {
+  const multiPath = path.join(serviceRoot, 'multi-output.js');
+  if (!fs.existsSync(multiPath)) { console.error(`❌ Multi-universe output service missing: ${multiPath}`); return null; }
+  try { const serviceNodeModules = path.join(serviceRoot, 'node_modules'); process.env.NODE_PATH = [serviceNodeModules, process.env.NODE_PATH || ''].filter(Boolean).join(path.delimiter); Module._initPaths(); directMultiOutputService = require(multiPath); console.log('✅ Multi-universe output service running inside Electron main process'); return directMultiOutputService; }
+  catch (err) { console.error('❌ Multi-universe output service failed to start:', err); return null; }
 }
 
 app.whenReady().then(() => {
   startRelayInElectronMainProcess();
   startUsbInElectronMainProcess();
+  startMultiOutputInElectronMainProcess();
   startNodeService('QLab bridge', path.join('js', 'qlab-bridge.js'));
 }).catch(err => console.error('❌ Electron readiness failed:', err));
 
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  for (const [name, service] of [['ART-NET relay', directRelayService], ['USB DMX service', directUsbService]]) {
+  for (const [name, service] of [['ART-NET relay', directRelayService], ['USB DMX service', directUsbService], ['Multi-universe output service', directMultiOutputService]]) {
     if (service && typeof service.shutdown === 'function') { try { service.shutdown(); } catch (err) { console.error(`❌ ${name} shutdown failed:`, err); } }
   }
   for (const { child, logStream } of children) { try { if (child && !child.killed) child.kill('SIGTERM'); } catch (_) {} try { logStream.end(); } catch (_) {} }

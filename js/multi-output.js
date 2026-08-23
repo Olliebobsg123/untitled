@@ -46,7 +46,7 @@
     clearTimeout(reconnectTimer);
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
     try {
-      socket = new WebSocket("ws://127.0.0.1:8083");
+      socket = new WebSocket("ws://127.0.0.1:8084");
       socket.onopen = () => { sendConfig(); requestUsbPorts(); sendMode(window.getConsoleMode?.() || "LIVE"); };
       socket.onmessage = e => { try { const m=JSON.parse(e.data); if(m.type==="MULTI_USB_PORTS"){usbPorts=Array.isArray(m.ports)?m.ports:[];render();} if(m.type==="MULTI_OUTPUT_STATUS"){const byId=new Map((m.outputs||[]).map(o=>[o.id,o]));outputs.forEach(o=>{const s=byId.get(o.id);if(s)o.__status=s;});renderStatuses();window.dispatchEvent(new CustomEvent("multi-output-status",{detail:m}));} } catch (_) {} };
       socket.onclose = () => { socket=null; reconnectTimer=setTimeout(connect,1500); };

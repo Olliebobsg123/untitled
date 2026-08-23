@@ -9,6 +9,8 @@ const WS_HOST = '127.0.0.1';
 const WS_PORT = 8083;
 const MAX_OUTPUTS = 10;
 const USB_RATES = [10, 15, 20, 25, 30, 35, 40];
+const NETWORK_REFRESH_RATE = 40;
+const NETWORK_INTERVAL = Math.round(1000 / NETWORK_REFRESH_RATE);
 
 const outputs = new Map();
 const universes = new Map();
@@ -87,6 +89,11 @@ function sacnTarget(universe) {
   return `239.255.${(u >> 8) & 0xff}.${u & 0xff}`;
 }
 
+function stopNetwork(output) {
+  if (output.networkTimer) clearInterval(output.networkTimer);
+  output.networkTimer = null;
+}
+
 function stopUsb(output) {
   if (output.timer) clearInterval(output.timer);
   output.timer = null;
@@ -96,6 +103,11 @@ function stopUsb(output) {
   if (port?.isOpen) {
     try { port.close(() => {}); } catch (_) {}
   }
+}
+
+function stopOutput(output) {
+  stopNetwork(output);
+  stopUsb(output);
 }
 
 function usbPath(device) {
@@ -155,6 +167,18 @@ async function startUsb(output) {
   console.log(`MULTI USB CONNECTED → ${path} @ ${output.refreshRate}Hz universe ${output.universe}`);
 }
 
+function startNetwork(output) {
+  stopNetwork(output);
+  if (!output.enabled || output.protocol === 'usb') return;
+
+  // Network DMX must be refreshed continuously. The frontend is only
+  // responsible for supplying the latest frame; this timer retransmits that
+  // frame even when no channel values have changed.
+  output.networkTimer = setInterval(() => {
+    if (output.enabled && output.protocol !== 'usb') sendNetwork(output);
+  }, NETWORK_INTERVAL);
+}
+
 async function configureOutput(config) {
   const id = String(config?.id || '').trim();
   if (!id) return;
@@ -181,6 +205,7 @@ async function configureOutput(config) {
     error: null,
     port: previous?.port || null,
     timer: previous?.timer || null,
+    networkTimer: previous?.networkTimer || null,
     writing: false
   };
 
@@ -191,9 +216,19 @@ async function configureOutput(config) {
     previous.universe !== output.universe
   );
 
+  const networkChanged = previous && (
+    previous.protocol !== protocol ||
+    previous.universe !== output.universe ||
+    previous.target !== output.target ||
+    previous.multicast !== output.multicast ||
+    previous.priority !== output.priority ||
+    previous.enabled !== output.enabled
+  );
+
   outputs.set(id, output);
 
   if (protocol === 'usb') {
+    stopNetwork(output);
     if (output.enabled && (!previous?.connected || usbChanged)) {
       try { await startUsb(output); }
       catch (err) {
@@ -210,6 +245,11 @@ async function configureOutput(config) {
     }
   } else {
     stopUsb(output);
+    if (output.enabled && (!previous || networkChanged || !previous.networkTimer)) {
+      startNetwork(output);
+    } else if (!output.enabled) {
+      stopNetwork(output);
+    }
   }
 }
 
@@ -219,7 +259,7 @@ async function applyConfigNow(message) {
 
   for (const [id, output] of outputs) {
     if (!ids.has(id)) {
-      stopUsb(output);
+      stopOutput(output);
       outputs.delete(id);
     }
   }
@@ -237,7 +277,7 @@ function applyConfig(message) {
 }
 
 function sendNetwork(output) {
-  if (!output.enabled || !udpReady) return;
+  if (!output.enabled || !udpReady || output.protocol === 'usb') return;
   const frame = frameFor(output.universe);
 
   if (output.protocol === 'sacn') {
@@ -266,7 +306,8 @@ function broadcastStatus() {
     enabled: o.enabled,
     connected: o.protocol === 'usb' ? Boolean(o.connected) : Boolean(o.enabled && udpReady),
     error: o.error || null,
-    refreshRate: o.refreshRate
+    refreshRate: o.refreshRate,
+    networkRefreshRate: o.protocol === 'usb' ? null : NETWORK_REFRESH_RATE
   }));
   const message = { type: 'MULTI_OUTPUT_STATUS', maxOutputs: MAX_OUTPUTS, outputs: status };
   wss.clients.forEach(ws => {
@@ -304,7 +345,7 @@ wss.on('connection', ws => {
   ws.send(JSON.stringify({
     type: 'MULTI_OUTPUT_STATUS',
     maxOutputs: MAX_OUTPUTS,
-    outputs: [...outputs.values()].map(o => ({ id: o.id, protocol: o.protocol, universe: o.universe, target: o.target || '', usbDevice: o.usbDevice || '', enabled: o.enabled, connected: Boolean(o.connected), error: o.error || null, refreshRate: o.refreshRate }))
+    outputs: [...outputs.values()].map(o => ({ id: o.id, protocol: o.protocol, universe: o.universe, target: o.target || '', usbDevice: o.usbDevice || '', enabled: o.enabled, connected: Boolean(o.connected), error: o.error || null, refreshRate: o.refreshRate, networkRefreshRate: o.protocol === 'usb' ? null : NETWORK_REFRESH_RATE }))
   }));
 
   ws.on('message', async data => {
@@ -324,9 +365,8 @@ wss.on('connection', ws => {
           for (let i = 0; i < src.length; i++) frame[i] = Number(src[i]) & 0xff;
           universes.set(String(Number(u)), frame);
         }
-        for (const output of outputs.values()) {
-          if (output.enabled && output.protocol !== 'usb') sendNetwork(output);
-        }
+        // A frame update no longer has to trigger a network packet directly.
+        // The per-output network timers continuously transmit the latest frame.
       }
     } catch (err) {
       console.warn('MULTI OUTPUT MESSAGE ERROR:', err.message);
@@ -335,7 +375,7 @@ wss.on('connection', ws => {
 });
 
 async function shutdown() {
-  for (const output of outputs.values()) stopUsb(output);
+  for (const output of outputs.values()) stopOutput(output);
   try { artnetSocket.close(); } catch (_) {}
   try { sacnSocket.close(); } catch (_) {}
   try { wss?.close(); } catch (_) {}

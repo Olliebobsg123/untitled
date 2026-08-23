@@ -23,21 +23,21 @@
   const send = m => { if (!socket || socket.readyState !== WebSocket.OPEN) return false; try { socket.send(JSON.stringify(m)); return true; } catch (_) { return false; } };
   const sendConfig = () => send({ type:"MULTI_OUTPUT_CONFIG", outputs:outputs.slice(0,MAX_OUTPUTS) });
   const requestUsbPorts = () => send({ type:"MULTI_USB_PORTS" });
+  const sendMode = mode => send({ type:"MULTI_OUTPUT_MODE", mode: String(mode).toUpperCase() === "BLIND" ? "BLIND" : "LIVE" });
+  window.__setMultiOutputMode = sendMode;
 
   function connect() {
     clearTimeout(reconnectTimer);
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
     try {
       socket = new WebSocket("ws://127.0.0.1:8083");
-      socket.onopen = () => { sendConfig(); requestUsbPorts(); };
+      socket.onopen = () => { sendConfig(); requestUsbPorts(); sendMode(window.getConsoleMode?.() || "LIVE"); };
       socket.onmessage = e => { try { const m=JSON.parse(e.data); if(m.type==="MULTI_USB_PORTS"){usbPorts=Array.isArray(m.ports)?m.ports:[];render();} if(m.type==="MULTI_OUTPUT_STATUS"){const byId=new Map((m.outputs||[]).map(o=>[o.id,o]));outputs.forEach(o=>{const s=byId.get(o.id);if(s)o.__status=s;});renderStatuses();window.dispatchEvent(new CustomEvent("multi-output-status",{detail:m}));} } catch (_) {} };
       socket.onclose = () => { socket=null; reconnectTimer=setTimeout(connect,1500); };
       socket.onerror = () => {};
     } catch (_) { reconnectTimer=setTimeout(connect,1500); }
   }
 
-  // Fixture patch universe is the routing key. No +1/-1 conversion is used.
-  // Therefore patch 0 -> output 0, patch 1 -> output 1, patch 2 -> output 2.
   function patchUniverseFrames() {
     const frames = {};
     const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
@@ -60,7 +60,6 @@
   function sendDMX() {
     if (!outputs.some(o=>o.enabled)) return;
     const universes = patchUniverseFrames();
-    // Every enabled output gets only its own patch universe. Unpatched outputs are blank.
     for (const output of outputs) {
       if (!output.enabled) continue;
       const u=Number(output.universe);

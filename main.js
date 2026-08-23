@@ -70,7 +70,8 @@ function createWindow() {
                   const state = window.S; if (!state || !Array.isArray(state.objects)) return;
                   for (const fixture of state.objects) {
                     if (!fixture || !fixture.haze || !fixture.spot) continue;
-                    const active = fixture.spot.visible && fixture.spot.intensity > 0.001; fixture.haze.visible = active;
+                    const active = fixture.spot.visible && fixture.spot.intensity > 0.001;
+                    fixture.haze.visible = active;
                     if (!fixture.haze.material?.uniforms) continue;
                     const uniforms = fixture.haze.material.uniforms;
                     if (uniforms.opacity) uniforms.opacity.value = active ? Math.min(0.2, Math.max(0, fixture.spot.intensity / 180) * 0.13) : 0;
@@ -116,6 +117,41 @@ function createWindow() {
 
     mainWindow.webContents.executeJavaScript(`
       (() => {
+        if (window.__qlabStableCueRenderer) return;
+        if (!window.QLab || typeof window.QLab.renderCueSync !== 'function') { console.warn('⚠️ QLab stable cue renderer could not initialise'); return; }
+        const qlab = window.QLab;
+        const originalRenderCueSync = qlab.renderCueSync.bind(qlab);
+        let lastStructureSignature = null; let hasRendered = false;
+        const getCueNumber = cue => String(cue?.number ?? '').trim();
+        const getStructureSignature = () => JSON.stringify((Array.isArray(qlab.cues) ? qlab.cues : []).map(cue => {
+          const q = getCueNumber(cue); const triggers = qlab.timeTriggers?.[q] || [];
+          return { q, name: cue?.name ?? cue?.displayName ?? cue?.type ?? cue?.cueType ?? 'Unnamed', triggers: triggers.map(t => ({ time: Number(t?.time) || 0, lights: Array.isArray(t?.lights) ? t.lights : [] })) };
+        }));
+        const annotateRows = () => { const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : []; if (!box) return; let rowIndex = 0; cues.forEach(cue => { const q = getCueNumber(cue); if (!q) return; const row = box.children[rowIndex++]; if (row) row.dataset.qlabCueNumber = q; }); };
+        const updatePlaybackOnly = () => {
+          const box = document.getElementById('qlabSyncList'); const cues = Array.isArray(qlab.cues) ? qlab.cues : [];
+          if (!box || !cues.length || box.children.length !== cues.filter(c => getCueNumber(c)).length) return false;
+          let rowIndex = 0;
+          for (const cue of cues) {
+            const q = getCueNumber(cue); if (!q) continue; const row = box.children[rowIndex++]; if (!row || row.dataset.qlabCueNumber !== q) return false;
+            const active = q === String(qlab.activeCue ?? ''); row.style.background = active ? '#1a3a2a' : '#2a2a3a'; row.style.borderLeft = '3px solid ' + (active ? '#0f6' : '#444');
+            let elapsed = row.querySelector('.qlab-active-time');
+            if (active) { if (!elapsed) { elapsed = document.createElement('span'); elapsed.className = 'qlab-active-time'; elapsed.style.cssText = 'font-size:11px;color:#0f6;'; const goButton = row.querySelector('button'); row.insertBefore(elapsed, goButton || null); } elapsed.textContent = '▶ ' + Number(qlab.activeElapsed || 0).toFixed(2) + 's'; }
+            else if (elapsed) elapsed.remove();
+          }
+          return true;
+        };
+        qlab.renderCueSync = function stableRenderCueSync() {
+          const signature = getStructureSignature();
+          if (!hasRendered || signature !== lastStructureSignature) { originalRenderCueSync(); lastStructureSignature = signature; hasRendered = true; annotateRows(); return; }
+          if (!updatePlaybackOnly()) { originalRenderCueSync(); lastStructureSignature = signature; annotateRows(); }
+        };
+        window.__qlabStableCueRenderer = true;
+      })();
+    `).catch(err => console.error('❌ QLab stable cue renderer failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
         if (window.__rdmScriptLoader) return;
         window.__rdmScriptLoader = true;
         const script = document.createElement('script'); script.src = 'js/rdm.js';
@@ -125,6 +161,7 @@ function createWindow() {
       })();
     `).catch(err => console.error('❌ RDM UI loader failed:', err));
   });
+
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 

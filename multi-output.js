@@ -40,6 +40,14 @@ function frameFor(universe) {
   return universes.get(key) || Buffer.alloc(512, 0);
 }
 
+// The UI/fixture patch uses 1-based patch-universe numbers, while Art-Net
+// itself is 0-based. sACN stays 1-based. Keep that conversion in one place so
+// the continuous network sender reads the same frame that sendDMX() populated.
+function sourceUniverseFor(output) {
+  const u = Number(output.universe);
+  return output.protocol === 'sacn' ? Math.max(1, u) : Math.max(1, u + 1);
+}
+
 function buildArtDMX(frame, universe) {
   const packet = Buffer.alloc(530);
   Buffer.from('Art-Net\0', 'ascii').copy(packet, 0);
@@ -167,9 +175,6 @@ async function startUsb(output) {
 function startNetwork(output) {
   stopNetwork(output);
   if (!output.enabled || output.protocol === 'usb') return;
-  // Send immediately, then keep the timer alive independently of frontend
-  // configuration messages. This is critical because the frontend may resend
-  // the same configuration frequently while the console is running.
   sendNetwork(output);
   output.networkTimer = setInterval(() => {
     if (output.enabled && output.protocol !== 'usb') sendNetwork(output);
@@ -233,18 +238,11 @@ async function configureOutput(config) {
     }
   } else {
     stopUsb(output);
-
-    // IMPORTANT: Do not tear down/recreate the network interval whenever the
-    // frontend sends another config message. If that happens repeatedly, a
-    // continuously-reset interval can be starved and Art-Net appears to send
-    // only once. Keep the existing timer alive and update the output object.
     if (!output.enabled) {
       stopNetwork(output);
     } else if (!previous || !previous.networkTimer) {
       startNetwork(output);
     } else {
-      // Send the newest frame/config immediately, but preserve the existing
-      // continuous 40 Hz timer.
       sendNetwork(output);
     }
   }
@@ -273,7 +271,14 @@ function applyConfig(message) {
 
 function sendNetwork(output) {
   if (!output.enabled || !udpReady || output.protocol === 'usb') return;
-  const frame = frameFor(output.universe);
+
+  // IMPORTANT: universes[] is keyed using the UI's 1-based patch universe.
+  // Art-Net's wire universe is 0-based, so Art-Net universe 0 must read frame 1.
+  // Previously this used frameFor(output.universe), which made a configured
+  // Art-Net universe 0 continuously transmit a zeroed frame even though
+  // sendDMX() was correctly populating universe 1. That produces the exact
+  // symptom of a fixture briefly flashing and then going dark.
+  const frame = frameFor(sourceUniverseFor(output));
 
   if (output.protocol === 'sacn') {
     const universe = clamp(output.universe, 1, 63999, 1);

@@ -76,6 +76,10 @@ window.QLab = {
       this.updateStatus(true);
       if (this.passcode) this.send({ type: "auth", passcode: this.passcode });
       this.send({ type: "subscribe" });
+      // Re-send saved timed lighting triggers after every connection. Previously
+      // these only reached the bridge when the user edited a trigger, so a page
+      // refresh/reconnect silently disabled cues such as "at 1.0s -> Light 1".
+      this.sendTimeTriggers();
       this.syncCues();
       this.startWatcher();
       if (typeof log === "function") log("🎵 QLab connected");
@@ -134,6 +138,12 @@ window.QLab = {
     if (message.type === "qlab-cue-stop") { this.resetTracking(); return; }
     if (message.type === "qlab-time") { this.handleCurrentTime(message.cueNumber, message.elapsed); return; }
     if (message.type === "qlab-lighting-trigger") {
+      const q = this.resolveCueNumber(message.cueNumber) || String(message.cueNumber ?? "");
+      const at = Number(message.triggerTime);
+      const triggers = this.timeTriggers[q] || [];
+      triggers.forEach((trigger, index) => {
+        if (Number(trigger?.time) === at) this.firedTriggers.add(`${q}:${index}`);
+      });
       (Array.isArray(message.lights) ? message.lights : []).forEach(n => this.fireLightingCue(n, `QLab ${message.cueNumber} reached ${message.triggerTime}s`));
       return;
     }
@@ -172,10 +182,6 @@ window.QLab = {
     return null;
   },
 
-  /* QLab returns cue lists as nested objects. The old client treated every
-     object containing an id as a cue, which caused cue-list/workspace objects
-     to appear as bogus cues and real child cues to be lost. Only accept actual
-     cue-numbered objects and recursively walk all common QLab child fields. */
   normalizeCue(raw, parent = null) {
     if (!raw || typeof raw !== "object") return null;
     const number = raw.number ?? raw.cueNumber ?? raw.cueNumberString ?? raw.displayNumber;
@@ -206,8 +212,6 @@ window.QLab = {
       }
       const nextParent = value.name || value.displayName ? value : parent;
       childKeys.forEach(k => { if (value[k] !== undefined) walk(value[k], nextParent); });
-      // Also inspect unknown nested arrays/objects, but don't recurse into the
-      // cue's scalar fields. This handles different QLab reply shapes.
       Object.entries(value).forEach(([k, v]) => {
         if (childKeys.includes(k) || ["name","displayName","title","number","cueNumber","uniqueID","uniqueId","id"].includes(k)) return;
         if (v && typeof v === "object") walk(v, nextParent);
@@ -252,15 +256,36 @@ window.QLab = {
       this.updateCueSyncTime();
     }
   },
+
+  fireTimeTriggers(cue, elapsed) {
+    const q = String(cue);
+    const triggers = Array.isArray(this.timeTriggers[q]) ? this.timeTriggers[q] : [];
+    triggers.forEach((trigger, index) => {
+      const at = Number(trigger?.time);
+      const key = `${q}:${index}`;
+      if (!Number.isFinite(at) || elapsed < at || this.firedTriggers.has(key)) return;
+      this.firedTriggers.add(key);
+      (Array.isArray(trigger?.lights) ? trigger.lights : []).forEach(light => {
+        this.fireLightingCue(light, `QLab ${q} reached ${at}s`);
+      });
+    });
+  },
+
   handleCurrentTime(n, elapsed) {
     const cue = this.resolveCueNumber(n) || String(n ?? "").trim();
     elapsed = Number(elapsed);
     if (!cue || !Number.isFinite(elapsed)) return;
     if (!this.activeCue || String(this.activeCue) !== cue) this.startAudio(cue);
     if (String(this.activeCue) !== cue) return;
+    if (this.activeElapsed > elapsed + 0.05) this.firedTriggers.clear();
     this.activeElapsed = elapsed;
+    // Fire locally as well as through the bridge. This makes saved browser
+    // triggers reliable after reconnects and also covers bridges that missed a
+    // trigger packet between their 250ms polls.
+    this.fireTimeTriggers(cue, elapsed);
     this.updateCueSyncTime();
   },
+
   resetTracking() { this.activeCue = null; this.activeElapsed = 0; this.firedTriggers.clear(); this.updateCueSyncTime(); },
   fireLightingCue(n, reason = "") {
     const number = parseInt(n, 10);
@@ -318,6 +343,7 @@ window.QLab = {
     this.saveStoredLinks();
     this.renderLinkEditor();
     this.renderCueSync();
+    this.sendTimeTriggers();
   },
   clearAllLinks() {
     this.cueLinks = {}; this.timeTriggers = {}; this.firedTriggers.clear();

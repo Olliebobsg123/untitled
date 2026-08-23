@@ -57,31 +57,14 @@ function setFlagsAndLength(packet, offset, length) {
   packet.writeUInt16BE(0x7000 | (length & 0x0fff), offset);
 }
 
-/*
- * Build a standards-correct E1.31 / sACN DMX packet.
- *
- * Important offsets:
- *   112-113 = universe
- *   114-115 = DMP flags + length
- *   116-117 = DMP vector
- *   118     = address/data type (0xA1)
- *   119-120 = first property address
- *   121-122 = property count (513)
- *   123     = DMX start code
- *   124-635 = 512 DMX slots
- */
 function buildSacn(frame, universe, priority = 100) {
   const packet = Buffer.alloc(638);
-
-  // ACN Root Layer
   packet.writeUInt16BE(0x0010, 0);
   packet.writeUInt16BE(0x0000, 2);
   Buffer.from('ASC-E1.17\0\0\0', 'ascii').copy(packet, 4, 0, 12);
   setFlagsAndLength(packet, 16, 620);
   packet.writeUInt32BE(0x00000004, 18);
   cid.copy(packet, 22);
-
-  // Framing Layer
   setFlagsAndLength(packet, 38, 598);
   packet.writeUInt32BE(0x00000002, 40);
   Buffer.from('Lighting Console', 'ascii').copy(packet, 44);
@@ -90,8 +73,6 @@ function buildSacn(frame, universe, priority = 100) {
   packet[110] = 0;
   packet[111] = sacnSequence = (sacnSequence + 1) & 0xff;
   packet.writeUInt16BE(clamp(universe, 1, 63999, 1), 112);
-
-  // DMP Layer
   setFlagsAndLength(packet, 114, 522);
   packet.writeUInt16BE(0x02a1, 116);
   packet[118] = 0xa1;
@@ -99,7 +80,6 @@ function buildSacn(frame, universe, priority = 100) {
   packet.writeUInt16BE(513, 121);
   packet[123] = 0;
   frame.copy(packet, 124, 0, 512);
-
   return packet;
 }
 
@@ -140,17 +120,14 @@ function usbPath(device) {
 
 async function sendOpenDMX(output) {
   if (!output.port?.isOpen || !output.port?.writable || output.writing) return false;
-
   output.writing = true;
   try {
     await new Promise((resolve, reject) => output.port.set({ brk: true }, err => err ? reject(err) : resolve()));
     await new Promise(resolve => setTimeout(resolve, 1));
     await new Promise((resolve, reject) => output.port.set({ brk: false }, err => err ? reject(err) : resolve()));
-
     const packet = Buffer.alloc(513);
     packet[0] = 0;
     frameFor(output.universe).copy(packet, 1);
-
     await new Promise((resolve, reject) => output.port.write(packet, err => err ? reject(err) : resolve()));
     output.tx = (output.tx || 0) + 1;
     return true;
@@ -165,46 +142,34 @@ async function sendOpenDMX(output) {
 async function startUsb(output) {
   stopUsb(output);
   if (!output.enabled || !output.usbDevice) return;
-
   const path = usbPath(output.usbDevice);
-  output.port = new SerialPort({
-    path,
-    baudRate: 250000,
-    dataBits: 8,
-    stopBits: 2,
-    parity: 'none',
-    autoOpen: false
-  });
-
+  output.port = new SerialPort({ path, baudRate: 250000, dataBits: 8, stopBits: 2, parity: 'none', autoOpen: false });
   output.port.on('error', err => {
     output.error = err?.message || String(err);
     output.connected = false;
     broadcastStatus();
   });
-
   output.port.on('close', () => {
     output.connected = false;
     broadcastStatus();
   });
-
   await new Promise((resolve, reject) => output.port.open(err => err ? reject(err) : resolve()));
   output.connected = true;
   output.error = null;
   output.tx = 0;
-
   const interval = Math.max(25, Math.round(1000 / output.refreshRate));
   output.timer = setInterval(() => {
     if (output.enabled) sendOpenDMX(output);
   }, interval);
-
   console.log(`MULTI USB CONNECTED → ${path} @ ${output.refreshRate}Hz universe ${output.universe}`);
 }
 
 function startNetwork(output) {
   stopNetwork(output);
   if (!output.enabled || output.protocol === 'usb') return;
-
-  // Send immediately, then continuously refresh the latest stored frame.
+  // Send immediately, then keep the timer alive independently of frontend
+  // configuration messages. This is critical because the frontend may resend
+  // the same configuration frequently while the console is running.
   sendNetwork(output);
   output.networkTimer = setInterval(() => {
     if (output.enabled && output.protocol !== 'usb') sendNetwork(output);
@@ -225,9 +190,7 @@ async function configureOutput(config) {
     ...config,
     id,
     protocol,
-    universe: protocol === 'sacn'
-      ? clamp(config.universe, 1, 63999, 1)
-      : clamp(config.universe, 0, 32767, 0),
+    universe: protocol === 'sacn' ? clamp(config.universe, 1, 63999, 1) : clamp(config.universe, 0, 32767, 0),
     refreshRate: USB_RATES.includes(Number(config.refreshRate)) ? Number(config.refreshRate) : (previous?.refreshRate || 25),
     enabled: Boolean(config.enabled),
     target: String(config.target || (protocol === 'artnet' ? '192.168.1.1' : '127.0.0.1')).trim(),
@@ -249,20 +212,10 @@ async function configureOutput(config) {
     previous.universe !== output.universe
   );
 
-  const networkChanged = previous && (
-    previous.protocol !== protocol ||
-    previous.universe !== output.universe ||
-    previous.target !== output.target ||
-    previous.multicast !== output.multicast ||
-    previous.priority !== output.priority ||
-    previous.enabled !== output.enabled
-  );
-
   outputs.set(id, output);
 
   if (protocol === 'usb') {
     stopNetwork(output);
-
     if (output.enabled && (!previous?.connected || usbChanged)) {
       try {
         await startUsb(output);
@@ -276,19 +229,23 @@ async function configureOutput(config) {
       stopUsb(output);
     } else if (previous?.connected && previous.refreshRate !== output.refreshRate) {
       stopUsb(output);
-      try {
-        await startUsb(output);
-      } catch (err) {
-        output.error = err?.message || String(err);
-      }
+      try { await startUsb(output); } catch (err) { output.error = err?.message || String(err); }
     }
   } else {
     stopUsb(output);
 
-    if (output.enabled && (!previous || networkChanged || !previous.networkTimer)) {
-      startNetwork(output);
-    } else if (!output.enabled) {
+    // IMPORTANT: Do not tear down/recreate the network interval whenever the
+    // frontend sends another config message. If that happens repeatedly, a
+    // continuously-reset interval can be starved and Art-Net appears to send
+    // only once. Keep the existing timer alive and update the output object.
+    if (!output.enabled) {
       stopNetwork(output);
+    } else if (!previous || !previous.networkTimer) {
+      startNetwork(output);
+    } else {
+      // Send the newest frame/config immediately, but preserve the existing
+      // continuous 40 Hz timer.
+      sendNetwork(output);
     }
   }
 }
@@ -296,68 +253,49 @@ async function configureOutput(config) {
 async function applyConfigNow(message) {
   const list = Array.isArray(message?.outputs) ? message.outputs.slice(0, MAX_OUTPUTS) : [];
   const ids = new Set(list.map(o => String(o?.id || '').trim()).filter(Boolean));
-
   for (const [id, output] of outputs) {
     if (!ids.has(id)) {
       stopOutput(output);
       outputs.delete(id);
     }
   }
-
   for (const config of list) await configureOutput(config);
   broadcastStatus();
 }
 
 function applyConfig(message) {
-  configQueue = configQueue
-    .then(() => applyConfigNow(message))
-    .catch(err => {
-      console.error('MULTI OUTPUT CONFIG ERROR:', err.message);
-      broadcastStatus();
-    });
+  configQueue = configQueue.then(() => applyConfigNow(message)).catch(err => {
+    console.error('MULTI OUTPUT CONFIG ERROR:', err.message);
+    broadcastStatus();
+  });
   return configQueue;
 }
 
 function sendNetwork(output) {
   if (!output.enabled || !udpReady || output.protocol === 'usb') return;
-
   const frame = frameFor(output.universe);
 
   if (output.protocol === 'sacn') {
     const universe = clamp(output.universe, 1, 63999, 1);
-    const target = output.multicast
-      ? sacnTarget(universe)
-      : (output.target || '127.0.0.1');
-
-    sacnSocket.send(
-      buildSacn(frame, universe, output.priority),
-      5568,
-      target,
-      err => {
-        if (err) {
-          output.error = err.message;
-          return;
-        }
-        output.tx = (output.tx || 0) + 1;
-      }
-    );
-    return;
-  }
-
-  const target = output.target || '192.168.1.1';
-
-  artnetSocket.send(
-    buildArtDMX(frame, output.universe),
-    6454,
-    target,
-    err => {
+    const target = output.multicast ? sacnTarget(universe) : (output.target || '127.0.0.1');
+    sacnSocket.send(buildSacn(frame, universe, output.priority), 5568, target, err => {
       if (err) {
         output.error = err.message;
         return;
       }
       output.tx = (output.tx || 0) + 1;
+    });
+    return;
+  }
+
+  const target = output.target || '192.168.1.1';
+  artnetSocket.send(buildArtDMX(frame, output.universe), 6454, target, err => {
+    if (err) {
+      output.error = err.message;
+      return;
     }
-  );
+    output.tx = (output.tx || 0) + 1;
+  });
 }
 
 function statusFor(output) {
@@ -368,9 +306,7 @@ function statusFor(output) {
     target: output.target || '',
     usbDevice: output.usbDevice || '',
     enabled: output.enabled,
-    connected: output.protocol === 'usb'
-      ? Boolean(output.connected)
-      : Boolean(output.enabled && udpReady),
+    connected: output.protocol === 'usb' ? Boolean(output.connected) : Boolean(output.enabled && udpReady),
     error: output.error || null,
     refreshRate: output.refreshRate,
     networkRefreshRate: output.protocol === 'usb' ? null : NETWORK_REFRESH_RATE,
@@ -380,13 +316,7 @@ function statusFor(output) {
 
 function broadcastStatus() {
   if (!wss) return;
-
-  const message = {
-    type: 'MULTI_OUTPUT_STATUS',
-    maxOutputs: MAX_OUTPUTS,
-    outputs: [...outputs.values()].map(statusFor)
-  };
-
+  const message = { type: 'MULTI_OUTPUT_STATUS', maxOutputs: MAX_OUTPUTS, outputs: [...outputs.values()].map(statusFor) };
   wss.clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
       try { ws.send(JSON.stringify(message)); } catch (_) {}
@@ -397,81 +327,45 @@ function broadcastStatus() {
 async function listUsbPorts() {
   const ports = await SerialPort.list();
   const seen = new Set();
-
-  return ports
-    .filter(p => {
-      const path = String(p.path || '');
-      const key = path.replace(/^\/dev\/(tty|cu)\./, '');
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .map(p => ({
-      path: p.path,
-      manufacturer: p.manufacturer || null,
-      product: p.product || null,
-      serialNumber: p.serialNumber || null,
-      locationId: p.locationId || null,
-      vendorId: p.vendorId || null,
-      productId: p.productId || null
-    }));
+  return ports.filter(p => {
+    const path = String(p.path || '');
+    const key = path.replace(/^\/dev\/(tty|cu)\./, '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map(p => ({
+    path: p.path,
+    manufacturer: p.manufacturer || null,
+    product: p.product || null,
+    serialNumber: p.serialNumber || null,
+    locationId: p.locationId || null,
+    vendorId: p.vendorId || null,
+    productId: p.productId || null
+  }));
 }
 
 wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
-
-wss.on('listening', () => {
-  console.log(`MULTI OUTPUT SERVICE READY — ws://${WS_HOST}:${WS_PORT}`);
-});
-
-wss.on('error', err => {
-  console.error('MULTI OUTPUT SERVICE ERROR:', err.message);
-});
-
+wss.on('listening', () => console.log(`MULTI OUTPUT SERVICE READY — ws://${WS_HOST}:${WS_PORT}`));
+wss.on('error', err => console.error('MULTI OUTPUT SERVICE ERROR:', err.message));
 wss.on('connection', ws => {
-  ws.send(JSON.stringify({
-    type: 'MULTI_OUTPUT_STATUS',
-    maxOutputs: MAX_OUTPUTS,
-    outputs: [...outputs.values()].map(statusFor)
-  }));
-
+  ws.send(JSON.stringify({ type: 'MULTI_OUTPUT_STATUS', maxOutputs: MAX_OUTPUTS, outputs: [...outputs.values()].map(statusFor) }));
   ws.on('message', async data => {
     try {
       const message = JSON.parse(String(data));
-
-      if (message?.type === 'MULTI_OUTPUT_CONFIG') {
-        return applyConfig(message);
-      }
-
+      if (message?.type === 'MULTI_OUTPUT_CONFIG') return applyConfig(message);
       if (message?.type === 'MULTI_USB_PORTS') {
-        ws.send(JSON.stringify({
-          type: 'MULTI_USB_PORTS',
-          ports: await listUsbPorts()
-        }));
+        ws.send(JSON.stringify({ type: 'MULTI_USB_PORTS', ports: await listUsbPorts() }));
         return;
       }
-
       if (message?.type === 'MULTI_DMX_UPDATE') {
-        const incoming = message.universes && typeof message.universes === 'object'
-          ? message.universes
-          : {};
-
+        const incoming = message.universes && typeof message.universes === 'object' ? message.universes : {};
         for (const [u, values] of Object.entries(incoming)) {
           if (!Array.isArray(values) && !ArrayBuffer.isView(values)) continue;
-
-          const universe = Number(u);
-          if (!Number.isFinite(universe)) continue;
-
           const frame = Buffer.alloc(512, 0);
           const src = Array.from(values).slice(0, 512);
-
-          for (let i = 0; i < src.length; i++) {
-            frame[i] = Number(src[i]) & 0xff;
-          }
-
-          universes.set(String(universe), frame);
+          for (let i = 0; i < src.length; i++) frame[i] = Number(src[i]) & 0xff;
+          universes.set(String(Number(u)), frame);
         }
-
-        return;
       }
     } catch (err) {
       console.warn('MULTI OUTPUT MESSAGE ERROR:', err.message);

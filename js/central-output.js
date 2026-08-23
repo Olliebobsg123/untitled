@@ -5,32 +5,28 @@
 (() => {
   if (window.__centralOutputPatch) return;
   window.__centralOutputPatch = true;
-
-  // main.js contains a legacy blind/live injector. This file is loaded first;
-  // claim the initialiser so the legacy injector exits instead of creating a
-  // second set of controls and throwing during startup.
   window.__blindLiveMode = true;
 
   const $ = id => document.getElementById(id);
   const log = (message, type = "info") => {
-    try { if (typeof window.log === "function") window.log(message, type); else console.log(`[${String(type).toUpperCase()}] ${message}`); } catch (_) {}
+    try {
+      if (typeof window.log === "function") window.log(message, type);
+      else console.log(`[${String(type).toUpperCase()}] ${message}`);
+    } catch (_) {}
   };
   const clamp = (value, min, max, fallback) => {
     const n = Number(value);
     return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
   };
   const isBlind = () => String(document.documentElement.dataset.consoleMode || "live").toLowerCase() === "blind";
+  const USB_REFRESH_RATES = [10, 15, 20, 25, 30, 35, 40];
 
   const stored = (() => {
     try {
       const oldSettings = JSON.parse(localStorage.getItem("dmxOutputSettings") || "{}");
       const centralSettings = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
       const merged = { ...oldSettings, ...centralSettings };
-      if (Number(merged.universe) === 3) {
-        merged.universe = 1;
-        localStorage.setItem("dmxOutputSettings", JSON.stringify({ ...oldSettings, universe: 1 }));
-        localStorage.setItem("lighting-output-settings", JSON.stringify({ ...centralSettings, universe: 1 }));
-      }
+      if (Number(merged.universe) === 3) merged.universe = 1;
       return merged;
     } catch (_) { return {}; }
   })();
@@ -45,13 +41,12 @@
   const initialProtocol = normaliseProtocol(stored.protocol || $("outMode")?.value || "Art-Net");
   const settings = {
     target: String(stored.target || $("artnetIp")?.value || "192.168.1.1").trim(),
-    universe: initialProtocol === "sacn"
-      ? clamp(stored.universe ?? $("artnetUni")?.value, 1, 63999, 1)
-      : clamp(stored.universe ?? $("artnetUni")?.value, 0, 32767, 1),
+    universe: initialProtocol === "sacn" ? clamp(stored.universe ?? $("artnetUni")?.value, 1, 63999, 1) : clamp(stored.universe ?? $("artnetUni")?.value, 0, 32767, 1),
     protocol: initialProtocol,
     enabled: Boolean(stored.enabled) && !isBlind(),
     usbDevice: String(stored.usbDevice || ""),
-    usbDriver: stored.usbDriver || null
+    usbDriver: stored.usbDriver || null,
+    usbRefreshRate: clamp(stored.usbRefreshRate ?? 25, 10, 40, 25)
   };
 
   const saveSettings = () => {
@@ -80,9 +75,6 @@
     if (port) port.style.display = visible ? "" : "none";
   };
 
-  // USB DMX is intentionally UI-only here. The actual serial transport lives
-  // in usb-dmx.js; this selector simply requests its enumerated ports and sends
-  // the chosen path/driver back to that service.
   let usbPorts = [];
   let requestUsbPorts = null;
 
@@ -93,11 +85,54 @@
     return [details || driverName, identity ? `(${identity})` : "", port?.path ? `— ${port.path}` : ""].filter(Boolean).join(" ");
   };
 
+  const updateUsbStatus = () => {
+    const status = $("usbDmxStatus");
+    if (!status) return;
+    if (!usbPorts.length) {
+      status.textContent = "No USB serial devices detected. Connect the interface and press ↻.";
+      return;
+    }
+    const selected = usbPorts.find(p => String(p.path) === settings.usbDevice);
+    status.textContent = selected
+      ? `${selected.driver?.name || "USB DMX"} · ${selected.path} · ${settings.usbRefreshRate} Hz`
+      : `${usbPorts.length} device${usbPorts.length === 1 ? "" : "s"} detected — select one before starting output.`;
+  };
+
+  const populateUsbDevices = () => {
+    const select = $("usbDmxDevice");
+    if (!select) return;
+    const current = settings.usbDevice;
+    select.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = usbPorts.length ? "— Select USB DMX device —" : "— No USB DMX devices found —";
+    select.appendChild(placeholder);
+    for (const port of usbPorts) {
+      if (!port?.path) continue;
+      const option = document.createElement("option");
+      option.value = port.path;
+      option.textContent = formatUsbPort(port);
+      option.title = `${port.path}${port.driver?.name ? ` — ${port.driver.name}` : ""}`;
+      select.appendChild(option);
+    }
+    if (current && usbPorts.some(p => String(p.path) === current)) select.value = current;
+    else if (!usbPorts.length && current) {
+      const remembered = document.createElement("option");
+      remembered.value = current;
+      remembered.textContent = `${current} — disconnected`;
+      remembered.disabled = true;
+      select.appendChild(remembered);
+      select.value = "";
+    } else if (!current) {
+      settings.usbDevice = "";
+      settings.usbDriver = null;
+    }
+  };
+
   const ensureUsbControls = () => {
     ensureUsbOption();
     const mode = $("outMode");
     if (!mode) return;
-
     let row = $("usbDmxDeviceRow");
     if (!row) {
       row = document.createElement("div");
@@ -106,16 +141,11 @@
       row.innerHTML = `
         <label for="usbDmxDevice">USB Device</label>
         <div style="display:flex;gap:6px;align-items:center;">
-          <select id="usbDmxDevice" style="flex:1;min-width:0;">
-            <option value="">— Select USB DMX device —</option>
-          </select>
+          <select id="usbDmxDevice" style="flex:1;min-width:0;"><option value="">— Select USB DMX device —</option></select>
           <button type="button" class="btn-secondary" id="usbDmxRefresh" title="Refresh USB DMX devices">↻</button>
         </div>
         <small id="usbDmxStatus" style="display:block;margin-top:5px;opacity:.7;"></small>
       `;
-
-      // Put the selector directly after the output mode row, without changing
-      // the existing HTML layout or any other settings controls.
       const modeRow = mode.closest(".form-row");
       if (modeRow?.parentElement) modeRow.parentElement.insertBefore(row, modeRow.nextSibling);
       else mode.parentElement?.appendChild(row);
@@ -132,9 +162,7 @@
           stopFrameLoop();
           sendUSBConfig();
           log("USB DMX output not enabled — select a USB device first", "warn");
-        } else if (settings.usbDevice) {
-          log(`USB DMX device selected → ${selected?.path || settings.usbDevice}`, "ok");
-        }
+        } else if (settings.usbDevice) log(`USB DMX device selected → ${settings.usbDevice}`, "ok");
       });
 
       $("usbDmxRefresh")?.addEventListener("click", event => {
@@ -143,58 +171,44 @@
       });
     }
 
+    let rateRow = $("usbDmxRefreshRateRow");
+    if (!rateRow) {
+      rateRow = document.createElement("div");
+      rateRow.className = "form-row";
+      rateRow.id = "usbDmxRefreshRateRow";
+      rateRow.innerHTML = `
+        <label for="usbDmxRefreshRate">USB DMX Refresh Rate</label>
+        <select id="usbDmxRefreshRate"></select>
+        <small style="display:block;margin-top:5px;opacity:.7;">Lower rates can be more stable with some OpenDMX interfaces.</small>
+      `;
+      const deviceRow = $("usbDmxDeviceRow");
+      if (deviceRow?.parentElement) deviceRow.parentElement.insertBefore(rateRow, deviceRow.nextSibling);
+      else mode.parentElement?.appendChild(rateRow);
+      $("usbDmxRefreshRate")?.addEventListener("change", () => {
+        settings.usbRefreshRate = clamp($("usbDmxRefreshRate")?.value, 10, 40, 25);
+        saveSettings();
+        sendUSBConfig();
+        updateUsbStatus();
+        log(`USB DMX refresh rate → ${settings.usbRefreshRate} Hz`, "ok");
+      });
+    }
+
+    const rateSelect = $("usbDmxRefreshRate");
+    if (rateSelect) {
+      rateSelect.replaceChildren();
+      for (const hz of USB_REFRESH_RATES) {
+        const option = document.createElement("option");
+        option.value = String(hz);
+        option.textContent = `${hz} Hz`;
+        rateSelect.appendChild(option);
+      }
+      rateSelect.value = String(settings.usbRefreshRate);
+    }
+
     row.style.display = settings.protocol === "usb" ? "" : "none";
+    if (rateRow) rateRow.style.display = settings.protocol === "usb" ? "" : "none";
     populateUsbDevices();
     updateUsbStatus();
-  };
-
-  const populateUsbDevices = () => {
-    const select = $("usbDmxDevice");
-    if (!select) return;
-    const current = settings.usbDevice;
-    select.replaceChildren();
-
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = usbPorts.length ? "— Select USB DMX device —" : "— No USB DMX devices found —";
-    select.appendChild(placeholder);
-
-    for (const port of usbPorts) {
-      if (!port?.path) continue;
-      const option = document.createElement("option");
-      option.value = port.path;
-      option.textContent = formatUsbPort(port);
-      option.title = `${port.path}${port.driver?.name ? ` — ${port.driver.name}` : ""}`;
-      select.appendChild(option);
-    }
-
-    if (current && usbPorts.some(p => String(p.path) === current)) select.value = current;
-    else if (current && !usbPorts.length) {
-      const remembered = document.createElement("option");
-      remembered.value = current;
-      remembered.textContent = `${current} — disconnected`;
-      remembered.disabled = true;
-      select.appendChild(remembered);
-      select.value = "";
-    } else {
-      settings.usbDevice = "";
-      settings.usbDriver = null;
-    }
-  };
-
-  const updateUsbStatus = () => {
-    const status = $("usbDmxStatus");
-    if (!status) return;
-    if (!usbPorts.length) {
-      status.textContent = "No USB serial devices detected. Connect the interface and press ↻.";
-      return;
-    }
-    const selected = usbPorts.find(p => String(p.path) === settings.usbDevice);
-    if (!selected) {
-      status.textContent = `${usbPorts.length} device${usbPorts.length === 1 ? "" : "s"} detected — select one before starting output.`;
-      return;
-    }
-    status.textContent = selected.driver?.name ? `Detected as ${selected.driver.name} · ${selected.path}` : selected.path;
   };
 
   const syncUI = () => {
@@ -207,13 +221,10 @@
       $("artnetUni").step = "1";
       $("artnetUni").value = String(settings.universe);
     }
-    if ($("outMode")) {
-      $("outMode").value = settings.protocol === "sacn" ? "sACN" : settings.protocol === "usb" ? "USB DMX" : "Art-Net";
-    }
+    if ($("outMode")) $("outMode").value = settings.protocol === "sacn" ? "sACN" : settings.protocol === "usb" ? "USB DMX" : "Art-Net";
     setNetworkFieldsVisible(settings.protocol !== "usb");
     ensureUsbControls();
   };
-  syncUI();
 
   if (!WebSocket.prototype.__blindDMXGuard) {
     const originalSend = WebSocket.prototype.send;
@@ -238,29 +249,12 @@
 
   const sendConfig = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({
-      type: "OUTPUT_CONFIG",
-      protocol: settings.protocol,
-      enabled: settings.enabled && !isBlind() && settings.protocol !== "usb",
-      mode: isBlind() ? "BLIND" : "LIVE",
-      target: settings.target,
-      universe: settings.universe,
-      priority: 100,
-      multicast: false,
-      sourceName: "Lighting Console"
-    }));
+    socket.send(JSON.stringify({ type: "OUTPUT_CONFIG", protocol: settings.protocol, enabled: settings.enabled && !isBlind() && settings.protocol !== "usb", mode: isBlind() ? "BLIND" : "LIVE", target: settings.target, universe: settings.universe, priority: 100, multicast: false, sourceName: "Lighting Console" }));
   };
 
   const sendUSBConfig = () => {
     if (!usbSocket || usbSocket.readyState !== WebSocket.OPEN) return;
-    usbSocket.send(JSON.stringify({
-      type: "USB_DMX_CONFIG",
-      enabled: settings.enabled && settings.protocol === "usb" && !isBlind() && Boolean(settings.usbDevice),
-      mode: isBlind() ? "BLIND" : "LIVE",
-      device: settings.usbDevice,
-      driver: settings.usbDriver,
-      universe: settings.universe
-    }));
+    usbSocket.send(JSON.stringify({ type: "USB_DMX_CONFIG", enabled: settings.enabled && settings.protocol === "usb" && !isBlind() && Boolean(settings.usbDevice), mode: isBlind() ? "BLIND" : "LIVE", device: settings.usbDevice, driver: settings.usbDriver, universe: settings.universe, refreshRate: settings.usbRefreshRate }));
   };
 
   const sendDMX = () => {
@@ -293,14 +287,15 @@
     if (usbSocket && (usbSocket.readyState === WebSocket.OPEN || usbSocket.readyState === WebSocket.CONNECTING)) return;
     try {
       usbSocket = new WebSocket("ws://localhost:8082");
-      usbSocket.onopen = () => {
-        sendUSBConfig();
-        requestUsbPorts?.();
-      };
+      usbSocket.onopen = () => { sendUSBConfig(); requestUsbPorts?.(); };
       usbSocket.onmessage = event => {
         try {
           const message = JSON.parse(event.data);
-          if (message?.type === "USB_DMX_STATUS") window.dispatchEvent(new CustomEvent("usb-dmx-status", { detail: message }));
+          if (message?.type === "USB_DMX_STATUS") {
+            if (Number.isFinite(Number(message.refreshRate))) settings.usbRefreshRate = clamp(message.refreshRate, 10, 40, settings.usbRefreshRate);
+            window.dispatchEvent(new CustomEvent("usb-dmx-status", { detail: message }));
+            updateUsbStatus();
+          }
           if (message?.type === "USB_DMX_PORTS") {
             usbPorts = Array.isArray(message.ports) ? message.ports : [];
             populateUsbDevices();
@@ -322,6 +317,8 @@
   const startFrameLoop = () => {
     clearInterval(frameTimer);
     if (!settings.enabled || isBlind() || (settings.protocol === "usb" && !settings.usbDevice)) return;
+    // The backend owns the actual USB refresh timing. This loop only keeps the
+    // latest console state flowing to the backend at a stable 25 Hz.
     frameTimer = setInterval(sendDMX, 40);
     sendDMX();
   };
@@ -331,14 +328,8 @@
     settings.protocol = normaliseProtocol($("outMode")?.value || "Art-Net");
     if (settings.protocol !== "usb") settings.target = String($("artnetIp")?.value || settings.target).trim() || "127.0.0.1";
     const raw = Number($("artnetUni")?.value);
-    settings.universe = settings.protocol === "sacn"
-      ? clamp(raw, 1, 63999, 1)
-      : clamp(raw, 0, 32767, 1);
-    if (window.ArtNet) {
-      ArtNet.ip = settings.target;
-      ArtNet.universe = settings.universe;
-      ArtNet.protocol = settings.protocol;
-    }
+    settings.universe = settings.protocol === "sacn" ? clamp(raw, 1, 63999, 1) : clamp(raw, 0, 32767, 1);
+    if (window.ArtNet) { ArtNet.ip = settings.target; ArtNet.universe = settings.universe; ArtNet.protocol = settings.protocol; }
     if (settings.protocol === "usb") requestUsbPorts?.();
     saveSettings();
     syncUI();
@@ -348,24 +339,18 @@
     log(`Output settings → ${settings.protocol === "usb" ? "USB DMX" : settings.protocol.toUpperCase()} / universe ${settings.universe}`, "ok");
   };
 
-  ["artnetIp", "artnetUni", "outMode"].forEach(id => $("" + id)?.addEventListener("change", applyOutputSettings));
+  ["artnetIp", "artnetUni", "outMode"].forEach(id => $(id)?.addEventListener("change", applyOutputSettings));
 
   $("artnetStart")?.addEventListener("click", e => {
     e?.preventDefault();
     applyOutputSettings();
     if (settings.protocol === "usb" && !settings.usbDevice) {
-      settings.enabled = false;
-      saveSettings();
-      sendUSBConfig();
-      stopFrameLoop();
+      settings.enabled = false; saveSettings(); sendUSBConfig(); stopFrameLoop();
       log("USB DMX cannot start — select a USB device first", "warn");
       return;
     }
     settings.enabled = !isBlind();
-    saveSettings();
-    sendConfig();
-    sendUSBConfig();
-    startFrameLoop();
+    saveSettings(); sendConfig(); sendUSBConfig(); startFrameLoop();
     if (window.ArtNet) ArtNet.enabled = settings.enabled && settings.protocol !== "usb";
     log(isBlind() ? "BLIND mode — hardware output remains stopped" : `${settings.protocol === "usb" ? "USB DMX" : "Network"} output enabled`, isBlind() ? "warn" : "ok");
   });
@@ -373,10 +358,7 @@
   $("artnetStop")?.addEventListener("click", e => {
     e?.preventDefault();
     settings.enabled = false;
-    saveSettings();
-    stopFrameLoop();
-    sendConfig();
-    sendUSBConfig();
+    saveSettings(); stopFrameLoop(); sendConfig(); sendUSBConfig();
     if (window.ArtNet) ArtNet.enabled = false;
     log("Output stopped", "warn");
   });
@@ -400,16 +382,15 @@
     if (isBlind()) {
       stopFrameLoop();
       if (window.ArtNet) ArtNet.enabled = false;
-      sendConfig();
-      sendUSBConfig();
+      sendConfig(); sendUSBConfig();
     } else {
       if (window.ArtNet) ArtNet.enabled = settings.enabled && settings.protocol !== "usb";
-      sendConfig();
-      sendUSBConfig();
+      sendConfig(); sendUSBConfig();
       startFrameLoop();
     }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-console-mode"] });
 
+  syncUI();
   connect();
   connectUSB();
   if (settings.enabled && !isBlind()) startFrameLoop();

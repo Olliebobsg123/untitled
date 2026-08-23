@@ -9,6 +9,7 @@ const QLAB_REPLY_PORT = Number(process.env.QLAB_REPLY_PORT || 53001);
 const QLAB_PASSWORD = String(process.env.QLAB_PASSWORD || "");
 const WS_PORT = Number(process.env.QLAB_WS_PORT || 8083);
 const POLL_MS = 250;
+const SYNC_RETRY_MS = 2000;
 const END_EPSILON = 0.15;
 const EMPTY_ACTIVE_CONFIRMATIONS = 2;
 
@@ -23,6 +24,8 @@ let activeDuration = null;
 let timeTriggers = {};
 let firedTriggers = new Set();
 let pollTimer = null;
+let syncTimer = null;
+let lastSyncRequest = 0;
 let lastElapsed = null;
 let emptyActiveReplies = 0;
 let workspaceId = null;
@@ -255,9 +258,18 @@ function handleUpdate(address) {
   const stop = value.match(/^\/cue\/([^/]+)\/stop$/); if (stop && String(stop[1]) === String(activeCue)) return setActiveCue(null);
   if (value.includes("/update/workspace/")) syncCues();
 }
-function syncCues() { console.log("QLab: requesting workspaces before cue sync"); sendOsc("/workspaces"); }
+function syncCues() {
+  if (shuttingDown) return;
+  lastSyncRequest = Date.now();
+  console.log("QLab: requesting workspaces before cue sync");
+  sendOsc("/workspaces");
+}
 function pollQLab() {
   if (shuttingDown) return;
+  // Electron may start before QLab is open. In that case the original bridge
+  // made one /workspaces request, received nothing, and permanently remained
+  // without a workspace/cue list. Keep retrying until QLab answers.
+  if (!workspaceId && Date.now() - lastSyncRequest >= SYNC_RETRY_MS) syncCues();
   if (workspaceId) sendOsc(`/workspace/${workspaceId}/runningCues/shallow`);
   else sendOsc("/runningCues/shallow");
   if (activeCue) queryActiveCueState();
@@ -321,15 +333,19 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
   for (const [ws] of clients) { try { ws.close(1001, "QLab bridge shutting down"); } catch (_) {} }
   clients.clear();
   try { wss.close(); } catch (_) {}
   try { udp.close(); } catch (_) {}
 }
 
+udp.on("error", error => console.error("QLab UDP error:", error.message));
+
 udp.bind(QLAB_REPLY_PORT, "0.0.0.0", () => {
   if (shuttingDown) return;
   console.log(`QLab bridge listening on UDP ${QLAB_REPLY_PORT}; QLab ${QLAB_IP}:${QLAB_PORT}; WebSocket ${WS_PORT}; polling ${POLL_MS}ms`);
+  lastSyncRequest = 0;
   pollTimer = setInterval(pollQLab, POLL_MS);
   pollQLab();
 });

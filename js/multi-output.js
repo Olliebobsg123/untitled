@@ -26,6 +26,22 @@
   const sendMode = mode => send({ type:"MULTI_OUTPUT_MODE", mode: String(mode).toUpperCase() === "BLIND" ? "BLIND" : "LIVE" });
   window.__setMultiOutputMode = sendMode;
 
+  function normalizeOutputs(next) {
+    return (Array.isArray(next) ? next : []).slice(0, MAX_OUTPUTS).map((raw, index) => {
+      const o = { ...raw };
+      o.id ||= `output-${Date.now()}-${index}-${Math.random().toString(36).slice(2,7)}`;
+      o.protocol = ["artnet","sacn","usb"].includes(String(o.protocol).toLowerCase()) ? String(o.protocol).toLowerCase() : "artnet";
+      o.universe = o.protocol === "sacn" ? clamp(o.universe,1,63999,1) : clamp(o.universe,0,32767,0);
+      o.target = String(o.target || "192.168.1.1");
+      o.usbDevice = String(o.usbDevice || "");
+      o.refreshRate = clamp(o.refreshRate ?? 25,10,40,25);
+      o.enabled = Boolean(o.enabled);
+      o.multicast = o.protocol === "sacn" ? Boolean(o.multicast) : false;
+      o.priority = clamp(o.priority ?? 100,0,200,100);
+      return o;
+    });
+  }
+
   function connect() {
     clearTimeout(reconnectTimer);
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
@@ -94,6 +110,15 @@
     $("multiOutputAdd").onclick=()=>{if(outputs.length>=MAX_OUTPUTS)return;outputs.push({id:`output-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,protocol:"artnet",universe:outputs.length,target:"192.168.1.1",usbDevice:"",refreshRate:25,enabled:false,multicast:false,priority:100});save();sendConfig();render();};
     $("multiOutputRefreshUsb").onclick=requestUsbPorts;render();
   }
+
+  window.addEventListener("show-multi-output-restore", e => {
+    outputs = normalizeOutputs(e.detail?.outputs);
+    save();
+    sendConfig();
+    render();
+    console.log(`✅ Multi Output restored from show: ${outputs.length} universes`);
+  });
+
   function install(){try{window.ArtNet?.stop?.();}catch(_){}installUI();connect();setInterval(sendDMX,40);window.addEventListener("beforeunload",()=>{try{socket?.close();}catch(_){}});}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
 })();

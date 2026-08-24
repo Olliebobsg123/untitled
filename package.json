@@ -28,8 +28,8 @@
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist",
+      "entitlements": "config/entitlements.mac.plist",
+      "entitlementsInherit": "config/entitlements.mac.plist",
       "extendInfo": {"NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab."}
     }
   }

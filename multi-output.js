@@ -12,6 +12,7 @@ const USB_RATES = [10, 15, 20, 25, 30, 35, 40];
 const NETWORK_REFRESH_RATE = 40;
 const NETWORK_INTERVAL = Math.round(1000 / NETWORK_REFRESH_RATE);
 const DEFAULT_NETWORK_TARGET = process.env.LIGHTING_CONSOLE_NETWORK_TARGET || '192.168.1.1';
+const WS_KEEPALIVE_INTERVAL = 15000;
 
 const outputs = new Map();
 const universes = new Map();
@@ -178,7 +179,7 @@ async function configureOutput(config) {
     universe: protocol === 'sacn' ? clamp(config.universe, 1, 63999, 1) : clamp(config.universe, 0, 32767, 0),
     refreshRate: USB_RATES.includes(Number(config.refreshRate)) ? Number(config.refreshRate) : (previous?.refreshRate || 25),
     enabled: Boolean(config.enabled),
-    target: String(config.target || (protocol === 'artnet' ? DEFAULT_NETWORK_TARGET : DEFAULT_NETWORK_TARGET)).trim(),
+    target: String(config.target || DEFAULT_NETWORK_TARGET).trim(),
     multicast: protocol === 'sacn' ? Boolean(config.multicast) : false,
     priority: clamp(config.priority, 0, 200, 100),
     connected: previous?.connected || false, error: null,
@@ -267,7 +268,13 @@ wss.on('connection', ws => {
   });
 });
 
+const keepAliveTimer = setInterval(() => {
+  if (!wss) return;
+  wss.clients.forEach(ws => { if (ws.readyState === WebSocket.OPEN) { try { ws.ping(); } catch (_) {} } });
+}, WS_KEEPALIVE_INTERVAL);
+
 async function shutdown() {
+  clearInterval(keepAliveTimer);
   for (const output of outputs.values()) stopOutput(output);
   try { artnetSocket.close(); } catch (_) {}
   try { sacnSocket.close(); } catch (_) {}

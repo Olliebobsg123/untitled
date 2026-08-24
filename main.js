@@ -29,16 +29,12 @@ function buildApplicationMenu() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
-    // Electron can finish loading the HTML before the QLab script has exposed
-    // its final API. Chrome normally has enough startup time for this race not
-    // to matter, but Electron can hit it consistently. Retry the QLab bootstrap
-    // until the frontend is ready, then force a fresh connection + cue sync.
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__electronQLabBootstrap) return;
@@ -154,8 +150,6 @@ function createWindow() {
       })();
     `).catch(err => console.error('❌ Visualiser performance patch failed:', err));
 
-    // Install the renderer with the same retry strategy. The previous code only
-    // tried once, so an Electron startup race permanently disabled cue rendering.
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__qlabStableCueRendererLoader) return;

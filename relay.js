@@ -8,7 +8,9 @@ const WS_PORT = Number(process.env.ARTNET_WS_PORT || 8081);
 const WS_HOST = process.env.ARTNET_WS_HOST || '127.0.0.1';
 const ARTNET_PORT = 6454;
 const SACN_PORT = 5568;
-const ARTNET_TARGET = process.env.ARTNET_TARGET || '192.168.1.1';
+// The UI sends the configured target with every OUTPUT_CONFIG. This fallback is
+// only for startup/legacy clients and is no longer tied to the user's network.
+const ARTNET_TARGET = process.env.ARTNET_TARGET || '127.0.0.1';
 const ARTNET_LOCAL_ADDRESS = process.env.ARTNET_LOCAL_ADDRESS || '0.0.0.0';
 const udp = dgram.createSocket('udp4');
 let udpReady = false;
@@ -30,6 +32,12 @@ const output = {
   multicast: false,
   sourceName: 'Lighting Console'
 };
+
+// Keep the last frame so enabled network output does not disappear when the
+// console is idle. Art-Net/sACN receivers commonly expire sources when packets
+// stop arriving even though the console is still in LIVE/standby.
+let lastDmxFrame = null;
+let lastDmxUniverse = null;
 
 const logDir = (() => {
   try {
@@ -56,7 +64,7 @@ console.error = error;
 
 console.log('========================================');
 console.log('🎛 DMX OUTPUT RELAY STARTING');
-console.log(`📡 Art-Net default target: ${ARTNET_TARGET}:${ARTNET_PORT}`);
+console.log(`📡 Art-Net fallback target: ${ARTNET_TARGET}:${ARTNET_PORT}`);
 console.log(`🌐 UDP bind: ${ARTNET_LOCAL_ADDRESS}`);
 console.log(`🔌 WebSocket: ${WS_HOST}:${WS_PORT}`);
 console.log('========================================');
@@ -173,20 +181,28 @@ function sendSacn(packet, target) {
 }
 function sendDMXBuffer(dmx, universe) {
   if (!output.enabled || output.mode !== 'LIVE') return false;
+  const values = Array.isArray(dmx) || ArrayBuffer.isView(dmx) ? Array.from(dmx).slice(0, 512) : [];
+  lastDmxFrame = values;
+  lastDmxUniverse = universe ?? output.universe;
   if (output.protocol === 'sacn') {
     const u = Math.max(1, Math.min(63999, Number(universe ?? output.universe)));
     const target = output.multicast ? sacnTarget(u) : (output.target || '127.0.0.1');
-    return sendSacn(buildSacnDMX(dmx, u, output.priority), target);
+    return sendSacn(buildSacnDMX(values, u, output.priority), target);
   }
   const u = Math.max(0, Math.min(32767, Number(universe ?? output.universe)));
-  return sendArtNet(buildArtDMX(dmx, u), output.target || ARTNET_TARGET);
+  return sendArtNet(buildArtDMX(values, u), output.target || ARTNET_TARGET);
+}
+function sendKeepaliveFrame() {
+  if (!lastDmxFrame || !output.enabled || output.mode !== 'LIVE' || !udpReady) return;
+  // Rebuild the packet so Art-Net/sACN sequence numbers continue to advance.
+  sendDMXBuffer(lastDmxFrame, lastDmxUniverse ?? output.universe);
 }
 function applyOutputConfig(message) {
   const protocol = String(message.protocol || 'artnet').toLowerCase() === 'sacn' ? 'sacn' : 'artnet';
   output.protocol = protocol;
   output.enabled = Boolean(message.enabled);
   output.mode = String(message.mode || 'LIVE').toUpperCase() === 'BLIND' ? 'BLIND' : 'LIVE';
-  output.target = String(message.target || (protocol === 'artnet' ? ARTNET_TARGET : '127.0.0.1'));
+  output.target = String(message.target || (protocol === 'artnet' ? ARTNET_TARGET : '127.0.0.1')).trim();
   const rawUniverse = Number(message.universe);
   const fallbackUniverse = protocol === 'sacn' ? 1 : 0;
   output.universe = protocol === 'sacn'
@@ -195,6 +211,7 @@ function applyOutputConfig(message) {
   output.priority = Math.max(0, Math.min(200, Number(message.priority) || 100));
   output.multicast = Boolean(message.multicast);
   output.sourceName = String(message.sourceName || 'Lighting Console').slice(0, 64);
+  if (!output.enabled || output.mode !== 'LIVE') lastDmxFrame = null;
   console.log(`🔄 OUTPUT → ${output.enabled && output.mode === 'LIVE' ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe} mode=${output.mode}`);
   broadcast({ type: 'OUTPUT_STATUS', ...output, online: udpReady });
 }
@@ -247,6 +264,8 @@ udp.on('message', (packet, rinfo) => {
 wss.on('connection', (ws, request) => {
   const remote = request?.socket?.remoteAddress || 'unknown';
   console.log(`🔌 WEBSOCKET CLIENT CONNECTED ← ${remote}`);
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   ws.send(JSON.stringify({ type: 'OUTPUT_STATUS', ...output, online: udpReady }));
   ws.on('message', (data, isBinary) => {
     packetsReceived++;
@@ -272,10 +291,20 @@ wss.on('connection', (ws, request) => {
   ws.on('close', () => console.log(`🔌 WebSocket client disconnected ← ${remote}`));
 });
 const statsTimer = setInterval(() => console.log(`📊 RELAY STATUS — ${output.enabled && output.mode === 'LIVE' ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe} mode=${output.mode}, clients=${wss.clients.size}, rx=${packetsReceived}, tx=${packetsSent}, rejected=${packetsRejected}`), 10000);
+const keepaliveTimer = setInterval(sendKeepaliveFrame, 800);
+const wsHeartbeatTimer = setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    try { ws.ping(); } catch (_) {}
+  });
+}, 15000);
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(statsTimer);
+  clearInterval(keepaliveTimer);
+  clearInterval(wsHeartbeatTimer);
   try { wss.close(); } catch (_) {}
   try { udp.close(); } catch (_) {}
   try { logStream?.end(); } catch (_) {}

@@ -1,125 +1,126 @@
 "use strict";
 
-// Chase command bridge. Loaded after commands.js so it can extend the
-// existing parser without replacing the console's command system.
+// Chase command bridge. This sits on top of the existing command input and
+// deliberately leaves the main command parser untouched.
 (function installChaseCommands() {
-  const normalise = value => String(value || "").trim().toLowerCase();
+  const normalise = value => String(value || "").trim().replace(/\s+/g, " ");
 
-  function chaseList() {
+  function list() {
     return Array.isArray(window.State?.chases) ? window.State.chases : [];
   }
 
-  function findChase(name) {
-    const wanted = normalise(name);
+  function log(message, type = "info") {
+    if (typeof window.log === "function") window.log(message, type);
+    else console.log(`[CHASE COMMAND ${type}]`, message);
+  }
+
+  function findChase(value) {
+    const wanted = normalise(value).toLowerCase();
     if (!wanted) return -1;
-    const list = chaseList();
-    const exact = list.findIndex(ch => normalise(ch?.name) === wanted);
-    if (exact >= 0) return exact;
-    const number = Number(wanted);
-    if (Number.isInteger(number) && number >= 1 && list[number - 1]) return number - 1;
-    return list.findIndex(ch => normalise(ch?.name).includes(wanted));
+
+    const numbered = wanted.match(/^chase\s+(\d+)$/) || wanted.match(/^(\d+)$/);
+    if (numbered) {
+      const index = Number(numbered[1]) - 1;
+      return Number.isInteger(index) && list()[index] ? index : -1;
+    }
+
+    return list().findIndex(chase => normalise(chase?.name).toLowerCase() === wanted);
   }
 
   function openNewChase() {
-    // chases.js owns the real picker used by the New Chase button.
-    // Calling the same public entry point guarantees the command opens
-    // exactly the same menu rather than creating a second implementation.
-    if (typeof window.openChasePicker === "function") {
-      window.openChasePicker();
-      return true;
-    }
     const button = document.getElementById("btnSaveChase");
-    if (button) {
-      button.click();
-      return true;
+    if (!button) {
+      log("New Chase button is not available yet", "warn");
+      return false;
     }
-    if (typeof window.log === "function") window.log("Chase creator is not ready yet", "warn");
-    return false;
+    button.click();
+    log("Opened New Chase", "ok");
+    return true;
   }
 
-  function runNamedChase(name) {
-    const index = findChase(name);
+  function runChase(value) {
+    const index = findChase(value);
     if (index < 0) {
-      window.log?.(`Chase "${name}" not found`, "warn");
+      log(`Chase "${normalise(value)}" not found`, "warn");
       return false;
     }
     if (typeof window.startChase !== "function") {
-      window.log?.("Chase engine is not ready yet", "warn");
+      log("Chase engine is not ready yet", "error");
       return false;
     }
+    log(`Running Chase ${index + 1}: ${list()[index]?.name || `Chase ${index + 1}`}`, "ok");
     return window.startChase(index);
   }
 
-  function stopNamedChase(name) {
-    const list = chaseList();
-    const index = findChase(name);
-    if (index < 0) {
-      window.log?.(`Chase "${name}" not found`, "warn");
-      return false;
-    }
+  function stopChase(value = "") {
     if (typeof window.stopChase !== "function") {
-      window.log?.("Chase engine is not ready yet", "warn");
+      log("Chase engine is not ready yet", "error");
       return false;
     }
-    // Only stop if the named chase is actually the active one. If another
-    // chase is running, don't unexpectedly kill it.
-    const active = Number(window.State?.currentChase);
-    if (active !== index) {
-      window.log?.(`Chase "${list[index]?.name || `Chase ${index + 1}`}" is not running`, "warn");
-      return false;
+
+    const requested = normalise(value);
+    if (requested) {
+      const index = findChase(requested);
+      if (index < 0) {
+        log(`Chase "${requested}" not found`, "warn");
+        return false;
+      }
+
+      const active = Number(window.State?.currentChase);
+      if (active !== index) {
+        log(`Chase "${list()[index]?.name || `Chase ${index + 1}`}" is not running`, "warn");
+        return false;
+      }
     }
+
     window.stopChase();
     return true;
   }
 
-  function install() {
-    const original = window.parseCommand;
-    if (typeof original !== "function") {
-      setTimeout(install, 100);
-      return;
-    }
-    if (original.__chaseCommandBridge) return;
+  function handle(command) {
+    const c = normalise(command);
+    let match;
 
-    const wrapped = function chaseCommandBridge(raw) {
-      const command = normalise(raw);
-      let match;
+    if (/^new\s+chase$/i.test(c) || /^create\s+chase$/i.test(c)) return openNewChase();
 
-      if (command === "new chase" || command === "create chase") {
-        return openNewChase();
-      }
+    match = c.match(/^run\s+chase\s+(.+)$/i);
+    if (match) return runChase(match[1]);
 
-      match = command.match(/^run\s+chase\s+(.+)$/);
-      if (match) return runNamedChase(match[1].trim());
+    match = c.match(/^start\s+chase\s+(.+)$/i);
+    if (match) return runChase(match[1]);
 
-      match = command.match(/^start\s+chase\s+(.+)$/);
-      if (match) return runNamedChase(match[1].trim());
+    match = c.match(/^stop\s+chase(?:\s+(.+))?$/i);
+    if (match) return stopChase(match[1] || "");
 
-      match = command.match(/^stop\s+chase\s+(.+)$/);
-      if (match) return stopNamedChase(match[1].trim());
+    match = c.match(/^halt\s+chase(?:\s+(.+))?$/i);
+    if (match) return stopChase(match[1] || "");
 
-      match = command.match(/^halt\s+chase\s+(.+)$/);
-      if (match) return stopNamedChase(match[1].trim());
-
-      if (command === "stop chase" || command === "halt chase") {
-        if (typeof window.stopChase !== "function") {
-          window.log?.("Chase engine is not ready yet", "warn");
-          return false;
-        }
-        window.stopChase();
-        return true;
-      }
-
-      return original(raw);
-    };
-
-    wrapped.__chaseCommandBridge = true;
-    window.parseCommand = wrapped;
-    window.log?.("✅ Chase commands ready: new chase / run chase / stop chase", "ok");
+    return false;
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", install, { once: true });
-  } else {
-    install();
+  window.handleChaseCommand = handle;
+
+  function wire() {
+    const input = document.getElementById("cmdInput");
+    if (!input || input.dataset.chaseCommandsWired === "1") return;
+    input.dataset.chaseCommandsWired = "1";
+
+    // commands.js keeps parseCommand private, so wrapping window.parseCommand
+    // cannot work. Capture Enter here instead, before the normal command
+    // handler gets the chase command.
+    input.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      const command = normalise(input.value);
+      if (!/^(new\s+chase|create\s+chase|run\s+chase\s+.+|start\s+chase\s+.+|stop\s+chase(?:\s+.*)?|halt\s+chase(?:\s+.*)?)$/i.test(command)) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (handle(command)) input.value = "";
+    }, true);
+
+    console.log("[CHASE COMMANDS] Ready");
   }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire, { once: true });
+  else wire();
 })();

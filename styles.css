@@ -1530,3 +1530,373 @@ select:focus-visible {
     min-height: 42px;
   }
 }
+/* ============================================================
+   CHASE CREATOR MODAL
+   Matches the Lighting Console V2 UI
+   ============================================================ */
+
+#chasePicker {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  padding: 24px !important;
+
+  background:
+    radial-gradient(
+      circle at 50% 20%,
+      rgba(25, 214, 163, .07),
+      transparent 45%
+    ),
+    rgba(4, 7, 9, .86) !important;
+
+  backdrop-filter: blur(7px);
+}
+
+/* Main popup */
+
+#chasePicker > div {
+  width: min(760px, 96vw) !important;
+  max-height: 90vh !important;
+  overflow-y: auto !important;
+
+  padding: 0 !important;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(18, 25, 30, .99),
+      rgba(10, 15, 18, .99)
+    ) !important;
+
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--r-lg) !important;
+
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, .55),
+    0 0 0 1px rgba(25, 214, 163, .035) !important;
+
+  color: var(--text) !important;
+}
+
+/* Popup heading */
+
+#chasePicker h2 {
+  margin: 0 !important;
+  padding: 18px 20px 8px !important;
+
+  border-bottom: 0 !important;
+
+  color: var(--text) !important;
+  font-size: 16px !important;
+  font-weight: 850 !important;
+  letter-spacing: .5px !important;
+}
+
+/* Small description */
+
+#chasePicker h2 + p {
+  margin: 0 !important;
+  padding: 0 20px 16px !important;
+
+  color: var(--text-muted) !important;
+  font-size: 9px !important;
+  line-height: 1.6 !important;
+
+  border-bottom: 1px solid var(--border) !important;
+}
+
+/* Chase name */
+
+#chasePicker > div > input[type="text"],
+#chasePicker > div > input:not([type]) {
+  display: block !important;
+
+  width: calc(100% - 40px) !important;
+  height: 38px !important;
+
+  margin: 16px 20px 10px !important;
+  padding: 0 11px !important;
+
+  background: #0d1418 !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--r-sm) !important;
+
+  color: var(--text) !important;
+  font-family: var(--sans) !important;
+  font-size: 10px !important;
+
+  user-select: text !important;
+}
+
+#chasePicker input::placeholder {
+  color: #53615f !important;
+}
+
+#chasePicker input:focus {
+  outline: none !important;
+  border-color: var(--accent-line) !important;
+  box-shadow: 0 0 0 2px rgba(25, 214, 163, .06) !important;
+}
+
+/* Mode selector */
+
+#chasePicker select {
+  display: block !important;
+
+  width: calc(100% - 40px) !important;
+  height: 36px !important;
+
+  margin: 0 20px 16px !important;
+  padding: 0 10px !important;
+
+  background: #0d1418 !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--r-sm) !important;
+
+  color: var(--text-soft) !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+}
+
+/* Section headings */
+
+#chasePicker strong {
+  color: var(--text-soft) !important;
+  font-size: 9px !important;
+  font-weight: 850 !important;
+  letter-spacing: .7px !important;
+  text-transform: uppercase;
+}
+
+/* Fixture / cue sections */
+
+#chasePicker > div > div {
+  color: var(--text-soft);
+}
+
+/* Fixture grid */
+
+#chasePicker > div > div[style*="grid-template-columns"] {
+  width: calc(100% - 40px) !important;
+  margin: 8px 20px 18px !important;
+
+  display: grid !important;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(180px, 1fr)
+  ) !important;
+
+  gap: 6px !important;
+}
+
+/* Fixture and cue selectable cards */
+
+#chasePicker label {
+  position: relative !important;
+
+  display: flex !important;
+  align-items: center !important;
+  gap: 9px !important;
+
+  min-height: 36px !important;
+  padding: 8px 10px !important;
+
+  background: #10171b !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r-sm) !important;
+
+  color: #9eaba8 !important;
+
+  cursor: pointer !important;
+
+  font-size: 9px !important;
+  font-weight: 650 !important;
+
+  transition:
+    background .12s ease,
+    border-color .12s ease,
+    color .12s ease,
+    transform .12s ease !important;
+}
+
+#chasePicker label:hover {
+  background: #172026 !important;
+  border-color: var(--border-strong) !important;
+  color: var(--text) !important;
+  transform: translateY(-1px);
+}
+
+/* Checkboxes */
+
+#chasePicker label input[type="checkbox"] {
+  appearance: none !important;
+
+  width: 15px !important;
+  height: 15px !important;
+
+  flex: 0 0 15px !important;
+
+  margin: 0 !important;
+
+  background: #0a1013 !important;
+  border: 1px solid #3a484d !important;
+  border-radius: 4px !important;
+
+  cursor: pointer !important;
+
+  position: relative !important;
+}
+
+#chasePicker label input[type="checkbox"]:checked {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+
+  box-shadow: 0 0 10px rgba(25, 214, 163, .16);
+}
+
+#chasePicker label input[type="checkbox"]:checked::after {
+  content: "✓";
+
+  position: absolute;
+  inset: 0;
+
+  display: grid;
+  place-items: center;
+
+  color: #04110c;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+/* Selected fixture/cue card */
+
+#chasePicker label:has(input:checked) {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(25, 214, 163, .10),
+      rgba(25, 214, 163, .035)
+    ) !important;
+
+  border-color: rgba(25, 214, 163, .28) !important;
+
+  color: var(--accent-2) !important;
+
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Cues list */
+
+#chasePicker > div > div[style*="display:grid"]:not(
+  [style*="grid-template-columns"]
+) {
+  width: calc(100% - 40px) !important;
+  margin: 8px 20px 14px !important;
+  gap: 5px !important;
+}
+
+/* Options row */
+
+#chasePicker > div > div:last-child {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
+
+  margin: 4px 20px 0 !important;
+  padding: 12px !important;
+
+  background: #0d1418 !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r-sm) !important;
+
+  color: var(--text-muted) !important;
+}
+
+/* Speed / fade number inputs */
+
+#chasePicker input[type="number"] {
+  width: 75px !important;
+  height: 30px !important;
+
+  margin: 0 4px !important;
+  padding: 0 8px !important;
+
+  background: #11191e !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: 6px !important;
+
+  color: var(--accent-2) !important;
+
+  font-family: var(--mono) !important;
+  font-size: 9px !important;
+}
+
+/* Loop checkbox */
+
+#chasePicker input[type="checkbox"] {
+  accent-color: var(--accent) !important;
+}
+
+/* Bottom action buttons */
+
+#chasePicker button {
+  min-height: 34px !important;
+  padding: 0 13px !important;
+
+  border-radius: 7px !important;
+
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: .3px !important;
+
+  cursor: pointer !important;
+}
+
+/* Button row */
+
+#chasePicker > div > div:last-child {
+  margin-top: 14px !important;
+  margin-bottom: 20px !important;
+}
+
+/* Scrollbar */
+
+#chasePicker > div::-webkit-scrollbar {
+  width: 7px;
+}
+
+#chasePicker > div::-webkit-scrollbar-track {
+  background: #080d10;
+}
+
+#chasePicker > div::-webkit-scrollbar-thumb {
+  background: #27343a;
+  border-radius: 999px;
+}
+
+#chasePicker > div::-webkit-scrollbar-thumb:hover {
+  background: #35464d;
+}
+
+/* Mobile */
+
+@media (max-width: 650px) {
+  #chasePicker {
+    padding: 10px !important;
+  }
+
+  #chasePicker > div {
+    width: 100% !important;
+    max-height: 94vh !important;
+  }
+
+  #chasePicker > div > div[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+}

@@ -170,6 +170,17 @@ function parseCommand(cmd){
   if(!window.State||!Array.isArray(window.State.fixtures))return log('System still starting — wait 1 second','warn');
   const c=String(cmd).trim().toLowerCase(); let m,g,ch;
 
+  if (c === 'new chase') {
+  const btn = document.getElementById('btnSaveChase');
+
+  if (!btn) {
+    return log('New Chase button not found', 'warn');
+  }
+
+  btn.click();
+  return log('New Chase menu opened', 'ok');
+}
+
   if(/^(visualizer|viz)$/.test(c)){window.open('visualizer.html','_blank','width=1280,height=800,menubar=no,toolbar=no');return log('Visualizer opened in new window','ok');}
   if(c==='artnet'){document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.querySelector('[data-page="settings"]')?.classList.add('active');document.getElementById('page-settings')?.classList.add('active');return log('Opened Art-Net Settings','ok');}
   if(/^(clear|release)$/.test(c)){State.selected.clear();renderFixtures?.();return log('Cleared selection','ok');}

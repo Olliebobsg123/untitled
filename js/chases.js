@@ -22,9 +22,7 @@
     const wanted = String(fixtureId);
     const saved = cue?.fixtureStates;
     if (Array.isArray(saved)) {
-      const entry = saved.find(item =>
-        Array.isArray(item) && item.length >= 2 && String(item[0]) === wanted
-      );
+      const entry = saved.find(item => Array.isArray(item) && item.length >= 2 && String(item[0]) === wanted);
       if (entry?.[1] && typeof entry[1] === "object") return clone(entry[1]);
     }
     if (saved && typeof saved === "object" && !Array.isArray(saved)) {
@@ -39,16 +37,11 @@
   }
 
   function buildCueTarget(s, cue) {
-    const globalState = {
-      ...(s.current || {}),
-      ...(cue?.globalState || cue?.state || {})
-    };
+    const globalState = { ...(s.current || {}), ...(cue?.globalState || cue?.state || {}) };
     const fixtureTargets = new Map();
     (Array.isArray(s.fixtures) ? s.fixtures : []).forEach(fixture => {
       if (!fixture || fixture.id == null) return;
-      const existing = s.fixtureStates instanceof Map
-        ? (s.fixtureStates.get(fixture.id) || {})
-        : {};
+      const existing = s.fixtureStates instanceof Map ? (s.fixtureStates.get(fixture.id) || {}) : {};
       const specific = getCueFixtureState(cue, fixture.id);
       fixtureTargets.set(fixture.id, {
         ...(window.DEFAULT_FIXTURE_STATE || {}),
@@ -60,7 +53,7 @@
     return { globalState, fixtureTargets };
   }
 
-  function pushOutput(s) {
+  function pushOutput() {
     if (typeof window.updateDMX === "function") window.updateDMX();
     if (typeof window.sendToVisualizer === "function") window.sendToVisualizer();
   }
@@ -70,15 +63,13 @@
     Object.assign(s.current, target.globalState);
     if (!(s.fixtureStates instanceof Map)) s.fixtureStates = new Map();
     target.fixtureTargets.forEach((fixtureState, id) => s.fixtureStates.set(id, fixtureState));
-    pushOutput(s);
+    pushOutput();
   }
 
   function fadeToTarget(s, target, duration, finished) {
     const ms = Math.max(0, num(duration, 0));
-    if (s.chaseFading) {
-      window.cancelAnimationFrame(s.chaseFading);
-      s.chaseFading = null;
-    }
+    if (s.chaseFading) window.cancelAnimationFrame(s.chaseFading);
+    s.chaseFading = null;
     if (ms <= 0) {
       applyTarget(s, target);
       finished?.();
@@ -87,31 +78,23 @@
 
     const fromGlobal = { ...(s.current || {}) };
     const fromFixtures = new Map();
-    if (s.fixtureStates instanceof Map) {
-      s.fixtureStates.forEach((value, id) => fromFixtures.set(id, clone(value)));
-    }
-
+    if (s.fixtureStates instanceof Map) s.fixtureStates.forEach((value, id) => fromFixtures.set(id, clone(value)));
     const start = performance.now();
+
     const frame = now => {
       if (s.currentChase < 0) return;
       const raw = Math.min(1, Math.max(0, (now - start) / ms));
       const t = raw < 0.5 ? 2 * raw * raw : 1 - Math.pow(-2 * raw + 2, 2) / 2;
-
       const global = {};
-      const globalKeys = new Set([
-        ...Object.keys(fromGlobal),
-        ...Object.keys(target.globalState || {})
-      ]);
+      const globalKeys = new Set([...Object.keys(fromGlobal), ...Object.keys(target.globalState || {})]);
+
       globalKeys.forEach(key => {
         const a = fromGlobal[key];
         const b = target.globalState?.[key];
-        global[key] = typeof a === "number" || typeof b === "number"
-          ? num(a) + (num(b) - num(a)) * t
-          : (raw < 1 ? (a ?? b) : (b ?? a));
+        global[key] = typeof a === "number" || typeof b === "number" ? num(a) + (num(b) - num(a)) * t : (raw < 1 ? (a ?? b) : (b ?? a));
       });
-      s.current ||= {};
-      Object.assign(s.current, global);
 
+      Object.assign(s.current, global);
       if (!(s.fixtureStates instanceof Map)) s.fixtureStates = new Map();
       target.fixtureTargets.forEach((toState, id) => {
         const fromState = fromFixtures.get(id) || {};
@@ -120,13 +103,11 @@
         keys.forEach(key => {
           const a = fromState[key];
           const b = toState?.[key];
-          result[key] = typeof a === "number" || typeof b === "number"
-            ? num(a) + (num(b) - num(a)) * t
-            : (raw < 1 ? (a ?? b) : (b ?? a));
+          result[key] = typeof a === "number" || typeof b === "number" ? num(a) + (num(b) - num(a)) * t : (raw < 1 ? (a ?? b) : (b ?? a));
         });
         s.fixtureStates.set(id, result);
       });
-      pushOutput(s);
+      pushOutput();
 
       if (raw >= 1) {
         s.chaseFading = null;
@@ -143,11 +124,7 @@
     if (typeof window.stopEffect === "function") window.stopEffect(true);
     if (!cue?.effect?.type || typeof window.startEffect !== "function") return;
     const saved = cue.effect;
-    const effect = {
-      type: String(saved.type),
-      speed: num(saved.speed, 1),
-      fixtureMode: saved.fixtureMode || "selected"
-    };
+    const effect = { type: String(saved.type), speed: num(saved.speed, 1), fixtureMode: saved.fixtureMode || "selected" };
     if (Array.isArray(saved.fixtureIds) && saved.fixtureIds.length) {
       effect.fixtureMode = "custom";
       effect.fixtureIds = [...saved.fixtureIds];
@@ -164,7 +141,6 @@
     const s = state();
     if (!s) return;
     if (!Array.isArray(s.chases)) s.chases = [];
-
     if (selectedChase >= s.chases.length) selectedChase = -1;
     list.replaceChildren();
 
@@ -293,41 +269,28 @@
         const percent = Math.max(10, Math.min(100, num(speed.value, 50)));
         speed.value = String(percent);
         speedVal.textContent = String(percent);
-        if (s) {
-          // Higher percentage = faster chase. Keep a useful 100–2000ms range.
-          s.chaseWait = Math.round(2000 - (percent / 100) * 1900);
-          if (s.chaseWait < 100) s.chaseWait = 100;
-        }
+        if (s) s.chaseWait = Math.max(100, Math.round(2000 - (percent / 100) * 1900));
       };
       speed.addEventListener("input", updateSpeed);
       updateSpeed();
     }
 
-    save?.addEventListener("click", () => {
+    save?.addEventListener("click", event => {
+      event.preventDefault();
       const s = state();
       if (!s) return;
       if (!Array.isArray(s.cues) || !s.cues.length) {
         writeLog("Add at least one cue before creating a chase", "warn");
         return;
       }
-
-      const name = window.prompt
-        ? window.prompt("Chase name:", `Chase ${(s.chases?.length || 0) + 1}`)
-        : null;
-      if (name === null) return;
-
-      const defaultSteps = s.cues.map((_, i) => String(i + 1)).join(",");
-      const cueText = window.prompt
-        ? window.prompt(`Cue numbers to run, separated by commas (1-${s.cues.length}):`, defaultSteps)
-        : null;
-      if (cueText === null) return;
-
-      const loop = window.confirm ? window.confirm("Loop this chase when it reaches the end?") : true;
-      const cues = cueText.split(",").map(v => v.trim()).filter(Boolean);
-      saveChase(name, cues, loop);
+      // Save all current cues as a chase. This intentionally avoids prompt()/confirm(),
+      // which are unavailable in some embedded/webview environments.
+      const name = `Chase ${(s.chases?.length || 0) + 1}`;
+      saveChase(name, s.cues.map((_, index) => index + 1), true);
     });
 
-    run?.addEventListener("click", () => {
+    run?.addEventListener("click", event => {
+      event.preventDefault();
       const s = state();
       if (!s || !Array.isArray(s.chases) || !s.chases.length) {
         writeLog("No chases available", "warn");
@@ -337,7 +300,10 @@
       startChase(index);
     });
 
-    stop?.addEventListener("click", () => stopChase());
+    stop?.addEventListener("click", event => {
+      event.preventDefault();
+      stopChase();
+    });
   }
 
   if (document.readyState === "loading") {

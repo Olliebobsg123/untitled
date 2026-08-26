@@ -38,26 +38,40 @@
     return true;
   }
 
+  function selectChase(index) {
+    const listEl = document.getElementById("chaseList");
+    const row = listEl?.children?.[index];
+    if (!row) return false;
+    row.click();
+    return true;
+  }
+
   function runChase(value) {
     const index = findChase(value);
     if (index < 0) {
       log(`Chase "${normalise(value)}" not found`, "warn");
       return false;
     }
-    if (typeof window.startChase !== "function") {
-      log("Chase engine is not ready yet", "error");
+
+    // Use the same UI path as clicking a chase and then ▶ Run Chase. This
+    // keeps command execution tied to the real chase engine rather than a
+    // second, competing timer implementation.
+    if (!selectChase(index)) {
+      log("Chase list is not ready yet", "warn");
       return false;
     }
+
+    const button = document.getElementById("btnRunChase");
+    if (!button) {
+      log("Run Chase button is not available yet", "warn");
+      return false;
+    }
+    button.click();
     log(`Running Chase ${index + 1}: ${list()[index]?.name || `Chase ${index + 1}`}`, "ok");
-    return window.startChase(index);
+    return true;
   }
 
   function stopChase(value = "") {
-    if (typeof window.stopChase !== "function") {
-      log("Chase engine is not ready yet", "error");
-      return false;
-    }
-
     const requested = normalise(value);
     if (requested) {
       const index = findChase(requested);
@@ -73,7 +87,12 @@
       }
     }
 
-    window.stopChase();
+    const button = document.getElementById("btnStopChase");
+    if (!button) {
+      log("Stop Chase button is not available yet", "warn");
+      return false;
+    }
+    button.click();
     return true;
   }
 
@@ -106,8 +125,8 @@
     input.dataset.chaseCommandsWired = "1";
 
     // commands.js keeps parseCommand private, so wrapping window.parseCommand
-    // cannot work. Capture Enter here instead, before the normal command
-    // handler gets the chase command.
+    // cannot work. Capture Enter here, before the normal command handler gets
+    // the chase command.
     input.addEventListener("keydown", event => {
       if (event.key !== "Enter") return;
       const command = normalise(input.value);

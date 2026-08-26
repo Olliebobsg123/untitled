@@ -7,13 +7,6 @@
   const clone = v => typeof window.cloneFixtureState === "function" ? window.cloneFixtureState(v) : { ...(v || {}) };
   let selectedChase = -1;
 
-  /*
-   * Some fixture definitions use red/green/blue while the DMX/visualiser
-   * engines historically expected r/g/b.  A chase calls updateDMX(), so a
-   * chase was the perfect place for this mismatch to become visible: fixtures
-   * fell through to the white-light fallback.  Normalise the library once so
-   * both engines see the same colour channels.
-   */
   function normaliseColourMaps() {
     const lib = window.FixtureLibrary;
     if (!lib || typeof lib !== "object") return;
@@ -35,11 +28,39 @@
   }
 
   function buildTarget(cue) {
-    const s = S(), global = clone(cue?.globalState || cue?.state || {}), fixtures = cueFixtureMap(cue);
-    if (!fixtures.size) (s?.fixtures || []).forEach(f => { if (f?.id != null) fixtures.set(String(f.id), clone(global)); });
-    ["hue", "sat", "light", "intensity", "master"].forEach(k => fixtures.forEach(state => {
-      if (!Object.prototype.hasOwnProperty.call(state, k) && Object.prototype.hasOwnProperty.call(global, k)) state[k] = num(global[k], state[k]);
-    }));
+    const s = S();
+    const global = clone(cue?.globalState || cue?.state || {});
+    const fixtures = cueFixtureMap(cue);
+    const liveFixtures = Array.isArray(s?.fixtures) ? s.fixtures : [];
+
+    if (!fixtures.size) {
+      liveFixtures.forEach(f => {
+        if (f?.id != null) fixtures.set(String(f.id), clone(global));
+      });
+    } else {
+      // A cue can contain only some fixture snapshots. Preserve the cue's
+      // global look for fixtures which were not explicitly stored.
+      liveFixtures.forEach(f => {
+        if (f?.id == null) return;
+        const key = String(f.id);
+        if (!fixtures.has(key)) fixtures.set(key, clone(global));
+      });
+    }
+
+    fixtures.forEach(state => {
+      // Keep the complete fixture state shape so DMX colour, intensity and
+      // movement channels never fall back to the default white look.
+      const base = typeof window.createFixtureState === "function"
+        ? window.createFixtureState(state)
+        : { ...(window.DEFAULT_FIXTURE_STATE || {}), ...state };
+      ["hue", "sat", "light", "intensity", "master"].forEach(k => {
+        if (Object.prototype.hasOwnProperty.call(global, k) && !Object.prototype.hasOwnProperty.call(state, k)) {
+          base[k] = num(global[k], base[k]);
+        }
+      });
+      Object.assign(state, base);
+    });
+
     return { global, fixtures };
   }
 
@@ -61,7 +82,10 @@
     Object.assign(s.current, clone(target.global));
     if (!(s.fixtureStates instanceof Map)) s.fixtureStates = new Map();
     const ids = new Map((s.fixtures || []).map(f => [String(f.id), f.id]));
-    target.fixtures.forEach((v, key) => s.fixtureStates.set(ids.has(String(key)) ? ids.get(String(key)) : key, clone(v)));
+    target.fixtures.forEach((v, key) => {
+      const realId = ids.has(String(key)) ? ids.get(String(key)) : key;
+      s.fixtureStates.set(realId, clone(v));
+    });
     output();
   }
 
@@ -73,7 +97,8 @@
 
     const fromGlobal = clone(s.current), from = new Map();
     (s.fixtureStates instanceof Map ? s.fixtureStates : new Map()).forEach((v, id) => from.set(String(id), clone(v)));
-    const ids = new Map((s.fixtures || []).map(f => [String(f.id), f.id])), started = performance.now();
+    const ids = new Map((s.fixtures || []).map(f => [String(f.id), f.id]));
+    const started = performance.now();
 
     const tick = now => {
       if (s.currentChase < 0) return;
@@ -327,23 +352,27 @@
       speedVal.textContent = speed.value;
       speed.oninput = () => speedVal.textContent = speed.value;
     }
-    if (save && save.dataset.chaseWired !== "true") {
+    if (save) {
+      save.type = "button";
       save.dataset.chaseWired = "true";
-      save.onclick = e => { e.preventDefault(); createChasePicker(); };
+      save.onclick = e => { e.preventDefault(); e.stopPropagation(); createChasePicker(); };
     }
-    if (run && run.dataset.chaseWired !== "true") {
+    if (run) {
+      run.type = "button";
       run.dataset.chaseWired = "true";
       run.onclick = e => {
         e.preventDefault();
+        e.stopPropagation();
         const s = S();
         if (selectedChase < 0 && s?.chases?.length) selectedChase = s.chases.length - 1;
         if (selectedChase >= 0) startChase(selectedChase);
         else log("Create/select a chase first", "warn");
       };
     }
-    if (stop && stop.dataset.chaseWired !== "true") {
+    if (stop) {
+      stop.type = "button";
       stop.dataset.chaseWired = "true";
-      stop.onclick = e => { e.preventDefault(); stopChase(); };
+      stop.onclick = e => { e.preventDefault(); e.stopPropagation(); stopChase(); };
     }
   }
 
@@ -351,7 +380,13 @@
     normaliseColourMaps();
     installButtons();
     renderChases();
+    // app.js and modes.js both contain legacy DOMContentLoaded handlers that
+    // overwrite these buttons. Run once after all DOMContentLoaded handlers
+    // have finished so the real chase UI is the final owner of the controls.
+    setTimeout(installButtons, 0);
   }
+
+  window.__installChaseButtons = installButtons;
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, { once: true });
   else init();

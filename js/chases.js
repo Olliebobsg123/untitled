@@ -9,13 +9,28 @@
   const n = (v, fallback = 0) => Number.isFinite(Number(v)) ? Number(v) : fallback;
   const clone = v => typeof window.cloneFixtureState === "function"
     ? window.cloneFixtureState(v)
-    : { ...(v && typeof v === "object" ? v : {}) };
+    : { ...(v && typeof v === "object' ? v : {}) };
 
   let selectedChase = -1;
   let runToken = 0;
   let cueBridgeInstalled = false;
 
   function fixtures() { return (S()?.fixtures || []).filter(f => f && f.id != null); }
+
+  function selectedFixtureIds() {
+    const s = S();
+    const all = fixtures();
+    const selected = s?.selected instanceof Set ? [...s.selected] : [];
+    return selected.length
+      ? all.filter(f => selected.some(id => String(id) === String(f.id))).map(f => f.id)
+      : all.map(f => f.id);
+  }
+
+  function chaseFixtureIds(chase) {
+    const all = fixtures();
+    if (!Array.isArray(chase?.fixtureIds) || !chase.fixtureIds.length) return all.map(f => f.id);
+    return all.filter(f => chase.fixtureIds.some(id => String(id) === String(f.id))).map(f => f.id);
+  }
 
   function cueState(cue, id) {
     if (!cue) return {};
@@ -35,6 +50,24 @@
     map.forEach((state, id) => s.fixtureStates.set(id, clone(state)));
     try { window.updateDMX?.(); } catch (e) { console.error("[CHASE] DMX", e); }
     try { window.sendToVisualizer?.(); } catch (e) { console.error("[CHASE] visualizer", e); }
+  }
+
+  function applyCueToFixtures(cue, fixtureIds) {
+    const s = S();
+    if (!s || !cue) return false;
+    if (!(s.fixtureStates instanceof Map)) s.fixtureStates = new Map();
+    const allowed = new Set(fixtureIds.map(String));
+    const map = new Map();
+    fixtures().forEach(f => {
+      const existing = s.fixtureStates.get(f.id) || s.current || {};
+      map.set(f.id, clone(existing));
+    });
+    fixtures().forEach(f => {
+      if (!allowed.has(String(f.id))) return;
+      map.set(f.id, cueState(cue, f.id));
+    });
+    pushState(cue.globalState || cue.state || {}, map);
+    return true;
   }
 
   function captureLook() {
@@ -72,7 +105,8 @@
       const meta = document.createElement("small");
       const count = chase.mode === "snapshot" ? (chase.snapshots?.length || 0) : (chase.steps?.length || 0);
       const mode = chase.mode === "spread" ? "🌈 Per-fixture" : chase.mode === "snapshot" ? "● Recorded" : "→ Sequence";
-      meta.textContent = `${count} ${chase.mode === "snapshot" ? "look(s)" : "cue(s)"} · ${mode} · ${chase.loop ? "Loop" : "Once"} · ${n(chase.speed, 50)}% · ${n(chase.fade, 0)}ms`;
+      const fxCount = Array.isArray(chase.fixtureIds) && chase.fixtureIds.length ? `${chase.fixtureIds.length} fixture(s)` : "All fixtures";
+      meta.textContent = `${count} ${chase.mode === "snapshot" ? "look(s)" : "cue(s)"} · ${mode} · ${fxCount} · ${chase.loop ? "Loop" : "Once"} · ${n(chase.speed, 50)}% · ${n(chase.fade, 0)}ms`;
       el.append(title, meta);
       el.onclick = () => { selectedChase = i; renderChases(); log(`Selected Chase ${i + 1}: ${chase.name || `Chase ${i + 1}`}`); };
       list.appendChild(el);
@@ -106,13 +140,20 @@
     const cue = s.cues?.[cueIndex];
     if (!cue) return stopChase(false);
     const fade = Math.max(0, Math.min(60000, n(chase.fade, 0)));
-    if (typeof window.goToCue !== "function") {
-      log("CHASE ERROR: goToCue unavailable", "error");
-      return stopChase(false);
+    const fixtureIds = chaseFixtureIds(chase);
+    log(`CHASE DEBUG: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
+
+    // A chase owns its fixture selection. Do not call goToCue here because that
+    // applies a cue to the whole rig. Instead copy the cue only to the selected fixtures.
+    if (fade > 0 && typeof window.fadeTo === "function") {
+      const target = clone(cue.globalState || cue.state || {});
+      const fixtureTargets = fixtureIds.map(id => [id, cueState(cue, id)]);
+      window.fadeTo(target, fade, fixtureTargets);
+    } else {
+      applyCueToFixtures(cue, fixtureIds);
     }
-    log(`CHASE DEBUG: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1}`);
-    const ok = window.goToCue(cueIndex, fade, { fromChase: true });
-    if (!ok) return stopChase(false);
+    s.currentCue = cueIndex;
+
     let next = step + 1;
     if (next >= chase.steps.length) {
       if (!chase.loop) return stopChase();
@@ -123,12 +164,13 @@
 
   function runSpread(token, chase, rotation) {
     const s = S();
-    const fs = fixtures();
+    const fs = fixtures().filter(f => chaseFixtureIds(chase).some(id => String(id) === String(f.id)));
     const steps = (chase.steps || []).map(Number).filter(i => s?.cues?.[i]);
     if (!s || token !== runToken || s.currentChase !== chase.__index) return;
     if (!fs.length || !steps.length) return stopChase(false);
 
     const map = new Map();
+    fixtures().forEach(f => map.set(f.id, clone(s.fixtureStates?.get(f.id) || s.current || {})));
     fs.forEach((fixture, fixtureIndex) => {
       const cueIndex = steps[(fixtureIndex + rotation) % steps.length];
       const state = cueState(s.cues[cueIndex], fixture.id);
@@ -149,8 +191,10 @@
     if (!s || token !== runToken || s.currentChase !== chase.__index) return;
     const snapshot = chase.snapshots?.[step];
     if (!snapshot) return stopChase(false);
-    applySnapshot(snapshot);
-    log(`CHASE DEBUG: recorded look ${step + 1}/${chase.snapshots.length}`);
+    const ids = new Set(chaseFixtureIds(chase).map(String));
+    const filtered = (snapshot.fixtureStates || []).filter(x => Array.isArray(x) && x.length > 1 && ids.has(String(x[0])));
+    applySnapshot({ globalState: snapshot.globalState, fixtureStates: filtered });
+    log(`CHASE DEBUG: recorded look ${step + 1}/${chase.snapshots.length} on ${ids.size} fixture(s)`);
     let next = step + 1;
     if (next >= chase.snapshots.length) {
       if (!chase.loop) return stopChase();
@@ -174,45 +218,56 @@
     s.currentChase = index;
     runToken++;
     const token = runToken;
+    const ids = chaseFixtureIds(chase);
     renderChases();
-    log(`▶ Started Chase ${index + 1}: ${chase.name || `Chase ${index + 1}`} (${chase.mode || "sequence"})`, "ok");
+    log(`▶ Started Chase ${index + 1}: ${chase.name || `Chase ${index + 1}`} (${chase.mode || "sequence"}) — ${ids.length} fixture(s)`, "ok");
     if (chase.mode === "snapshot") runSnapshot(token, chase, 0);
     else if (chase.mode === "spread") runSpread(token, chase, 0);
     else runSequence(token, chase, 0);
     return true;
   }
 
-  function saveChase(name, cueIndices, loop = true, speed = 50, fade = 0, mode = "sequence") {
+  function saveChase(name, cueIndices, loop = true, speed = 50, fade = 0, mode = "sequence", fixtureIds = null) {
     const s = S();
     if (!s) return false;
     const steps = [...new Set((Array.isArray(cueIndices) ? cueIndices : []).map(Number).filter(i => Number.isInteger(i) && s.cues?.[i]))];
     if (!steps.length) { log("Choose at least one cue for the chase", "warn"); return false; }
+    const allIds = fixtures().map(f => f.id);
+    const ids = Array.isArray(fixtureIds) && fixtureIds.length
+      ? allIds.filter(id => fixtureIds.some(x => String(x) === String(id)))
+      : selectedFixtureIds();
+    if (!ids.length) { log("Select at least one fixture for the chase", "warn"); return false; }
     const chase = {
       name: String(name || `Chase ${(s.chases?.length || 0) + 1}`).trim(),
-      steps, loop: Boolean(loop), speed: Math.max(10, Math.min(100, n(speed, 50))),
+      steps, fixtureIds: ids, loop: Boolean(loop), speed: Math.max(10, Math.min(100, n(speed, 50))),
       fade: Math.max(0, Math.min(60000, n(fade, 0))), mode: mode === "spread" ? "spread" : "sequence"
     };
     s.chases = Array.isArray(s.chases) ? s.chases : [];
     s.chases.push(chase);
     selectedChase = s.chases.length - 1;
     renderChases();
-    log(`✅ Saved Chase: ${chase.name} — ${steps.map(i => `Cue ${i + 1}`).join(", ")}`, "ok");
+    log(`✅ Saved Chase: ${chase.name} — ${steps.map(i => `Cue ${i + 1}`).join(", ")} — ${ids.length} fixture(s)`, "ok");
     return true;
   }
 
-  function recordSnapshotChase(name, loop = true, speed = 50, fade = 0) {
+  function recordSnapshotChase(name, loop = true, speed = 50, fade = 0, fixtureIds = null) {
     const s = S();
     if (!s || !fixtures().length) { log("Patch at least one fixture before recording", "warn"); return false; }
+    const ids = Array.isArray(fixtureIds) && fixtureIds.length ? fixtureIds : selectedFixtureIds();
+    if (!ids.length) { log("Select at least one fixture for the chase", "warn"); return false; }
     s.chases = Array.isArray(s.chases) ? s.chases : [];
+    const all = captureLook();
+    const allowed = new Set(ids.map(String));
+    all.fixtureStates = all.fixtureStates.filter(x => allowed.has(String(x[0])));
     const chase = {
       name: String(name || `Chase ${s.chases.length + 1}`).trim(), mode: "snapshot", steps: [],
-      snapshots: [captureLook()], loop: Boolean(loop), speed: Math.max(10, Math.min(100, n(speed, 50))),
+      snapshots: [all], fixtureIds: ids, loop: Boolean(loop), speed: Math.max(10, Math.min(100, n(speed, 50))),
       fade: Math.max(0, Math.min(60000, n(fade, 0)))
     };
     s.chases.push(chase);
     selectedChase = s.chases.length - 1;
     renderChases();
-    log(`💾 Recorded chase look: ${chase.name}`, "ok");
+    log(`💾 Recorded chase look: ${chase.name} — ${ids.length} fixture(s)`, "ok");
     return true;
   }
 
@@ -220,8 +275,11 @@
     const s = S();
     const chase = s?.chases?.[selectedChase];
     if (!chase || chase.mode !== "snapshot") { log("Select a recorded chase first", "warn"); return false; }
+    const ids = new Set(chaseFixtureIds(chase).map(String));
+    const snapshot = captureLook();
+    snapshot.fixtureStates = snapshot.fixtureStates.filter(x => ids.has(String(x[0])));
     chase.snapshots = Array.isArray(chase.snapshots) ? chase.snapshots : [];
-    chase.snapshots.push(captureLook());
+    chase.snapshots.push(snapshot);
     renderChases();
     log(`💾 Added look ${chase.snapshots.length} to ${chase.name}`, "ok");
     return true;
@@ -230,33 +288,75 @@
   function picker() {
     const s = S();
     if (!s?.cues?.some(Boolean)) { log("Add at least one cue first", "warn"); return; }
+    const fs = fixtures();
+    if (!fs.length) { log("Patch at least one fixture first", "warn"); return; }
     document.getElementById("chasePicker")?.remove();
     const modal = document.createElement("div");
     modal.id = "chasePicker";
     modal.style.cssText = "position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;padding:20px";
     const box = document.createElement("div");
-    box.style.cssText = "width:min(720px,96vw);max-height:90vh;overflow:auto;background:#151515;border:1px solid #444;padding:24px;border-radius:10px";
-    box.innerHTML = `<h2 style="margin-top:0">Create Chase</h2><p>Select the cues and choose how they behave.</p>`;
-    const name = document.createElement("input"); name.placeholder = "Chase name"; name.style.width = "100%"; name.style.marginBottom = "12px";
-    const mode = document.createElement("select"); mode.style.width = "100%"; mode.style.marginBottom = "12px";
+    box.style.cssText = "width:min(760px,96vw);max-height:90vh;overflow:auto;background:#151515;border:1px solid #444;padding:24px;border-radius:10px";
+    box.innerHTML = `<h2 style="margin-top:0">Create Chase</h2><p>Select the cues <b>and fixtures</b> this chase should control.</p>`;
+
+    const name = document.createElement("input");
+    name.placeholder = "Chase name";
+    name.style.cssText = "width:100%;margin-bottom:12px";
+
+    const mode = document.createElement("select");
+    mode.style.cssText = "width:100%;margin-bottom:12px";
     mode.innerHTML = `<option value="sequence">Sequence — one cue after another</option><option value="spread">🌈 Per-fixture — different cue/colour on each light</option><option value="snapshot">Recorded looks — independent of cue stack</option>`;
-    const list = document.createElement("div"); list.style.cssText = "display:grid;gap:6px;margin:12px 0";
-    s.cues.forEach((cue, i) => { if (!cue) return; const label = document.createElement("label"); label.style.cssText = "display:flex;gap:8px;padding:8px;background:#202020"; label.innerHTML = `<input type="checkbox" value="${i}"><span>Cue ${i + 1} — ${String(cue.name || `Cue ${i + 1}`)}</span>`; list.appendChild(label); });
+
+    const fixtureHeading = document.createElement("div");
+    fixtureHeading.innerHTML = `<strong>Fixtures</strong> <small style="opacity:.7">(defaults to your currently selected fixtures)</small>`;
+    fixtureHeading.style.marginTop = "8px";
+    const fixtureList = document.createElement("div");
+    fixtureList.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin:8px 0 14px";
+    const currentSelected = new Set(selectedFixtureIds().map(String));
+    fs.forEach((fixture, i) => {
+      const label = document.createElement("label");
+      label.style.cssText = "display:flex;gap:8px;align-items:center;padding:9px;background:#202020;border-radius:5px";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.value = String(fixture.id); cb.checked = currentSelected.has(String(fixture.id));
+      label.append(cb, document.createTextNode(fixture.name || `Fixture ${i + 1}`));
+      fixtureList.appendChild(label);
+    });
+
+    const cueHeading = document.createElement("strong");
+    cueHeading.textContent = "Cues";
+    const list = document.createElement("div");
+    list.style.cssText = "display:grid;gap:6px;margin:8px 0 12px";
+    s.cues.forEach((cue, i) => {
+      if (!cue) return;
+      const label = document.createElement("label");
+      label.style.cssText = "display:flex;gap:8px;padding:8px;background:#202020";
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = String(i);
+      label.append(cb, document.createTextNode(`Cue ${i + 1} — ${cue.name || `Cue ${i + 1}`}`));
+      list.appendChild(label);
+    });
+
     const opts = document.createElement("div");
     opts.innerHTML = `<label>Speed <input id="cpSpeed" type="number" min="10" max="100" value="50"></label> <label>Fade ms <input id="cpFade" type="number" min="0" max="60000" value="0"></label> <label><input id="cpLoop" type="checkbox" checked> Loop</label>`;
     const actions = document.createElement("div"); actions.style.cssText = "display:flex;gap:8px;margin-top:16px";
     const save = document.createElement("button"); save.className = "btn-primary"; save.textContent = "Save Chase";
     const cancel = document.createElement("button"); cancel.className = "btn-secondary"; cancel.textContent = "Cancel";
+
     save.onclick = () => {
-      const selected = [...list.querySelectorAll('input[type="checkbox"]:checked')].map(x => Number(x.value));
-      const speed = Number(opts.querySelector("#cpSpeed").value), fade = Number(opts.querySelector("#cpFade").value), loop = opts.querySelector("#cpLoop").checked;
+      const selectedCues = [...list.querySelectorAll('input[type="checkbox"]:checked')].map(x => Number(x.value));
+      const selectedFixtures = [...fixtureList.querySelectorAll('input[type="checkbox"]:checked')].map(x => x.value);
+      const speed = Number(opts.querySelector("#cpSpeed").value);
+      const fade = Number(opts.querySelector("#cpFade").value);
+      const loop = opts.querySelector("#cpLoop").checked;
+      if (!selectedFixtures.length) { log("Select at least one fixture for the chase", "warn"); return; }
       let ok;
-      if (mode.value === "snapshot") ok = recordSnapshotChase(name.value, loop, speed, fade);
-      else ok = saveChase(name.value, selected, loop, speed, fade, mode.value);
+      if (mode.value === "snapshot") ok = recordSnapshotChase(name.value, loop, speed, fade, selectedFixtures);
+      else ok = saveChase(name.value, selectedCues, loop, speed, fade, mode.value, selectedFixtures);
       if (ok) modal.remove();
     };
     cancel.onclick = () => modal.remove();
-    actions.append(save, cancel); box.append(name, mode, list, opts, actions); modal.appendChild(box); document.body.appendChild(modal);
+    actions.append(save, cancel);
+    box.append(name, mode, fixtureHeading, fixtureList, cueHeading, list, opts, actions);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
   }
 
   function wireButtons() {

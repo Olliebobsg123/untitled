@@ -9,7 +9,7 @@
   const n = (v, fallback = 0) => Number.isFinite(Number(v)) ? Number(v) : fallback;
   const clone = v => typeof window.cloneFixtureState === "function"
     ? window.cloneFixtureState(v)
-    : { ...(v && typeof v === "object' ? v : {}) };
+    : { ...(v && typeof v === "object" ? v : {}) };
 
   let selectedChase = -1;
   let runToken = 0;
@@ -142,9 +142,6 @@
     const fade = Math.max(0, Math.min(60000, n(chase.fade, 0)));
     const fixtureIds = chaseFixtureIds(chase);
     log(`CHASE DEBUG: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
-
-    // A chase owns its fixture selection. Do not call goToCue here because that
-    // applies a cue to the whole rig. Instead copy the cue only to the selected fixtures.
     if (fade > 0 && typeof window.fadeTo === "function") {
       const target = clone(cue.globalState || cue.state || {});
       const fixtureTargets = fixtureIds.map(id => [id, cueState(cue, id)]);
@@ -164,7 +161,8 @@
 
   function runSpread(token, chase, rotation) {
     const s = S();
-    const fs = fixtures().filter(f => chaseFixtureIds(chase).some(id => String(id) === String(f.id)));
+    const allowed = new Set(chaseFixtureIds(chase).map(String));
+    const fs = fixtures().filter(f => allowed.has(String(f.id)));
     const steps = (chase.steps || []).map(Number).filter(i => s?.cues?.[i]);
     if (!s || token !== runToken || s.currentChase !== chase.__index) return;
     if (!fs.length || !steps.length) return stopChase(false);

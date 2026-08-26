@@ -105,7 +105,7 @@ const commandDefs = [
   {cmd:'back',hint:''},{cmd:'previous',hint:''},{cmd:'prev',hint:''},{cmd:'at',hint:'[0-100]'},{cmd:'colour',hint:'[name]'},
   {cmd:'color',hint:'[name]'},{cmd:'strobe',hint:'[0-255/off]'},{cmd:'reset',hint:''},{cmd:'visualizer',hint:''},{cmd:'viz',hint:''},
   {cmd:'list groups',hint:''},{cmd:'list cues',hint:''},{cmd:'status',hint:''},{cmd:'chase',hint:'[number] = [cue numbers] speed [ms]'},
-  {cmd:'run chase',hint:'[number]'},{cmd:'stop chase',hint:''},{cmd:'halt chase',hint:''}
+  {cmd:'run chase',hint:'[number]'},{cmd:'stop chase',hint:''},{cmd:'halt chase',hint:''},{cmd:'new chase',hint:''}
 ];
 
 let autocompleteMatches = [];

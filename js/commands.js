@@ -1,18 +1,34 @@
 "use strict";
 
 // ==============================================
-// COMMAND SYSTEM
+// COMMAND SYSTEM + FORCE LOG
 // ==============================================
-window.log = window.log || function(msg, type = 'info') {
+// Keep this as an unconditional assignment: the command console must always
+// use this logger, even if another script has created window.log first.
+window.log = function(msg, type = 'info') {
   const out = document.getElementById('termLog');
-  if (!out) return console.warn('[LOG] termLog not found in HTML');
+  if (!out) {
+    console.warn('[LOG] termLog not found in HTML');
+    return;
+  }
   const line = document.createElement('div');
   line.style.cssText = 'padding:2px 4px;font-family:monospace;font-size:11px;line-height:1.4;border-bottom:1px solid #222;';
   line.style.color = type === 'warn' ? '#ffcc00' : type === 'error' ? '#ff5555' : '#88ff88';
-  line.textContent = `[${type.toUpperCase()}] ${msg}`;
+  line.textContent = `[${String(type).toUpperCase()}] ${msg}`;
   out.appendChild(line);
   out.scrollTop = out.scrollHeight;
 };
+
+// The DOM may not exist yet when this script is parsed, so show the startup
+// message after the page is ready as well as immediately when possible.
+function logStartupReady() {
+  window.log('✅ Log system ready — you should see this line!', 'ok');
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', logStartupReady, { once: true });
+} else {
+  logStartupReady();
+}
 
 window.State = window.State || {
   fixtures: [], selected: new Set(), groups: [], cues: [],
@@ -204,59 +220,63 @@ function parseCommand(cmd){
       const grp=State.groups.find(x=>String(x.name).toLowerCase()===g[1].trim().toLowerCase()),col=cueColours[g[2]];if(!grp)return log(`Group "${g[1].trim()}" not found`,'warn');if(!col)return log(`Unknown colour: ${g[2]}`,'warn');selectGroup(grp);applyColour(col);return log(`"${grp.name}" → ${g[2]}`,'ok');
     }
     if(ch=c.match(/^chase\s+(\d+)\s*=\s*((?:\d+\s*,\s*)*\d+)\s+speed\s+(\d+)$/)){
-      const id=Number(ch[1]),cues=ch[2].split(',').map(Number),spd=Math.max(100,Number(ch[3]));Chases[id]={cues,speed:spd,idx:0};return log(`Chase ${id} = Cues ${cues.join(', ')} @ ${spd}ms`,'ok');
+      const id=Number(ch[1]),cues=ch[2].split(',').map(Number).filter(n=>!isNaN(n)),spd=Math.max(100,Number(ch[3]));
+      Chases[id]={cues,speed:spd,idx:0};return log(`Chase ${id} = Cues ${cues.join(', ')} @ ${spd}ms`,'ok');
     }
-    if(ch=c.match(/^run\s+chase\s+(\d+)$/)){
-      const id=Number(ch[1]);if(!Chases[id])return log(`Chase ${id} not found`,'warn');if(ActiveChase)clearInterval(ActiveChase);ActiveChase=setInterval(()=>{const o=Chases[id];if(!o)return clearInterval(ActiveChase);const t=o.cues[o.idx];if(State.cues[t-1])goToCue(t-1);o.idx=(o.idx+1)%o.cues.length;},Chases[id].speed);return log(`Running Chase ${id}`,'ok');
+    if(/^run\s+chase\s+(\d+)$/.test(c)){
+      const id=Number(RegExp.$1);if(!Chases[id])return log(`Chase ${id} not found`,'warn');if(ActiveChase)clearInterval(ActiveChase);
+      ActiveChase=setInterval(()=>{const o=Chases[id];if(!o)return clearInterval(ActiveChase);const t=o.cues[o.idx];if(State.cues[t-1])goToCue(t-1);o.idx=(o.idx+1)%o.cues.length;},Chases[id].speed);
+      return log(`Running Chase ${id}`,'ok');
     }
     if(/^(stop|halt)\s+chase$/.test(c)){if(ActiveChase)clearInterval(ActiveChase);ActiveChase=null;return log('Chase stopped','ok');}
 
-    if(m=c.match(/^record\s+cue\s+(.+?)(?:\s+(.+))?$/)){
-      const numberPart=m[1].trim().split(/\s+/)[0];
-      if(/^\d+(?:thru|through|[-–]\d|,)/.test(m[1]) || /^\d+$/.test(numberPart)){
-        const rest=m[1].trim(), mm=rest.match(/^(.+?)(?:\s+(.+))?$/), nums=parseSelection(mm[1]);
-        if(nums.length){const nm=(m[2]||'Cue').trim();nums.forEach(n=>recordCue(n,nums.length>1?`${nm} ${n}`:nm));return log(`Recorded: ${nums.join(', ')}`,'ok');}
-      }
-    }
-    if(m=c.match(/^delete\s+cue\s+(.+)$/)){
-      const nums=parseSelection(m[1]);if(nums.length){nums.forEach(n=>deleteCue(n));return log(`Deleted cues: ${nums.join(', ')}`,'ok');}
-    }
-    if(m=c.match(/^fade\s+(\d+)\s+(\d*\.?\d+)$/)){const n=Number(m[1]),sec=Number(m[2]);if(sec<0)return log('Fade time cannot be negative','warn');if(!State.cues[n-1])return log(`Cue ${n} not found`,'warn');State.cues[n-1].fade=Math.round(sec*1000);renderCues?.();return log(`Cue ${n} fade set to ${sec}s`,'ok');}
-    if(m=c.match(/^fade\s+(\d+)$/)){const n=Number(m[1]);if(!State.cues[n-1])return log(`Cue ${n} not found`,'warn');goToCue(n-1);return log(`Fading to Cue ${n} (${State.cues[n-1].fade??800}ms)`,'ok');}
-    if(m=c.match(/^go\s+(\d+)$/)){const n=Number(m[1]);if(!State.cues[n-1])return log(`Cue ${n} not found`,'warn');goToCue(n-1);return;}
-    if(/^(go|next)$/.test(c)){if(!State.cues.length)return log('No cues saved','warn');const nxt=State.currentCue<0||State.currentCue>=State.cues.length-1?0:State.currentCue+1;goToCue(nxt);return;}
+    const rec=c.match(/^record\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))(?:\s+(.+))?$/);
+    if(rec){const cues=parseSelection(rec[1]),nm=rec[3]?.trim()||'Cue';cues.forEach((n)=>recordCue(n,cues.length>1?`${nm} ${n}`:nm));return log(`Recorded: ${cues.join(', ')}`,'ok');}
+    const delcue=c.match(/^delete\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/);
+    if(delcue){const nums=parseSelection(delcue[1]);nums.forEach(n=>deleteCue(n));return log(`Deleted cues: ${nums.join(', ')}`,'ok');}
+
+    const setfade=c.match(/^fade\s+(\d+)\s+(\d*\.?\d+)$/);
+    if(setfade){const cueNum=Number(setfade[1]),sec=parseFloat(setfade[2]);if(sec<0)return log('Fade time cannot be negative','warn');const idx=cueNum-1;if(!State.cues[idx])return log(`Cue ${cueNum} not found`,'warn');State.cues[idx].fade=Math.round(sec*1000);renderCues?.();return log(`Cue ${cueNum} fade set to ${sec}s = ${State.cues[idx].fade}ms`,'ok');}
+    const quickfade=c.match(/^fade\s+(\d+)$/);
+    if(quickfade){const n=Number(quickfade[1]),idx=n-1;if(!State.cues[idx])return log(`Cue ${n} not found`,'warn');goToCue(idx);return log(`Fading to Cue ${n} (${State.cues[idx].fade??800}ms)`,'ok');}
+    if(/^go\s+(\d+)$/.test(c)){const n=Number(RegExp.$1),idx=n-1;if(!State.cues[idx])return log(`Cue ${n} not found`,'warn');goToCue(idx);return;}
+    if(/^(go|next)$/.test(c)){if(!State.cues.length)return log('No cues saved','warn');const nxt=(State.currentCue<0||State.currentCue>=State.cues.length-1)?0:State.currentCue+1;goToCue(nxt);return;}
     if(/^(back|previous|prev)$/.test(c)){if(!State.cues.length)return log('No cues saved','warn');const prv=State.currentCue<=0?State.cues.length-1:State.currentCue-1;goToCue(prv);return;}
-    if(m=c.match(/^((?:\d+\s*(?:thru|through|[-–])\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/)){
-      const count=selectFixtureNumbers(parseSelection(m[1]));if(count)return renderFixtures?.(),log(`Selected ${count} fixture(s)`,'ok');
-    }
-    if(m=c.match(/at\s+(\d+\.?\d*)/)&&State.selected.size){const v=Math.max(0,Math.min(100,Number(m[1])));applyLevel(v);return log(`@ ${v}%`,'ok');}
-    if(m=c.match(/(red|green|blue|white|yellow|cyan|magenta|orange|elsa|ice|snow|sky|aurora|castle|kristoff|sven|olaf|forest|night)/)&&State.selected.size){applyColour(cueColours[m[1]]);return log(`Colour: ${m[1]}`,'ok');}
-    if(m=c.match(/strobe\s+(\d+|off)/)&&State.selected.size){const v=m[1]==='off'?0:Math.max(0,Math.min(255,Number(m[1])));State.current.strobe=v;updateDMX?.();return log(v===0?'Strobe off':`Strobe ${v}`,'ok');}
+
+    const selm=c.match(/^((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/);
+    if(selm){const count=selectFixtureNumbers(parseSelection(selm[1]));if(count){renderFixtures?.();return log(`Selected ${count} fixture(s)`,'ok');}}
+
+    const atv=c.match(/at\s+(\d+\.?\d*)/);
+    if(atv&&State.selected.size){const v=Math.max(0,Math.min(100,parseFloat(atv[1])));applyLevel(v);return log(`@ ${v}%`,'ok');}
+    const colm=c.match(/(red|green|blue|white|yellow|cyan|magenta|orange|elsa|ice|snow|sky|aurora|castle|kristoff|sven|olaf|forest|night)/);
+    if(colm&&State.selected.size){applyColour(cueColours[colm[1]]);return log(`Colour: ${colm[1]}`,'ok');}
+    const stbm=c.match(/strobe\s+(\d+|off)/);
+    if(stbm&&State.selected.size){const v=stbm[1]==='off'?0:Math.max(0,Math.min(255,Number(stbm[1])));State.current.strobe=v;updateDMX?.();return log(v===0?'Strobe off':`Strobe ${v}`,'ok');}
     return log(`Unknown command: ${cmd} — type "status" to see what's loaded`,'warn');
   }
 }
 
-// ==============================================
-// CUE PROGRAMMING COMMAND EXTENSIONS
-// ==============================================
 (function installCueProgrammingCommands(){
-  const originalParseCommand=window.parseCommand||parseCommand;
-  const cloneCueValue=value=>{if(value===undefined)return value;try{return structuredClone(value);}catch(_){}try{return JSON.parse(JSON.stringify(value));}catch(_){return value;}};
+  const originalParseCommand = window.parseCommand || parseCommand;
+  const cloneCueValue = value => {
+    if(value===undefined)return value;
+    try{return structuredClone(value);}catch(_){}
+    try{return JSON.parse(JSON.stringify(value));}catch(_){return value;}
+  };
   const cueExists=n=>Number.isInteger(Number(n))&&Number(n)>=1&&!!State.cues[Number(n)-1];
   const cueAt=n=>State.cues[Number(n)-1];
-  const cueRefresh=()=>{renderCues?.();window.updateInspectorList?.();};
-
+  const cueRefresh=()=>{if(typeof renderCues==='function')renderCues();if(typeof window.updateInspectorList==='function')window.updateInspectorList();};
   window.parseCommand=function(rawCommand){
     const c=String(rawCommand||'').trim().toLowerCase();let m;
-    if(m=c.match(/^update\s+cue\s+(\d+)$/)){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');return updateCue(n)?log(`Updated Cue ${n} from current programmer state`,'ok'):undefined;}
-    if(m=c.match(/^update\s+cue\s+(\d+)\s+name\s+(.+)$/)){const n=Number(m[1]),name=m[2].trim();if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(!name)return log('Cue name cannot be empty','warn');return updateCue(n,{name})?log(`Cue ${n} renamed → "${name}"`,'ok'):undefined;}
-    if(m=c.match(/^rename\s+cue\s+(\d+)\s+(.+)$/)){const n=Number(m[1]),name=m[2].trim();if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(!name)return log('Cue name cannot be empty','warn');cueAt(n).name=name;cueRefresh();return log(`Cue ${n} renamed → "${name}"`,'ok');}
-    if(m=c.match(/^update\s+cue\s+(\d+)\s+fade\s+(\d*\.?\d+)$/)){const n=Number(m[1]),sec=Number(m[2]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(!Number.isFinite(sec)||sec<0)return log('Fade time cannot be negative','warn');return updateCue(n,{fade:Math.round(sec*1000)})?log(`Cue ${n} fade updated to ${sec}s`,'ok'):undefined;}
-    if(m=c.match(/^update\s+cue\s+(\d+)\s+follow\s+(off|\d*\.?\d+)$/)){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(m[2]==='off')return updateCue(n,{follow:0,followEnabled:false})?log(`Cue ${n} follow disabled`,'ok'):undefined;const seconds=Number(m[2]);if(!Number.isFinite(seconds)||seconds<0)return log('Follow time cannot be negative','warn');return updateCue(n,{follow:seconds,followEnabled:true})?log(`Cue ${n} follow set to ${seconds}s`,'ok'):undefined;}
-    if(m=c.match(/^follow\s+cue\s+(\d+)\s+(off|\d*\.?\d+)$/)){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(m[2]==='off'){cueAt(n).follow=0;cueAt(n).followEnabled=false;cueRefresh();return log(`Cue ${n} follow disabled`,'ok');}const seconds=Number(m[2]);if(!Number.isFinite(seconds)||seconds<0)return log('Follow time cannot be negative','warn');cueAt(n).follow=seconds;cueAt(n).followEnabled=true;cueRefresh();return log(`Cue ${n} follow set to ${seconds}s`,'ok');}
-    if(m=c.match(/^copy\s+cue\s+(\d+)\s+to\s+(\d+)(?:\s+(.+))?$/)){const from=Number(m[1]),to=Number(m[2]);if(!cueExists(from))return log(`Cue ${from} not found`,'warn');if(to<1)return log('Destination cue must be 1 or higher','warn');const copy=cloneCueValue(cueAt(from));if(!copy)return log(`Could not copy Cue ${from}`,'warn');copy.name=(m[3]||cueAt(from).name||`Cue ${to}`).trim()||`Cue ${to}`;while(State.cues.length<to)State.cues.push(null);State.cues[to-1]=copy;cueRefresh();return log(`Copied Cue ${from} → Cue ${to}`,'ok');}
-    if(m=c.match(/^move\s+cue\s+(\d+)\s+to\s+(\d+)$/)){const from=Number(m[1]),to=Number(m[2]);if(!cueExists(from))return log(`Cue ${from} not found`,'warn');if(to<1)return log('Destination cue must be 1 or higher','warn');while(State.cues.length<to)State.cues.push(null);const moved=State.cues[from-1];State.cues[to-1]=moved;State.cues[from-1]=null;if(State.currentCue===from-1)State.currentCue=to-1;cueRefresh();return log(`Moved Cue ${from} → Cue ${to}`,'ok');}
-    if(m=c.match(/^cue\s+(\d+)(?:\s+go)?$/)){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');return goToCue(n-1);}
+    if((m=c.match(/^update\s+cue\s+(\d+)$/))){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');return updateCue(n)?log(`Updated Cue ${n} from current programmer state`,'ok'):undefined;}
+    if((m=c.match(/^update\s+cue\s+(\d+)\s+name\s+(.+)$/))){const n=Number(m[1]),name=m[2].trim();if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(!name)return log('Cue name cannot be empty','warn');return updateCue(n,{name})?log(`Cue ${n} renamed → "${name}"`,'ok'):undefined;}
+    if((m=c.match(/^rename\s+cue\s+(\d+)\s+(.+)$/))){const n=Number(m[1]),name=m[2].trim();if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(!name)return log('Cue name cannot be empty','warn');cueAt(n).name=name;cueRefresh();return log(`Cue ${n} renamed → "${name}"`,'ok');}
+    if((m=c.match(/^update\s+cue\s+(\d+)\s+fade\s+(\d*\.?\d+)$/))){const n=Number(m[1]),sec=Number(m[2]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(!Number.isFinite(sec)||sec<0)return log('Fade time cannot be negative','warn');return updateCue(n,{fade:Math.round(sec*1000)})?log(`Cue ${n} fade updated to ${sec}s`,'ok'):undefined;}
+    if((m=c.match(/^update\s+cue\s+(\d+)\s+follow\s+(off|\d*\.?\d+)$/))){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(m[2]==='off')return updateCue(n,{follow:0,followEnabled:false})?log(`Cue ${n} follow disabled`,'ok'):undefined;const seconds=Number(m[2]);if(!Number.isFinite(seconds)||seconds<0)return log('Follow time cannot be negative','warn');return updateCue(n,{follow:seconds,followEnabled:true})?log(`Cue ${n} follow set to ${seconds}s`,'ok'):undefined;}
+    if((m=c.match(/^follow\s+cue\s+(\d+)\s+(off|\d*\.?\d+)$/))){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');if(m[2]==='off'){cueAt(n).follow=0;cueAt(n).followEnabled=false;cueRefresh();return log(`Cue ${n} follow disabled`,'ok');}const seconds=Number(m[2]);if(!Number.isFinite(seconds)||seconds<0)return log('Follow time cannot be negative','warn');cueAt(n).follow=seconds;cueAt(n).followEnabled=true;cueRefresh();return log(`Cue ${n} follow set to ${seconds}s`,'ok');}
+    if((m=c.match(/^copy\s+cue\s+(\d+)\s+to\s+(\d+)(?:\s+(.+))?$/))){const from=Number(m[1]),to=Number(m[2]);if(!cueExists(from))return log(`Cue ${from} not found`,'warn');if(to<1)return log('Destination cue must be 1 or higher','warn');const source=cueAt(from),copy=cloneCueValue(source);if(!copy)return log(`Could not copy Cue ${from}`,'warn');copy.name=(m[3]||source.name||`Cue ${to}`).trim()||`Cue ${to}`;while(State.cues.length<to)State.cues.push(null);State.cues[to-1]=copy;cueRefresh();return log(`Copied Cue ${from} → Cue ${to}`,'ok');}
+    if((m=c.match(/^move\s+cue\s+(\d+)\s+to\s+(\d+)$/))){const from=Number(m[1]),to=Number(m[2]);if(!cueExists(from))return log(`Cue ${from} not found`,'warn');if(to<1)return log('Destination cue must be 1 or higher','warn');while(State.cues.length<to)State.cues.push(null);const moved=State.cues[from-1];State.cues[to-1]=moved;State.cues[from-1]=null;if(State.currentCue===from-1)State.currentCue=to-1;cueRefresh();return log(`Moved Cue ${from} → Cue ${to}`,'ok');}
+    if((m=c.match(/^cue\s+(\d+)(?:\s+go)?$/))){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');return goToCue(n-1);}
     return originalParseCommand(rawCommand);
   };
 })();

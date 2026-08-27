@@ -227,7 +227,13 @@ function startPulse(options = {}) {
     fixtures.forEach(fixture => { const state = fxGetState(fixture); if (state) state.intensity = intensity; });
   });
 }
-function startChase(options = {}) {
+
+// IMPORTANT: this used to be named startChase, which collided with the real
+// programmed chase engine in js/chases.js. Because both are global functions,
+// whichever script loaded last replaced window.startChase. A command such as
+// `run chase 1` could therefore start the old Effects-engine chase instead of
+// the saved/programmed chase.
+function startChaseEffect(options = {}) {
   return fxStart("chase", options, (now, elapsed, fixtures) => {
     if (!fixtures.length) return;
     const speed = Math.max(0.1, fxNumber(options.speed, 5));
@@ -254,7 +260,7 @@ function startEffect(type, options = {}) {
     case "rainbow": return startRainbow(options);
     case "strobe": return startStrobe(options);
     case "pulse": return startPulse(options);
-    case "chase": return startChase(options);
+    case "chase": return startChaseEffect(options);
     case "wave": return startWave(options);
     default: fxLog(`Unknown effect: ${type}`, "warn"); return false;
   }
@@ -354,7 +360,7 @@ function initEffects() {
 }
 
 Object.assign(window, {
-  startEffect, stopEffect, startRainbow, startStrobe, startPulse, startChase, startWave,
+  startEffect, stopEffect, startRainbow, startStrobe, startPulse, startChaseEffect, startWave,
   createCustomEffect, startCueEffect, fxGetFixtureDefinition, attachEffectToCue,
   setIntensity, fxApplyIntensity, fxGetLiveIntensity,
   fxGetFixtures, fxSetEffectTargets, fxCaptureEffectTargets, saveEffect, applySavedEffect, applyEffectToFixtures

@@ -9,8 +9,19 @@ function showClone(value){
   return value;
 }
 
-function getMultiOutputShowState(){try{const raw=localStorage.getItem("lighting-multi-outputs");const outputs=JSON.parse(raw||"[]");return Array.isArray(outputs)?outputs:[]}catch(_){return[]}}
-function restoreMultiOutputShowState(outputs){if(!Array.isArray(outputs))return;try{localStorage.setItem("lighting-multi-outputs",JSON.stringify(outputs))}catch(_){}window.dispatchEvent(new CustomEvent("show-multi-output-restore",{detail:{outputs}}))}
+function getMultiOutputShowState(){
+  try{
+    const raw=localStorage.getItem("lighting-multi-outputs");
+    const outputs=JSON.parse(raw||"[]");
+    return Array.isArray(outputs)?outputs:[];
+  }catch(_){return[]}
+}
+
+function restoreMultiOutputShowState(outputs){
+  if(!Array.isArray(outputs))return;
+  try{localStorage.setItem("lighting-multi-outputs",JSON.stringify(outputs))}catch(_){ }
+  window.dispatchEvent(new CustomEvent("show-multi-output-restore",{detail:{outputs}}));
+}
 
 function snapshotShowFixtureStates(){
   if(!(State.fixtureStates instanceof Map))return [];
@@ -19,7 +30,6 @@ function snapshotShowFixtureStates(){
   return result;
 }
 
-// Capture the running effect, including its exact fixture target set.
 function snapshotShowEffect(){
   if(!State.activeEffect||!State.activeEffect.type)return null;
   const effect=showClone(State.activeEffect);
@@ -27,7 +37,6 @@ function snapshotShowEffect(){
   return effect;
 }
 
-// Capture every named/saved effect as well as the currently running effect.
 function snapshotShowEffects(){
   const effects=showClone(State.savedEffects||{});
   return effects&&typeof effects==="object"&&!Array.isArray(effects)?effects:{};
@@ -37,15 +46,28 @@ function snapshotShowChases(){
   return Array.isArray(State.chases)?State.chases.map(chase=>showClone(chase)):[];
 }
 
+function getVisualizerState(){
+  return window.S||window.VizState||(window.opener&&(window.opener.S||window.opener.VizState));
+}
+
 function saveShow(){
   try{
     const vizState={};
-    const Viz=window.S||window.VizState||(window.opener&&(window.opener.S||window.opener.VizState));
+    const Viz=getVisualizerState();
+
     if(Viz){
       const posList=[];
-      State.fixtures.forEach((fx,idx)=>{const pos=Viz.fixturePositions?.get(idx);if(pos)posList.push({fixtureIndex:idx,fixtureId:fx.id,x:pos.x,y:pos.y,z:pos.z})});
+      (State.fixtures||[]).forEach((fx,idx)=>{
+        const pos=Viz.fixturePositions?.get(idx);
+        if(pos)posList.push({fixtureIndex:idx,fixtureId:fx.id,x:Number(pos.x),y:Number(pos.y),z:Number(pos.z)});
+      });
+
       const rotList=[];
-      State.fixtures.forEach((fx,idx)=>{const rot=Viz.fixtureManualRot?.get(idx);if(rot)rotList.push({fixtureIndex:idx,fixtureId:fx.id,pan:rot.pan,tilt:rot.tilt})});
+      (State.fixtures||[]).forEach((fx,idx)=>{
+        const rot=Viz.fixtureManualRot?.get(idx);
+        if(rot)rotList.push({fixtureIndex:idx,fixtureId:fx.id,pan:Number(rot.pan),tilt:Number(rot.tilt)});
+      });
+
       vizState.fixturePositions=posList;
       vizState.fixtureManualRot=rotList;
       vizState.gridOn=typeof gridOn!=="undefined"?gridOn:true;
@@ -68,8 +90,6 @@ function saveShow(){
       fixtureStates:snapshotShowFixtureStates(),
       current:showClone(State.current||{}),
       selected:State.selected instanceof Set?[...State.selected]:[],
-      // Effects are deliberately stored under both names for compatibility
-      // with older/newer show files and to make the show format self-describing.
       activeEffect,
       savedEffects,
       effects:savedEffects,
@@ -123,7 +143,7 @@ function restoreShowSelection(ids){
   State.selected=new Set();
   if(!Array.isArray(ids))return;
   const valid=new Set((State.fixtures||[]).map(f=>String(f?.id)));
-  ids.forEach(id=>{if(valid.has(String(id)))State.selected.add(id)})
+  ids.forEach(id=>{if(valid.has(String(id)))State.selected.add(id)});
 }
 
 function refreshShowEffectsUI(){
@@ -132,6 +152,65 @@ function refreshShowEffectsUI(){
     if(typeof window.renderSavedEffects==='function')window.renderSavedEffects();
     if(typeof window.wireEffectButtons==='function')window.wireEffectButtons();
   }catch(e){console.warn("[SHOW] effects UI refresh failed",e)}
+}
+
+function restoreVisualizerState(viz){
+  const Viz=getVisualizerState();
+  if(!viz||!Viz)return;
+
+  try{
+    if(!(Viz.fixturePositions instanceof Map))Viz.fixturePositions=new Map();
+    if(!(Viz.fixtureManualRot instanceof Map))Viz.fixtureManualRot=new Map();
+
+    Viz.fixturePositions.clear();
+    Viz.fixtureManualRot.clear();
+
+    const fixtures=Array.isArray(State.fixtures)?State.fixtures:[];
+    const fixtureIndexById=new Map(fixtures.map((fx,index)=>[String(fx?.id),index]));
+
+    // Show files store both fixtureIndex and fixtureId. Prefer the ID so
+    // positions still follow the correct fixture if the patch order changes.
+    if(Array.isArray(viz.fixturePositions)){
+      viz.fixturePositions.forEach(saved=>{
+        if(!saved||typeof saved!=="object")return;
+        const savedId=saved.fixtureId!=null?String(saved.fixtureId):null;
+        const index=savedId&&fixtureIndexById.has(savedId)
+          ?fixtureIndexById.get(savedId)
+          :Number(saved.fixtureIndex);
+        if(!Number.isInteger(index)||index<0||index>=fixtures.length)return;
+
+        const x=Number(saved.x),y=Number(saved.y),z=Number(saved.z);
+        if(!Number.isFinite(x)||!Number.isFinite(y)||!Number.isFinite(z))return;
+
+        // Do not construct THREE.Vector3 here. THREE is module-scoped inside
+        // visualizer.html and is intentionally not exposed to the console.
+        // makeFixture only needs x/y/z, so a plain object is sufficient.
+        Viz.fixturePositions.set(index,{x,y,z});
+      });
+    }
+
+    if(Array.isArray(viz.fixtureManualRot)){
+      viz.fixtureManualRot.forEach(saved=>{
+        if(!saved||typeof saved!=="object")return;
+        const savedId=saved.fixtureId!=null?String(saved.fixtureId):null;
+        const index=savedId&&fixtureIndexById.has(savedId)
+          ?fixtureIndexById.get(savedId)
+          :Number(saved.fixtureIndex);
+        if(!Number.isInteger(index)||index<0||index>=fixtures.length)return;
+
+        const pan=Number(saved.pan),tilt=Number(saved.tilt);
+        if(!Number.isFinite(pan)||!Number.isFinite(tilt))return;
+        Viz.fixtureManualRot.set(index,{pan,tilt});
+      });
+    }
+
+    console.log("[SHOW] visualizer positions restored",{
+      positions:Viz.fixturePositions.size,
+      rotations:Viz.fixtureManualRot.size
+    });
+  }catch(e){
+    console.error("[SHOW] visualizer restore failed",e);
+  }
 }
 
 function loadShow(jsonData){
@@ -154,7 +233,6 @@ function loadShow(jsonData){
     restoreShowFixtureStates(data.fixtureStates);
     restoreShowSelection(data.selected);
 
-    // Prefer savedEffects, but accept the explicit effects key from v3 files.
     const effectLibrary=data.savedEffects&&typeof data.savedEffects==="object"&&!Array.isArray(data.savedEffects)
       ?data.savedEffects
       :(data.effects&&typeof data.effects==="object"&&!Array.isArray(data.effects)?data.effects:{});
@@ -164,14 +242,11 @@ function loadShow(jsonData){
 
     if(Array.isArray(data.multiOutputs))restoreMultiOutputShowState(data.multiOutputs);
 
-    const Viz=window.S||window.VizState||(window.opener&&(window.opener.S||window.opener.VizState));
-    if(data.visualizer&&Viz){
-      const viz=data.visualizer;
-      Viz.fixturePositions?.clear();
-      Viz.fixtureManualRot?.clear();
-      if(Array.isArray(viz.fixturePositions))viz.fixturePositions.forEach(saved=>{if(typeof THREE!=="undefined")Viz.fixturePositions.set(saved.fixtureIndex,new THREE.Vector3(saved.x,saved.y,saved.z))});
-      if(Array.isArray(viz.fixtureManualRot))viz.fixtureManualRot.forEach(saved=>Viz.fixtureManualRot.set(saved.fixtureIndex,{pan:saved.pan,tilt:saved.tilt}));
-    }
+    // Restore the visualizer BEFORE rebuilding fixtures. The old code tried to
+    // create THREE.Vector3 objects here, but THREE is not a global in the
+    // console window. That threw a ReferenceError and aborted the rest of the
+    // load, leaving the visualizer at its default positions.
+    restoreVisualizerState(data.visualizer);
 
     if(typeof renderFixtures==="function")renderFixtures();
     if(typeof renderGroups==="function")renderGroups();
@@ -179,6 +254,7 @@ function loadShow(jsonData){
     if(typeof renderChases==="function")renderChases();
     if(typeof updateInspectorList==="function")updateInspectorList();
     refreshShowEffectsUI();
+
     if(typeof rebuildFixtures==="function")setTimeout(()=>rebuildFixtures(),100);
     if(typeof updateDMX==="function")updateDMX();
     if(typeof sendToVisualizer==="function")sendToVisualizer();
@@ -226,21 +302,33 @@ function initShowFileControls(){
     panel.innerHTML=`<div class="panel-header"><div><span class="eyebrow">SHOW</span> Show File</div><span class="panel-meta">SAVE / LOAD</span></div><div class="panel-body"><div class="action-row"><button class="btn-primary" id="btnSaveShow" type="button">💾 Save Show</button><button class="btn-secondary" id="btnLoadShow" type="button">📂 Load Show</button></div><input id="showFileInput" type="file" accept=".json,application/json" style="display:none"></div>`;
     settingsPage.appendChild(panel);
   }
+
   const saveButton=document.getElementById("btnSaveShow"),loadButton=document.getElementById("btnLoadShow"),fileInput=document.getElementById("showFileInput");
   if(!saveButton||!loadButton||!fileInput)return false;
   saveButton.type="button";loadButton.type="button";
+
   if(saveButton.dataset.showWired!=="1"){
     saveButton.dataset.showWired="1";
-    saveButton.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();console.log("[SHOW] Save Show clicked");saveShow()})
+    saveButton.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();console.log("[SHOW] Save Show clicked");saveShow()});
   }
+
   if(loadButton.dataset.showWired!=="1"){
     loadButton.dataset.showWired="1";
-    loadButton.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();console.log("[SHOW] Load Show clicked");fileInput.click()})
+    loadButton.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();console.log("[SHOW] Load Show clicked");fileInput.click()});
   }
+
   if(fileInput.dataset.showWired!=="1"){
     fileInput.dataset.showWired="1";
-    fileInput.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;console.log("[SHOW] File selected",file.name);try{loadShow(await file.text())}catch(err){console.error("[SHOW] File read failed",err)}finally{fileInput.value=""}})
+    fileInput.addEventListener("change",async e=>{
+      const file=e.target.files?.[0];
+      if(!file)return;
+      console.log("[SHOW] File selected",file.name);
+      try{loadShow(await file.text())}
+      catch(err){console.error("[SHOW] File read failed",err)}
+      finally{fileInput.value=""}
+    });
   }
+
   console.log("[SHOW] controls wired",{save:!!saveButton,load:!!loadButton,input:!!fileInput});
   return true;
 }
@@ -255,9 +343,9 @@ function installShowDelegatedHandlers(){
     if(save){console.log("[SHOW] delegated Save Show click");saveShow();return}
     const input=document.getElementById("showFileInput");
     console.log("[SHOW] delegated Load Show click",!!input);
-    if(input)input.click();else console.error("[SHOW] showFileInput missing")
+    if(input)input.click();else console.error("[SHOW] showFileInput missing");
   },true);
-  console.log("[SHOW] delegated handlers installed")
+  console.log("[SHOW] delegated handlers installed");
 }
 
 function startShowFileControlWatcher(){
@@ -265,10 +353,17 @@ function startShowFileControlWatcher(){
   installShowDelegatedHandlers();
   if(initShowFileControls())return;
   let attempts=0;
-  const timer=setInterval(()=>{attempts++;if(initShowFileControls()||attempts>=100){clearInterval(timer);if(attempts>=100)console.error("[SHOW] Settings controls not found")}},100)
+  const timer=setInterval(()=>{
+    attempts++;
+    if(initShowFileControls()||attempts>=100){
+      clearInterval(timer);
+      if(attempts>=100)console.error("[SHOW] Settings controls not found");
+    }
+  },100);
 }
 
 window.saveShow=saveShow;
 window.loadShow=loadShow;
-if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",startShowFileControlWatcher,{once:true});else startShowFileControlWatcher();
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",startShowFileControlWatcher,{once:true});
+else startShowFileControlWatcher();
 window.addEventListener("show-multi-output-restore",event=>console.log("[SHOW] Multi-output restore event",event.detail?.outputs?.length||0));

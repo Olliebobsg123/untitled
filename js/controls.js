@@ -140,10 +140,10 @@
       if (!sourceRow?.parentElement) return false;
       if ($("liveStrobeRow")) return true;
 
-      const row = document.createElement("div");
-      row.className = sourceRow.className || "form-row";
+      const row = document.createElement("label");
+      row.className = "range-control";
       row.id = "liveStrobeRow";
-      row.innerHTML = '<label>Strobe <strong id="strobeVal">0</strong></label><input type="range" id="strobe" min="0" max="255" step="1" value="0">';
+      row.innerHTML = '<span>Strobe</span><input type="range" id="strobe" min="0" max="255" step="1" value="0"><strong><span id="strobeVal">0</span></strong>';
       sourceRow.parentElement.insertBefore(row, sourceRow.nextSibling);
 
       const slider = $("strobe");

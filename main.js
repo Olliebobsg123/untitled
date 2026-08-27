@@ -219,6 +219,18 @@ function createWindow() {
         document.head.appendChild(script);
       })();
     `).catch(err => console.error('❌ Effect/chase command loader failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__strobeSliderLoader) return;
+        window.__strobeSliderLoader = true;
+        const script = document.createElement('script');
+        script.src = 'js/strobe-slider.js';
+        script.onload = () => console.log('✅ Live strobe slider loaded');
+        script.onerror = err => console.error('❌ Live strobe slider failed to load:', err);
+        document.head.appendChild(script);
+      })();
+    `).catch(err => console.error('❌ Strobe slider loader failed:', err));
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });

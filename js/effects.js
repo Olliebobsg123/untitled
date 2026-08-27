@@ -61,22 +61,11 @@ function fxNormaliseIds(ids) {
 }
 function fxGetFixtureId(fixture) { return fixture && fixture.id != null ? String(fixture.id) : null; }
 
-/*
- * Effect targeting:
- * - selected = current console selection
- * - all = every patched fixture
- * - custom = exactly the fixture IDs chosen in the effect editor
- *
- * The target is captured when the effect starts/saves, so changing the
- * normal fixture selection later does not unexpectedly move a running effect.
- */
 function fxResolveTargetIds(options = {}) {
   if (Array.isArray(options.fixtureIds) || options.fixtureIds instanceof Set) return fxNormaliseIds(options.fixtureIds);
-
   const mode = options.fixtureMode || options.targetMode || State.effectTargetMode || "selected";
   if (mode === "all") return fxAllFixtures().map(fxGetFixtureId);
   if (mode === "custom") return fxNormaliseIds(State.effectTargetIds);
-
   if (State.selected instanceof Set && State.selected.size) return fxNormaliseIds(State.selected);
   return [];
 }
@@ -116,7 +105,6 @@ function fxRenderEffectTargetUI() {
     option.textContent = "Choose Fixtures...";
     select.appendChild(option);
   }
-
   let box = document.getElementById("effectFixtureTargets");
   if (!box) {
     box = document.createElement("div");
@@ -125,7 +113,6 @@ function fxRenderEffectTargetUI() {
     box.style.cssText = "display:none;margin-top:10px;max-height:220px;overflow:auto;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;";
     select.closest(".form-row")?.appendChild(box);
   }
-
   const fixtures = fxAllFixtures();
   box.innerHTML = fixtures.length ? fixtures.map((fixture, index) => {
     const id = fxGetFixtureId(fixture);
@@ -135,7 +122,6 @@ function fxRenderEffectTargetUI() {
     const safeLabel = label.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
     return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;cursor:pointer"><input type="checkbox" data-fixture-id="${safeId}"${checked}> <span>${safeLabel}</span></label>`;
   }).join("") : `<div style="opacity:.7">No patched fixtures.</div>`;
-
   box.querySelectorAll("input[data-fixture-id]").forEach(input => input.addEventListener("change", () => {
     State.effectTargetIds = new Set([...box.querySelectorAll("input[data-fixture-id]:checked")].map(el => el.dataset.fixtureId));
   }));
@@ -175,7 +161,7 @@ function stopEffect(silent = false) {
   State.activeEffect = null;
   if (!silent && previous) fxLog(`■ Effect stopped: ${previous.type}`, "ok");
 }
-function fxStart(type, options, renderFrame, filter) {
+function fxStart(type, options = {}, renderFrame, filter) {
   stopEffect(true);
   const targetInfo = fxCaptureEffectTargets(options);
   const fixtures = fxGetFixtures(targetInfo).filter(filter || (() => true));
@@ -228,11 +214,6 @@ function startPulse(options = {}) {
   });
 }
 
-// IMPORTANT: this used to be named startChase, which collided with the real
-// programmed chase engine in js/chases.js. Because both are global functions,
-// whichever script loaded last replaced window.startChase. A command such as
-// `run chase 1` could therefore start the old Effects-engine chase instead of
-// the saved/programmed chase.
 function startChaseEffect(options = {}) {
   return fxStart("chase", options, (now, elapsed, fixtures) => {
     if (!fixtures.length) return;
@@ -254,7 +235,6 @@ function startWave(options = {}) {
     });
   });
 }
-
 function startEffect(type, options = {}) {
   switch (type) {
     case "rainbow": return startRainbow(options);
@@ -269,7 +249,7 @@ function createCustomEffect() {
   const type = prompt("Effect type:\n\nrainbow\nstrobe\npulse\nchase\nwave", "rainbow");
   if (type === null) return false;
   const clean = String(type).trim().toLowerCase();
-  if (!["rainbow", "strobe", "pulse", "chase", "wave"].includes(clean)) { fxLog("Unknown custom effect", "warn"); return false; }
+  if (!["rainbow","strobe","pulse","chase","wave"].includes(clean)) { fxLog("Unknown custom effect", "warn"); return false; }
   const speed = Number(prompt("Speed:", clean === "strobe" ? "8" : "1"));
   return startEffect(clean, { speed: Number.isFinite(speed) ? speed : 1 });
 }
@@ -284,7 +264,6 @@ function attachEffectToCue(cueIndex, effectType, options = {}) {
   fxLog(`✅ Effect "${effectType}" attached to Cue ${cueIndex + 1}`, "ok");
 }
 
-/* Save/apply API. A saved effect remembers its own target set. */
 function saveEffect(name, type, options = {}) {
   const targetInfo = fxCaptureEffectTargets(options);
   const effect = { name: String(name || "Unnamed Effect"), type, speed: fxNumber(options.speed, 1), fixtureMode: targetInfo.fixtureMode, fixtureIds: targetInfo.fixtureIds.slice() };
@@ -303,18 +282,120 @@ function applyEffectToFixtures(nameOrEffect, fixtureIds) {
   return startEffect(effect.type, { ...effect, fixtureMode: "custom", fixtureIds: fxNormaliseIds(fixtureIds) });
 }
 
-function wireEffectButtons() {
-  document.querySelectorAll(".effect-card").forEach(card => {
-    if (card.dataset.effectsWired === "true") return;
-    card.dataset.effectsWired = "true";
-    let type = card.dataset.effect;
-    if (!["strobe","pulse","chase","rainbow","wave"].includes(type)) {
-      const text = card.textContent.toLowerCase();
-      type = text.includes("strobe") ? "strobe" : text.includes("pulse") ? "pulse" : text.includes("chase") ? "chase" : text.includes("wave") ? "wave" : "rainbow";
-      card.dataset.effect = type;
-    }
-    card.addEventListener("click", () => startEffect(type));
+function renderEffectsList() {
+  const list = document.getElementById("effectsList");
+  if (!list) return;
+  const effects = Object.values(State.savedEffects || {});
+  list.innerHTML = "";
+  if (!effects.length) {
+    list.innerHTML = '<div class="empty-state">No saved effects.</div>';
+    return;
+  }
+  effects.forEach(effect => {
+    const card = document.createElement("div");
+    card.className = "effect-card";
+    card.dataset.effectName = effect.name;
+    card.dataset.effect = effect.type;
+    card.style.cursor = "pointer";
+    card.innerHTML = `<strong>${String(effect.name).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</strong><small>${effect.type} · ${effect.speed} speed · ${effect.fixtureIds?.length || 0} fixture${effect.fixtureIds?.length === 1 ? "" : "s"}</small>`;
+    card.addEventListener("click", () => {
+      const name = card.dataset.effectName;
+      const nameEl = document.getElementById("effectName");
+      const typeEl = document.getElementById("effectType");
+      const speedEl = document.getElementById("effectSpeed");
+      const modeEl = document.getElementById("effectFixtureMode");
+      const saved = State.savedEffects[name];
+      if (!saved) return;
+      if (nameEl) nameEl.value = saved.name;
+      if (typeEl) typeEl.value = saved.type;
+      if (speedEl) speedEl.value = saved.speed;
+      if (modeEl) modeEl.value = saved.fixtureMode || "selected";
+      State.effectTargetIds = new Set(saved.fixtureIds || []);
+      document.getElementById("effectEditor")?.style && (document.getElementById("effectEditor").style.display = "block");
+      fxRenderEffectTargetUI();
+    });
+    list.appendChild(card);
   });
+  wireEffectButtons();
+}
+
+function wireEffectButtons() {
+  const newBtn = document.getElementById("btnNewEffect");
+  const runBtn = document.getElementById("btnRunEffect");
+  const stopBtn = document.getElementById("btnStopEffect");
+  const applyBtn = document.getElementById("btnApplyEffect");
+  const deleteBtn = document.getElementById("btnDeleteEffect");
+  const editor = document.getElementById("effectEditor");
+
+  if (newBtn && newBtn.dataset.fxWired !== "true") {
+    newBtn.dataset.fxWired = "true";
+    newBtn.type = "button";
+    newBtn.addEventListener("click", () => {
+      if (editor) editor.style.display = "block";
+      const n = Object.keys(State.savedEffects || {}).length + 1;
+      document.getElementById("effectName")?.focus();
+      const name = document.getElementById("effectName");
+      const type = document.getElementById("effectType");
+      const speed = document.getElementById("effectSpeed");
+      const mode = document.getElementById("effectFixtureMode");
+      if (name && !name.value.trim()) name.value = `Effect ${n}`;
+      if (type && !type.value) type.value = "rainbow";
+      if (speed && !speed.value) speed.value = "1";
+      if (mode && !mode.value) mode.value = "selected";
+      State.effectTargetMode = mode?.value || "selected";
+      if (State.effectTargetMode === "selected") State.effectTargetIds = new Set(fxNormaliseIds(State.selected));
+      fxRenderEffectTargetUI();
+      fxLog("New effect editor opened", "ok");
+    });
+  }
+
+  if (runBtn && runBtn.dataset.fxWired !== "true") {
+    runBtn.dataset.fxWired = "true";
+    runBtn.type = "button";
+    runBtn.addEventListener("click", () => {
+      const name = document.getElementById("effectName")?.value.trim();
+      const selectedSaved = name && State.savedEffects?.[name] ? State.savedEffects[name] : null;
+      if (selectedSaved) {
+        applySavedEffect(selectedSaved.name);
+        return;
+      }
+      const type = document.getElementById("effectType")?.value || "rainbow";
+      const speed = Number(document.getElementById("effectSpeed")?.value || 1);
+      startEffect(type, { speed, fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
+    });
+  }
+
+  if (stopBtn && stopBtn.dataset.fxWired !== "true") {
+    stopBtn.dataset.fxWired = "true";
+    stopBtn.type = "button";
+    stopBtn.addEventListener("click", () => stopEffect(false));
+  }
+
+  if (applyBtn && applyBtn.dataset.fxWired !== "true") {
+    applyBtn.dataset.fxWired = "true";
+    applyBtn.type = "button";
+    applyBtn.addEventListener("click", () => {
+      const name = document.getElementById("effectName")?.value.trim();
+      if (name && State.savedEffects?.[name]) return applySavedEffect(name);
+      const type = document.getElementById("effectType")?.value || "rainbow";
+      const speed = Number(document.getElementById("effectSpeed")?.value || 1);
+      startEffect(type, { speed, fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
+    });
+  }
+
+  if (deleteBtn && deleteBtn.dataset.fxWired !== "true") {
+    deleteBtn.dataset.fxWired = "true";
+    deleteBtn.type = "button";
+    deleteBtn.addEventListener("click", () => {
+      const name = document.getElementById("effectName")?.value.trim();
+      if (!name || !State.savedEffects?.[name]) return fxLog("Select a saved effect to delete", "warn");
+      delete State.savedEffects[name];
+      if (State.activeEffect?.name === name) stopEffect(true);
+      renderEffectsList();
+      document.getElementById("effectEditor")?.style && (document.getElementById("effectEditor").style.display = "none");
+      fxLog(`Deleted effect: ${name}`, "ok");
+    });
+  }
 }
 
 function wireEffectEditor() {
@@ -322,14 +403,13 @@ function wireEffectEditor() {
   const save = document.getElementById("btnSaveEffect");
   if (save && save.dataset.fxSaveWired !== "true") {
     save.dataset.fxSaveWired = "true";
+    save.type = "button";
     save.addEventListener("click", () => {
       const nameEl = document.getElementById("effectName"), typeEl = document.getElementById("effectType"), speedEl = document.getElementById("effectSpeed");
       if (!nameEl || !typeEl || !speedEl) return;
-      const saved = saveEffect(nameEl.value.trim() || "Unnamed Effect", typeEl.value, { speed: Number(speedEl.value) });
-      const list = document.getElementById("effectsList");
-      const cards = list ? list.querySelectorAll(".effect-card") : [];
-      const card = cards.length ? cards[cards.length - 1] : null;
-      if (card) card.onclick = () => applySavedEffect(saved.name);
+      const name = nameEl.value.trim() || `Effect ${Object.keys(State.savedEffects || {}).length + 1}`;
+      const saved = saveEffect(name, typeEl.value, { speed: Number(speedEl.value), fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
+      renderEffectsList();
       fxLog(`💾 Saved "${saved.name}" for ${saved.fixtureIds.length} fixture${saved.fixtureIds.length === 1 ? "" : "s"}`, "ok");
     });
   }
@@ -357,13 +437,15 @@ function initEffects() {
   wireEffectButtons();
   wireEffectEditor();
   wireLiveIntensityControl();
+  renderEffectsList();
 }
 
 Object.assign(window, {
   startEffect, stopEffect, startRainbow, startStrobe, startPulse, startChaseEffect, startWave,
   createCustomEffect, startCueEffect, fxGetFixtureDefinition, attachEffectToCue,
   setIntensity, fxApplyIntensity, fxGetLiveIntensity,
-  fxGetFixtures, fxSetEffectTargets, fxCaptureEffectTargets, saveEffect, applySavedEffect, applyEffectToFixtures
+  fxGetFixtures, fxSetEffectTargets, fxCaptureEffectTargets, saveEffect, applySavedEffect, applyEffectToFixtures,
+  renderEffectsList
 });
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initEffects, { once: true });

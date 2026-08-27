@@ -124,14 +124,17 @@
     console.log("🖥️ Visualiser sync guard enabled");
   }
 
-  // Multi-fixture pan/tilt fix. XY input must only start when the dot is grabbed.
+  // XY pad fix: only a left-click directly on the dot starts a drag.
+  // The drag applies the same pan/tilt position to every selected fixture.
   if (!window.__multiFixtureXYFix) {
     window.__multiFixtureXYFix = true;
 
     const getSelectedFixtures = () => {
       const state = window.State;
       if (!state || !(state.selected instanceof Set) || !state.selected.size) return [];
-      return [...state.selected].map(id => state.fixtures?.find(f => f?.id === id)).filter(Boolean);
+      return [...state.selected]
+        .map(id => state.fixtures?.find(f => f?.id === id))
+        .filter(Boolean);
     };
 
     const getDefinition = fixture => {
@@ -143,63 +146,66 @@
       if (typeof window.ensureFixtureState === "function") return window.ensureFixtureState(fixture.id);
       const state = window.State;
       if (!(state.fixtureStates instanceof Map)) state.fixtureStates = new Map();
-      if (!state.fixtureStates.has(fixture.id)) state.fixtureStates.set(fixture.id, { ...(state.current || {}), pan: 128, tilt: 128 });
+      if (!state.fixtureStates.has(fixture.id)) {
+        state.fixtureStates.set(fixture.id, { ...(state.current || {}), pan: 128, tilt: 128 });
+      }
       return state.fixtureStates.get(fixture.id);
     };
 
-    const pointInsidePad = (pad, clientX, clientY) => {
-      const rect = pad.getBoundingClientRect();
-      return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
-    };
-
-    const isXYDotTarget = event => {
+    const isDotTarget = event => {
       const dot = document.getElementById("xy");
-      if (!dot || !event?.target) return false;
-      return event.target === dot || (typeof event.target.closest === "function" && event.target.closest("#xy") === dot);
+      const target = event?.target;
+      return !!dot && (target === dot || (target && typeof target.closest === "function" && target.closest("#xy") === dot));
     };
 
-    const applyMultiFixtureXY = event => {
-      const pad = document.querySelector(".xy-pad");
-      if (!pad || !event || !isXYDotTarget(event)) return;
-      const selected = getSelectedFixtures();
-      if (selected.length <= 1) return;
-
+    const getPosition = (pad, event) => {
       const rect = pad.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      const clientX = Number(event.clientX);
-      const clientY = Number(event.clientY);
-      if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return;
+      const x = Number(event.clientX);
+      const y = Number(event.clientY);
+      if (!rect.width || !rect.height || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+      // Do not clamp outside movement to an edge: once outside the grid,
+      // the current value simply stays where it was.
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return null;
+      return {
+        pan: Math.round(((x - rect.left) / rect.width) * 255),
+        tilt: Math.round((1 - ((y - rect.top) / rect.height)) * 255)
+      };
+    };
 
-      if (!pointInsidePad(pad, clientX, clientY)) return;
+    const applyPosition = (pad, event) => {
+      const position = getPosition(pad, event);
+      if (!position) return;
 
-      const x = (clientX - rect.left) / rect.width;
-      const y = (clientY - rect.top) / rect.height;
-      const pan = Math.round(Math.max(0, Math.min(1, x)) * 255);
-      const tilt = Math.round((1 - Math.max(0, Math.min(1, y))) * 255);
+      const selected = getSelectedFixtures();
+      if (!selected.length) return;
 
-      let changed = 0;
+      let changed = false;
       for (const fixture of selected) {
         const map = getDefinition(fixture)?.map || {};
         if (typeof map.pan !== "number" && typeof map.tilt !== "number") continue;
+
         const state = getState(fixture);
         if (!state) continue;
-        if (typeof map.pan === "number") state.pan = pan;
-        if (typeof map.tilt === "number") state.tilt = tilt;
+        if (typeof map.pan === "number") state.pan = position.pan;
+        if (typeof map.tilt === "number") state.tilt = position.tilt;
         window.State.fixtureStates.set(fixture.id, state);
-        changed++;
+        changed = true;
       }
+
       if (!changed) return;
 
       window.State.current ||= {};
-      window.State.current.pan = pan;
-      window.State.current.tilt = tilt;
+      window.State.current.pan = position.pan;
+      window.State.current.tilt = position.tilt;
+
       const dot = document.getElementById("xy");
       if (dot) {
-        dot.style.left = `${(pan / 255) * 100}%`;
-        dot.style.top = `${(1 - tilt / 255) * 100}%`;
+        dot.style.left = `${(position.pan / 255) * 100}%`;
+        dot.style.top = `${(1 - position.tilt / 255) * 100}%`;
       }
-      if (typeof window.updateDMX === "function") window.updateDMX();
-      if (typeof window.sendToVisualizer === "function") window.sendToVisualizer();
+
+      window.updateDMX?.();
+      window.sendToVisualizer?.();
     };
 
     const attachXYFix = () => {
@@ -207,36 +213,53 @@
       if (!pad || pad.dataset.multiFixtureXYFix === "1") return;
       pad.dataset.multiFixtureXYFix = "1";
 
-      // The dot is the only place that starts an XY drag. It remains clickable.
       const dot = document.getElementById("xy");
       if (dot) dot.style.pointerEvents = "auto";
 
-      // Block app.js's pad-wide pointerdown unless the user actually grabbed the dot.
-      // This is capture-phase so the existing app.js handler never starts dragging
-      // when the user merely moves/clicks elsewhere inside the grid.
+      let dragging = false;
+      let pointerId = null;
+
+      // Capture phase is intentional: app.js has its own pad-wide pointerdown
+      // handler. We stop it before it can start a drag unless the dot was hit.
       pad.addEventListener("pointerdown", event => {
-        if (!isXYDotTarget(event)) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }
+        if (event.button !== 0 || !isDotTarget(event)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        dragging = true;
+        pointerId = event.pointerId;
+        try { pad.setPointerCapture(pointerId); } catch (_) {}
+        applyPosition(pad, event);
       }, true);
 
-      // If a drag was legitimately started on the dot, outside-pad movement is ignored
-      // rather than being clamped to an edge.
+      // While not dragging, pointer movement is completely ignored by the XY
+      // control. While dragging, only positions inside the pad are applied.
       pad.addEventListener("pointermove", event => {
-        if (!pointInsidePad(pad, Number(event.clientX), Number(event.clientY))) {
-          event.stopImmediatePropagation();
-        }
+        if (!dragging || event.pointerId !== pointerId) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        applyPosition(pad, event);
       }, true);
 
-      pad.addEventListener("pointerdown", applyMultiFixtureXY);
-      pad.addEventListener("pointermove", applyMultiFixtureXY);
+      const stopDrag = event => {
+        if (pointerId !== null && event.pointerId !== pointerId) return;
+        if (dragging) event.stopImmediatePropagation();
+        dragging = false;
+        try { if (pointerId !== null) pad.releasePointerCapture(pointerId); } catch (_) {}
+        pointerId = null;
+      };
+
+      pad.addEventListener("pointerup", stopDrag, true);
+      pad.addEventListener("pointercancel", stopDrag, true);
+      pad.addEventListener("lostpointercapture", () => {
+        dragging = false;
+        pointerId = null;
+      }, true);
     };
 
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", attachXYFix, { once: true });
     else attachXYFix();
 
-    console.log("🎯 Multi-fixture pan/tilt fix enabled — grab the XY dot to drag");
+    console.log("🎯 XY pad fixed — grab the dot to drag; all selected fixtures follow");
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", refreshVisibility, { once: true });

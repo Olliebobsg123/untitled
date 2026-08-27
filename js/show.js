@@ -46,8 +46,26 @@ function snapshotShowChases(){
   return Array.isArray(State.chases)?State.chases.map(chase=>showClone(chase)):[];
 }
 
+let showVisualizerWindow=null;
+let pendingShowVisualizerState=null;
+
 function getVisualizerState(){
-  return window.S||window.VizState||(window.opener&&(window.opener.S||window.opener.VizState));
+  if(window.S||window.VizState)return window.S||window.VizState;
+  if(showVisualizerWindow&&!showVisualizerWindow.closed){
+    return showVisualizerWindow.S||showVisualizerWindow.VizState||null;
+  }
+  return null;
+}
+
+function normaliseVisualizerState(viz){
+  const result={fixturePositions:[],fixtureManualRot:[],gridOn:true,houseOn:false,workOn:false};
+  if(!viz||typeof viz!=="object")return result;
+  if(Array.isArray(viz.fixturePositions))result.fixturePositions=viz.fixturePositions.map(showClone);
+  if(Array.isArray(viz.fixtureManualRot))result.fixtureManualRot=viz.fixtureManualRot.map(showClone);
+  if(typeof viz.gridOn==="boolean")result.gridOn=viz.gridOn;
+  if(typeof viz.houseOn==="boolean")result.houseOn=viz.houseOn;
+  if(typeof viz.workOn==="boolean")result.workOn=viz.workOn;
+  return result;
 }
 
 function saveShow(){
@@ -61,18 +79,16 @@ function saveShow(){
         const pos=Viz.fixturePositions?.get(idx);
         if(pos)posList.push({fixtureIndex:idx,fixtureId:fx.id,x:Number(pos.x),y:Number(pos.y),z:Number(pos.z)});
       });
-
       const rotList=[];
       (State.fixtures||[]).forEach((fx,idx)=>{
         const rot=Viz.fixtureManualRot?.get(idx);
         if(rot)rotList.push({fixtureIndex:idx,fixtureId:fx.id,pan:Number(rot.pan),tilt:Number(rot.tilt)});
       });
-
       vizState.fixturePositions=posList;
       vizState.fixtureManualRot=rotList;
-      vizState.gridOn=typeof gridOn!=="undefined"?gridOn:true;
-      vizState.houseOn=typeof houseOn!=="undefined"?houseOn:false;
-      vizState.workOn=typeof workOn!=="undefined"?workOn:false;
+      vizState.gridOn=Viz.gridOn!==undefined?Boolean(Viz.gridOn):true;
+      vizState.houseOn=Viz.houseOn!==undefined?Boolean(Viz.houseOn):false;
+      vizState.workOn=Viz.workOn!==undefined?Boolean(Viz.workOn):false;
     }
 
     const cues=Array.isArray(State.cues)?State.cues.map(cue=>showClone(cue)):[];
@@ -81,40 +97,15 @@ function saveShow(){
     const savedEffects=snapshotShowEffects();
     const multiOutputs=getMultiOutputShowState();
 
-    const showData={
-      version:3,
-      fixtures:showClone(State.fixtures||[]),
-      groups:showClone(State.groups||[]),
-      cues,
-      chases,
-      fixtureStates:snapshotShowFixtureStates(),
-      current:showClone(State.current||{}),
-      selected:State.selected instanceof Set?[...State.selected]:[],
-      activeEffect,
-      savedEffects,
-      effects:savedEffects,
-      effectTargetMode:State.effectTargetMode||"selected",
-      effectTargetIds:State.effectTargetIds instanceof Set?[...State.effectTargetIds]:[],
-      currentCue:Number.isInteger(State.currentCue)?State.currentCue:-1,
-      currentChase:Number.isInteger(State.currentChase)?State.currentChase:-1,
-      activeChase:Number.isInteger(State.currentChase)&&State.currentChase>=0?State.currentChase:-1,
-      chaseWait:Number.isFinite(Number(State.chaseWait))?Number(State.chaseWait):500,
-      chaseFade:Number.isFinite(Number(State.chaseFade))?Number(State.chaseFade):800,
-      visualizer:vizState,
-      multiOutputs,
-      savedAt:new Date().toISOString()
-    };
+    const showData={version:3,fixtures:showClone(State.fixtures||[]),groups:showClone(State.groups||[]),cues,chases,fixtureStates:snapshotShowFixtureStates(),current:showClone(State.current||{}),selected:State.selected instanceof Set?[...State.selected]:[],activeEffect,savedEffects,effects:savedEffects,effectTargetMode:State.effectTargetMode||"selected",effectTargetIds:State.effectTargetIds instanceof Set?[...State.effectTargetIds]:[],currentCue:Number.isInteger(State.currentCue)?State.currentCue:-1,currentChase:Number.isInteger(State.currentChase)?State.currentChase:-1,activeChase:Number.isInteger(State.currentChase)&&State.currentChase>=0?State.currentChase:-1,chaseWait:Number.isFinite(Number(State.chaseWait))?Number(State.chaseWait):500,chaseFade:Number.isFinite(Number(State.chaseFade))?Number(State.chaseFade):800,visualizer:vizState,multiOutputs,savedAt:new Date().toISOString()};
 
     const blob=new Blob([JSON.stringify(showData,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
     a.href=url;
     a.download=`LightingShow_${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
-
     console.log("[SHOW] save completed",{fixtures:showData.fixtures.length,cues:showData.cues.filter(Boolean).length,chases:showData.chases.length,activeEffect:!!activeEffect,savedEffects:Object.keys(savedEffects).length,outputs:multiOutputs.length});
     if(typeof log==="function")log(`Show saved — ${showData.cues.filter(Boolean).length} cues, ${chases.length} chases, ${Object.keys(savedEffects).length} effects${activeEffect?", active effect":""}`,"ok");
   }catch(e){
@@ -154,72 +145,61 @@ function refreshShowEffectsUI(){
   }catch(e){console.warn("[SHOW] effects UI refresh failed",e)}
 }
 
-function restoreVisualizerState(viz){
-  const Viz=getVisualizerState();
-  if(!viz||!Viz)return;
+function restoreVisualizerState(viz, targetWindow=null){
+  const normalised=normaliseVisualizerState(viz);
+  pendingShowVisualizerState=normalised;
+
+  const Viz=targetWindow?.S||targetWindow?.VizState||getVisualizerState();
+  if(!Viz)return;
 
   try{
-    if(!(Viz.fixturePositions instanceof Map))Viz.fixturePositions=new Map();
-    if(!(Viz.fixtureManualRot instanceof Map))Viz.fixtureManualRot=new Map();
-
-    Viz.fixturePositions.clear();
-    Viz.fixtureManualRot.clear();
-
-    const fixtures=Array.isArray(State.fixtures)?State.fixtures:[];
-    const fixtureIndexById=new Map(fixtures.map((fx,index)=>[String(fx?.id),index]));
-
-    // Show files store both fixtureIndex and fixtureId. Prefer the ID so
-    // positions still follow the correct fixture if the patch order changes.
-    if(Array.isArray(viz.fixturePositions)){
-      viz.fixturePositions.forEach(saved=>{
+    if(typeof Viz.applyLoadedPositions==="function"){
+      Viz.applyLoadedPositions(normalised.fixturePositions,normalised.fixtureManualRot);
+    }else{
+      if(!(Viz.fixturePositions instanceof Map))Viz.fixturePositions=new Map();
+      if(!(Viz.fixtureManualRot instanceof Map))Viz.fixtureManualRot=new Map();
+      Viz.fixturePositions.clear();Viz.fixtureManualRot.clear();
+      const fixtures=Array.isArray(State.fixtures)?State.fixtures:[];
+      const fixtureIndexById=new Map(fixtures.map((fx,index)=>[String(fx?.id),index]));
+      normalised.fixturePositions.forEach(saved=>{
         if(!saved||typeof saved!=="object")return;
         const savedId=saved.fixtureId!=null?String(saved.fixtureId):null;
-        const index=savedId&&fixtureIndexById.has(savedId)
-          ?fixtureIndexById.get(savedId)
-          :Number(saved.fixtureIndex);
+        const index=savedId&&fixtureIndexById.has(savedId)?fixtureIndexById.get(savedId):Number(saved.fixtureIndex);
         if(!Number.isInteger(index)||index<0||index>=fixtures.length)return;
-
         const x=Number(saved.x),y=Number(saved.y),z=Number(saved.z);
-        if(!Number.isFinite(x)||!Number.isFinite(y)||!Number.isFinite(z))return;
-
-        // Do not construct THREE.Vector3 here. THREE is module-scoped inside
-        // visualizer.html and is intentionally not exposed to the console.
-        // makeFixture only needs x/y/z, so a plain object is sufficient.
-        Viz.fixturePositions.set(index,{x,y,z});
+        if(Number.isFinite(x)&&Number.isFinite(y)&&Number.isFinite(z))Viz.fixturePositions.set(index,{x,y,z});
       });
-    }
-
-    if(Array.isArray(viz.fixtureManualRot)){
-      viz.fixtureManualRot.forEach(saved=>{
+      normalised.fixtureManualRot.forEach(saved=>{
         if(!saved||typeof saved!=="object")return;
         const savedId=saved.fixtureId!=null?String(saved.fixtureId):null;
-        const index=savedId&&fixtureIndexById.has(savedId)
-          ?fixtureIndexById.get(savedId)
-          :Number(saved.fixtureIndex);
+        const index=savedId&&fixtureIndexById.has(savedId)?fixtureIndexById.get(savedId):Number(saved.fixtureIndex);
         if(!Number.isInteger(index)||index<0||index>=fixtures.length)return;
-
         const pan=Number(saved.pan),tilt=Number(saved.tilt);
-        if(!Number.isFinite(pan)||!Number.isFinite(tilt))return;
-        Viz.fixtureManualRot.set(index,{pan,tilt});
+        if(Number.isFinite(pan)&&Number.isFinite(tilt))Viz.fixtureManualRot.set(index,{pan,tilt});
       });
+      if(typeof Viz.rebuildFixtures==="function")Viz.rebuildFixtures();
     }
 
-    console.log("[SHOW] visualizer positions restored",{
-      positions:Viz.fixturePositions.size,
-      rotations:Viz.fixtureManualRot.size
-    });
-  }catch(e){
-    console.error("[SHOW] visualizer restore failed",e);
-  }
+    console.log("[SHOW] visualizer positions restored",{positions:normalised.fixturePositions.length,rotations:normalised.fixtureManualRot.length});
+  }catch(e){console.error("[SHOW] visualizer restore failed",e)}
+}
+
+function applyPendingVisualizerState(targetWindow){
+  if(!pendingShowVisualizerState||!targetWindow||targetWindow.closed)return;
+  try{
+    const Viz=targetWindow.S||targetWindow.VizState;
+    if(!Viz)return;
+    targetWindow.applyLoadedPositions?.(pendingShowVisualizerState.fixturePositions,pendingShowVisualizerState.fixtureManualRot);
+    if(Viz.grid)Viz.grid.visible=pendingShowVisualizerState.gridOn;
+    console.log("[SHOW] applied pending visualizer state",{positions:pendingShowVisualizerState.fixturePositions.length,rotations:pendingShowVisualizerState.fixtureManualRot.length});
+  }catch(e){console.error("[SHOW] pending visualizer restore failed",e)}
 }
 
 function loadShow(jsonData){
   try{
     const data=typeof jsonData==="string"?JSON.parse(jsonData):jsonData;
     if(!data||typeof data!=="object")throw new Error("Invalid show object");
-
     stopRunningShowState();
-
     State.fixtures=Array.isArray(data.fixtures)?data.fixtures:[];
     State.groups=Array.isArray(data.groups)?data.groups:[];
     State.cues=Array.isArray(data.cues)?data.cues.map(showClone):[];
@@ -229,23 +209,17 @@ function loadShow(jsonData){
     State.currentChase=-1;
     State.chaseWait=Number.isFinite(Number(data.chaseWait))?Number(data.chaseWait):500;
     State.chaseFade=Number.isFinite(Number(data.chaseFade))?Number(data.chaseFade):800;
-
     restoreShowFixtureStates(data.fixtureStates);
     restoreShowSelection(data.selected);
-
-    const effectLibrary=data.savedEffects&&typeof data.savedEffects==="object"&&!Array.isArray(data.savedEffects)
-      ?data.savedEffects
-      :(data.effects&&typeof data.effects==="object"&&!Array.isArray(data.effects)?data.effects:{});
+    const effectLibrary=data.savedEffects&&typeof data.savedEffects==="object"&&!Array.isArray(data.savedEffects)?data.savedEffects:(data.effects&&typeof data.effects==="object"&&!Array.isArray(data.effects)?data.effects:{});
     State.savedEffects=showClone(effectLibrary);
     State.effectTargetMode=data.effectTargetMode||"selected";
     State.effectTargetIds=new Set(Array.isArray(data.effectTargetIds)?data.effectTargetIds.map(String):[]);
-
     if(Array.isArray(data.multiOutputs))restoreMultiOutputShowState(data.multiOutputs);
 
-    // Restore the visualizer BEFORE rebuilding fixtures. The old code tried to
-    // create THREE.Vector3 objects here, but THREE is not a global in the
-    // console window. That threw a ReferenceError and aborted the rest of the
-    // load, leaving the visualizer at its default positions.
+    // Keep the parsed visualizer state even when the visualizer popup has not
+    // been opened yet. The VISUALIZER_READY handler below applies it as soon as
+    // the popup exposes its S/applyLoadedPositions API.
     restoreVisualizerState(data.visualizer);
 
     if(typeof renderFixtures==="function")renderFixtures();
@@ -254,35 +228,16 @@ function loadShow(jsonData){
     if(typeof renderChases==="function")renderChases();
     if(typeof updateInspectorList==="function")updateInspectorList();
     refreshShowEffectsUI();
-
     if(typeof rebuildFixtures==="function")setTimeout(()=>rebuildFixtures(),100);
     if(typeof updateDMX==="function")updateDMX();
     if(typeof sendToVisualizer==="function")sendToVisualizer();
 
     const activeEffect=data.activeEffect&&data.activeEffect.type?showClone(data.activeEffect):null;
     const activeChase=Number.isInteger(data.activeChase)&&data.activeChase>=0?data.activeChase:-1;
+    if(activeEffect&&typeof window.startEffect==="function")setTimeout(()=>{try{window.startEffect(activeEffect.type,activeEffect)}catch(e){console.error("[SHOW] active effect restore failed",e)}},300);
+    if(activeChase>=0&&State.chases[activeChase]&&typeof window.startChase==="function")setTimeout(()=>{try{window.startChase(activeChase)}catch(e){console.error("[SHOW] active chase restore failed",e)}},350);
 
-    if(activeEffect&&typeof window.startEffect==="function"){
-      setTimeout(()=>{
-        try{window.startEffect(activeEffect.type,activeEffect)}catch(e){console.error("[SHOW] active effect restore failed",e)}
-      },300);
-    }
-
-    if(activeChase>=0&&State.chases[activeChase]&&typeof window.startChase==="function"){
-      setTimeout(()=>{
-        try{window.startChase(activeChase)}catch(e){console.error("[SHOW] active chase restore failed",e)}
-      },350);
-    }
-
-    console.log("[SHOW] load completed",{
-      fixtures:State.fixtures.length,
-      cues:State.cues.filter(Boolean).length,
-      chases:State.chases.length,
-      activeEffect:!!activeEffect,
-      activeChase,
-      savedEffects:Object.keys(State.savedEffects||{}).length,
-      outputs:Array.isArray(data.multiOutputs)?data.multiOutputs.length:0
-    });
+    console.log("[SHOW] load completed",{fixtures:State.fixtures.length,cues:State.cues.filter(Boolean).length,chases:State.chases.length,activeEffect:!!activeEffect,activeChase,savedEffects:Object.keys(State.savedEffects||{}).length,outputs:Array.isArray(data.multiOutputs)?data.multiOutputs.length:0});
     if(typeof log==="function")log(`Show loaded — ${State.cues.filter(Boolean).length} cues, ${State.chases.length} chases, ${Object.keys(State.savedEffects||{}).length} effects${activeEffect?", effect restored":""}${activeChase>=0?", chase restored":""}`,"ok");
   }catch(e){
     console.error("[SHOW] load failed",e);
@@ -295,40 +250,29 @@ function initShowFileControls(){
   if(!settingsPage)return false;
   let panel=document.getElementById("showFileControls");
   if(!panel){
-    panel=document.createElement("section");
-    panel.id="showFileControls";
-    panel.className="panel";
-    panel.style.marginTop="16px";
+    panel=document.createElement("section");panel.id="showFileControls";panel.className="panel";panel.style.marginTop="16px";
     panel.innerHTML=`<div class="panel-header"><div><span class="eyebrow">SHOW</span> Show File</div><span class="panel-meta">SAVE / LOAD</span></div><div class="panel-body"><div class="action-row"><button class="btn-primary" id="btnSaveShow" type="button">💾 Save Show</button><button class="btn-secondary" id="btnLoadShow" type="button">📂 Load Show</button></div><input id="showFileInput" type="file" accept=".json,application/json" style="display:none"></div>`;
     settingsPage.appendChild(panel);
   }
-
   const saveButton=document.getElementById("btnSaveShow"),loadButton=document.getElementById("btnLoadShow"),fileInput=document.getElementById("showFileInput");
   if(!saveButton||!loadButton||!fileInput)return false;
   saveButton.type="button";loadButton.type="button";
-
   if(saveButton.dataset.showWired!=="1"){
     saveButton.dataset.showWired="1";
     saveButton.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();console.log("[SHOW] Save Show clicked");saveShow()});
   }
-
   if(loadButton.dataset.showWired!=="1"){
     loadButton.dataset.showWired="1";
     loadButton.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();console.log("[SHOW] Load Show clicked");fileInput.click()});
   }
-
   if(fileInput.dataset.showWired!=="1"){
     fileInput.dataset.showWired="1";
     fileInput.addEventListener("change",async e=>{
-      const file=e.target.files?.[0];
-      if(!file)return;
+      const file=e.target.files?.[0];if(!file)return;
       console.log("[SHOW] File selected",file.name);
-      try{loadShow(await file.text())}
-      catch(err){console.error("[SHOW] File read failed",err)}
-      finally{fileInput.value=""}
+      try{loadShow(await file.text())}catch(err){console.error("[SHOW] File read failed",err)}finally{fileInput.value=""}
     });
   }
-
   console.log("[SHOW] controls wired",{save:!!saveButton,load:!!loadButton,input:!!fileInput});
   return true;
 }
@@ -353,17 +297,16 @@ function startShowFileControlWatcher(){
   installShowDelegatedHandlers();
   if(initShowFileControls())return;
   let attempts=0;
-  const timer=setInterval(()=>{
-    attempts++;
-    if(initShowFileControls()||attempts>=100){
-      clearInterval(timer);
-      if(attempts>=100)console.error("[SHOW] Settings controls not found");
-    }
-  },100);
+  const timer=setInterval(()=>{attempts++;if(initShowFileControls()||attempts>=100){clearInterval(timer);if(attempts>=100)console.error("[SHOW] Settings controls not found")}},100);
 }
 
 window.saveShow=saveShow;
 window.loadShow=loadShow;
+window.addEventListener("message",e=>{
+  if(e.data?.type!=="VISUALIZER_READY")return;
+  showVisualizerWindow=e.source;
+  applyPendingVisualizerState(showVisualizerWindow);
+});
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",startShowFileControlWatcher,{once:true});
 else startShowFileControlWatcher();
 window.addEventListener("show-multi-output-restore",event=>console.log("[SHOW] Multi-output restore event",event.detail?.outputs?.length||0));

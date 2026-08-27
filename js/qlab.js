@@ -76,9 +76,6 @@ window.QLab = {
       this.updateStatus(true);
       if (this.passcode) this.send({ type: "auth", passcode: this.passcode });
       this.send({ type: "subscribe" });
-      // Re-send saved timed lighting triggers after every connection. Previously
-      // these only reached the bridge when the user edited a trigger, so a page
-      // refresh/reconnect silently disabled cues such as "at 1.0s -> Light 1".
       this.sendTimeTriggers();
       this.syncCues();
       this.startWatcher();
@@ -141,9 +138,7 @@ window.QLab = {
       const q = this.resolveCueNumber(message.cueNumber) || String(message.cueNumber ?? "");
       const at = Number(message.triggerTime);
       const triggers = this.timeTriggers[q] || [];
-      triggers.forEach((trigger, index) => {
-        if (Number(trigger?.time) === at) this.firedTriggers.add(`${q}:${index}`);
-      });
+      triggers.forEach((trigger, index) => { if (Number(trigger?.time) === at) this.firedTriggers.add(`${q}:${index}`); });
       (Array.isArray(message.lights) ? message.lights : []).forEach(n => this.fireLightingCue(n, `QLab ${message.cueNumber} reached ${message.triggerTime}s`));
       return;
     }
@@ -175,9 +170,7 @@ window.QLab = {
     for (const v of list) {
       if (typeof v === "number" && Number.isFinite(v)) return v;
       if (typeof v === "string") { const n = Number(v); if (Number.isFinite(n)) return n; try { const n2 = this.extractNumber(JSON.parse(v)); if (n2 != null) return n2; } catch (_) {} }
-      if (v && typeof v === "object") {
-        for (const k of ["value","data","elapsed","currentFileTime","time"]) { const n = this.extractNumber(v[k]); if (n != null) return n; }
-      }
+      if (v && typeof v === "object") { for (const k of ["value","data","elapsed","currentFileTime","time"]) { const n = this.extractNumber(v[k]); if (n != null) return n; } }
     }
     return null;
   },
@@ -205,24 +198,13 @@ window.QLab = {
       if (Array.isArray(value)) { value.forEach(v => walk(v, parent)); return; }
       if (typeof value !== "object") return;
       const cue = this.normalizeCue(value, parent);
-      if (cue) {
-        const id = String(cue.uniqueID ?? cue.uniqueId ?? cue.number);
-        const key = `${id}|${cue.number}`;
-        if (!seen.has(key)) { seen.add(key); found.push(cue); }
-      }
+      if (cue) { const id = String(cue.uniqueID ?? cue.uniqueId ?? cue.number); const key = `${id}|${cue.number}`; if (!seen.has(key)) { seen.add(key); found.push(cue); } }
       const nextParent = value.name || value.displayName ? value : parent;
       childKeys.forEach(k => { if (value[k] !== undefined) walk(value[k], nextParent); });
-      Object.entries(value).forEach(([k, v]) => {
-        if (childKeys.includes(k) || ["name","displayName","title","number","cueNumber","uniqueID","uniqueId","id"].includes(k)) return;
-        if (v && typeof v === "object") walk(v, nextParent);
-      });
+      Object.entries(value).forEach(([k, v]) => { if (childKeys.includes(k) || ["name","displayName","title","number","cueNumber","uniqueID","uniqueId","id"].includes(k)) return; if (v && typeof v === "object") walk(v, nextParent); });
     };
     walk(data);
-    found.sort((a,b) => {
-      const na = parseFloat(a.number), nb = parseFloat(b.number);
-      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
-      return a.number.localeCompare(b.number, undefined, { numeric: true });
-    });
+    found.sort((a,b) => { const na = parseFloat(a.number), nb = parseFloat(b.number); if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb; return a.number.localeCompare(b.number, undefined, { numeric: true }); });
     this.cues = found;
     this.renderCueSync();
     this.renderLinkEditor();
@@ -233,13 +215,7 @@ window.QLab = {
 
   resolveCueNumber(value) {
     if (value == null) return null;
-    if (typeof value === "object") {
-      for (const k of ["number","cueNumber","cue","uniqueID","uniqueId","id"]) {
-        const r = this.resolveCueNumber(value[k]);
-        if (r) return r;
-      }
-      return null;
-    }
+    if (typeof value === "object") { for (const k of ["number","cueNumber","cue","uniqueID","uniqueId","id"]) { const r = this.resolveCueNumber(value[k]); if (r) return r; } return null; }
     const s = String(value).trim().replace(/^\/cue\//, "").split("/")[0];
     const match = this.cues.find(c => String(c.number) === s || String(c.uniqueID ?? c.uniqueId ?? c.id ?? "") === s);
     return match ? String(match.number) : (/^\d+(?:\.\d+)?$/.test(s) ? s : null);
@@ -265,9 +241,7 @@ window.QLab = {
       const key = `${q}:${index}`;
       if (!Number.isFinite(at) || elapsed < at || this.firedTriggers.has(key)) return;
       this.firedTriggers.add(key);
-      (Array.isArray(trigger?.lights) ? trigger.lights : []).forEach(light => {
-        this.fireLightingCue(light, `QLab ${q} reached ${at}s`);
-      });
+      (Array.isArray(trigger?.lights) ? trigger.lights : []).forEach(light => this.fireLightingCue(light, `QLab ${q} reached ${at}s`));
     });
   },
 
@@ -279,9 +253,6 @@ window.QLab = {
     if (String(this.activeCue) !== cue) return;
     if (this.activeElapsed > elapsed + 0.05) this.firedTriggers.clear();
     this.activeElapsed = elapsed;
-    // Fire locally as well as through the bridge. This makes saved browser
-    // triggers reliable after reconnects and also covers bridges that missed a
-    // trigger packet between their 250ms polls.
     this.fireTimeTriggers(cue, elapsed);
     this.updateCueSyncTime();
   },
@@ -298,10 +269,7 @@ window.QLab = {
     const box = document.getElementById("qlabSyncList");
     if (!box) return;
     box.innerHTML = "";
-    if (!this.cues.length) {
-      box.innerHTML = `<div class="empty-state">No QLab cues found. Click Sync Cues.</div>`;
-      return;
-    }
+    if (!this.cues.length) { box.innerHTML = `<div class="empty-state">No QLab cues found. Click Sync Cues.</div>`; return; }
     const frag = document.createDocumentFragment();
     this.cues.forEach(cue => {
       const q = String(cue.number);
@@ -411,3 +379,65 @@ window.goQLab = () => window.QLab.goFromLightingConsole();
 window.lightingConsoleQLabGo = () => window.QLab.goFromLightingConsole();
 
 QLab.loadSettings();
+
+// Show-file persistence for QLab -> Lighting cue links.
+// show.js loads immediately before qlab.js, so the wrappers can safely install here.
+(function installQLabShowFilePersistence(){
+  if (window.__qlabShowFilePersistenceInstalled) return;
+  window.__qlabShowFilePersistenceInstalled = true;
+
+  const getState = () => ({
+    cueLinks: QLab.cueLinks && typeof QLab.cueLinks === "object" ? JSON.parse(JSON.stringify(QLab.cueLinks)) : {},
+    timeTriggers: QLab.timeTriggers && typeof QLab.timeTriggers === "object" ? JSON.parse(JSON.stringify(QLab.timeTriggers)) : {}
+  });
+
+  const restoreState = (saved) => {
+    if (!saved || typeof saved !== "object") return;
+    if (saved.cueLinks && typeof saved.cueLinks === "object" && !Array.isArray(saved.cueLinks)) QLab.cueLinks = JSON.parse(JSON.stringify(saved.cueLinks));
+    if (saved.timeTriggers && typeof saved.timeTriggers === "object" && !Array.isArray(saved.timeTriggers)) QLab.timeTriggers = JSON.parse(JSON.stringify(saved.timeTriggers));
+    QLab.saveStoredLinks();
+    QLab.renderLinkEditor();
+    QLab.renderCueSync();
+    QLab.sendTimeTriggers();
+  };
+
+  const install = () => {
+    if (typeof window.saveShow !== "function" || typeof window.loadShow !== "function") {
+      setTimeout(install, 50);
+      return;
+    }
+    if (window.saveShow.__qlabWrapped) return;
+
+    const originalSaveShow = window.saveShow;
+    window.saveShow = function qlabAwareSaveShow(){
+      const OriginalBlob = window.Blob;
+      window.Blob = function QLabShowBlob(parts, options){
+        try {
+          if (Array.isArray(parts) && parts.length === 1 && typeof parts[0] === "string" && String(options?.type || "").toLowerCase() === "application/json") {
+            const data = JSON.parse(parts[0]);
+            data.qlab = getState();
+            data.version = Math.max(Number(data.version) || 0, 5);
+            parts = [JSON.stringify(data, null, 2)];
+          }
+        } catch (e) { console.warn("[QLAB] show-file save injection failed", e); }
+        return new OriginalBlob(parts, options);
+      };
+      try { return originalSaveShow.apply(this, arguments); }
+      finally { window.Blob = OriginalBlob; }
+    };
+    window.saveShow.__qlabWrapped = true;
+
+    const originalLoadShow = window.loadShow;
+    window.loadShow = function qlabAwareLoadShow(jsonData){
+      try {
+        const data = typeof jsonData === "string" ? JSON.parse(jsonData) : jsonData;
+        if (data && data.qlab) restoreState(data.qlab);
+      } catch (e) { console.warn("[QLAB] show-file load state read failed", e); }
+      return originalLoadShow.apply(this, arguments);
+    };
+    window.loadShow.__qlabWrapped = true;
+    console.log("[QLAB] show-file persistence installed");
+  };
+
+  install();
+})();

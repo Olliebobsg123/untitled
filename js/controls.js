@@ -72,5 +72,95 @@
     const attach=()=>{const pad=document.querySelector(".xy-pad"),dot=document.getElementById("xy");if(!pad||!dot||pad.dataset.multiFixtureXYFix==="1")return;pad.dataset.multiFixtureXYFix="1";dot.style.pointerEvents="auto";pad.style.touchAction="none";let dragging=false,pointerId=null;pad.addEventListener("pointerdown",e=>{if(e.button!==0||!isDotTarget(e))return;e.preventDefault();e.stopImmediatePropagation();dragging=true;pointerId=e.pointerId;try{pad.setPointerCapture(pointerId);}catch(_){}applyPosition(pad,e);},true);pad.addEventListener("pointermove",e=>{if(!dragging||e.pointerId!==pointerId)return;e.preventDefault();e.stopImmediatePropagation();applyPosition(pad,e);},true);const stop=e=>{if(pointerId!==null&&e.pointerId!==pointerId)return;dragging=false;try{if(pointerId!==null)pad.releasePointerCapture(pointerId);}catch(_){}pointerId=null;};pad.addEventListener("pointerup",stop,true);pad.addEventListener("pointercancel",stop,true);pad.addEventListener("lostpointercapture",()=>{dragging=false;pointerId=null;},true);};
     if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",attach,{once:true});else attach();
   }
+
+  // Live strobe control. Kept in controls.js with the other live-control UI
+  // helpers so the control is available from the normal renderer load path.
+  if (!window.__strobeControl) {
+    window.__strobeControl = true;
+    const $ = id => document.getElementById(id);
+    let strobeAttempts = 0;
+
+    const getStrobeFixtures = () => {
+      const state = window.State;
+      if (!state || !Array.isArray(state.fixtures)) return [];
+      const ids = state.selected instanceof Set ? [...state.selected] : [];
+      if (!ids.length && state.selectedFixtureId != null) ids.push(state.selectedFixtureId);
+      return state.fixtures.filter(f => ids.some(id => String(id) === String(f?.id)));
+    };
+
+    const getStrobeState = fixture => {
+      if (!fixture) return null;
+      if (typeof window.ensureFixtureState === "function") return window.ensureFixtureState(fixture.id);
+      const state = window.State;
+      if (!(state.fixtureStates instanceof Map)) state.fixtureStates = new Map();
+      if (!state.fixtureStates.has(fixture.id)) {
+        state.fixtureStates.set(fixture.id, { ...(state.current || {}), strobe: 0 });
+      }
+      return state.fixtureStates.get(fixture.id);
+    };
+
+    const applyStrobe = value => {
+      const strobe = Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+      const fixtures = getStrobeFixtures();
+      if (!fixtures.length) return;
+
+      for (const fixture of fixtures) {
+        const state = getStrobeState(fixture);
+        if (!state) continue;
+        state.strobe = strobe;
+        window.State.fixtureStates.set(fixture.id, state);
+      }
+
+      window.State.current ||= {};
+      window.State.current.strobe = strobe;
+      $("strobeVal")?.replaceChildren(String(strobe));
+      if (typeof window.updateDMX === "function") window.updateDMX();
+      if (typeof window.sendToVisualizer === "function") window.sendToVisualizer();
+    };
+
+    const installStrobe = () => {
+      const existing = $("strobe");
+      if (existing) {
+        existing.min = "0";
+        existing.max = "255";
+        existing.step = "1";
+        existing.setAttribute("aria-label", "Strobe");
+        if (!existing.dataset.controlsStrobeBound) {
+          existing.dataset.controlsStrobeBound = "1";
+          existing.addEventListener("input", () => applyStrobe(existing.value));
+          existing.addEventListener("change", () => applyStrobe(existing.value));
+        }
+        return true;
+      }
+
+      const intensity = $("intensity");
+      if (!intensity) return false;
+
+      const sourceRow = intensity.closest(".form-row") || intensity.parentElement;
+      if (!sourceRow?.parentElement) return false;
+      if ($("liveStrobeRow")) return true;
+
+      const row = document.createElement("div");
+      row.className = sourceRow.className || "form-row";
+      row.id = "liveStrobeRow";
+      row.innerHTML = '<label>Strobe <strong id="strobeVal">0</strong></label><input type="range" id="strobe" min="0" max="255" step="1" value="0">';
+      sourceRow.parentElement.insertBefore(row, sourceRow.nextSibling);
+
+      const slider = $("strobe");
+      slider.addEventListener("input", () => applyStrobe(slider.value));
+      slider.addEventListener("change", () => applyStrobe(slider.value));
+      return true;
+    };
+
+    const waitForStrobe = () => {
+      if (installStrobe()) return;
+      strobeAttempts += 1;
+      if (strobeAttempts < 150) setTimeout(waitForStrobe, 100);
+    };
+
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", waitForStrobe, { once: true });
+    else waitForStrobe();
+  }
+
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",refreshVisibility,{once:true});else refreshVisibility();
 })();

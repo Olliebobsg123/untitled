@@ -19,11 +19,18 @@ function snapshotShowFixtureStates(){
   return result;
 }
 
+// Capture the running effect, including its exact fixture target set.
 function snapshotShowEffect(){
   if(!State.activeEffect||!State.activeEffect.type)return null;
   const effect=showClone(State.activeEffect);
   if(Array.isArray(effect.fixtureIds))effect.fixtureIds=[...new Set(effect.fixtureIds.map(String))];
   return effect;
+}
+
+// Capture every named/saved effect as well as the currently running effect.
+function snapshotShowEffects(){
+  const effects=showClone(State.savedEffects||{});
+  return effects&&typeof effects==="object"&&!Array.isArray(effects)?effects:{};
 }
 
 function snapshotShowChases(){
@@ -49,11 +56,11 @@ function saveShow(){
     const cues=Array.isArray(State.cues)?State.cues.map(cue=>showClone(cue)):[];
     const chases=snapshotShowChases();
     const activeEffect=snapshotShowEffect();
-    const savedEffects=showClone(State.savedEffects||{});
+    const savedEffects=snapshotShowEffects();
     const multiOutputs=getMultiOutputShowState();
 
     const showData={
-      version:2,
+      version:3,
       fixtures:showClone(State.fixtures||[]),
       groups:showClone(State.groups||[]),
       cues,
@@ -61,8 +68,11 @@ function saveShow(){
       fixtureStates:snapshotShowFixtureStates(),
       current:showClone(State.current||{}),
       selected:State.selected instanceof Set?[...State.selected]:[],
+      // Effects are deliberately stored under both names for compatibility
+      // with older/newer show files and to make the show format self-describing.
       activeEffect,
       savedEffects,
+      effects:savedEffects,
       effectTargetMode:State.effectTargetMode||"selected",
       effectTargetIds:State.effectTargetIds instanceof Set?[...State.effectTargetIds]:[],
       currentCue:Number.isInteger(State.currentCue)?State.currentCue:-1,
@@ -86,7 +96,7 @@ function saveShow(){
     setTimeout(()=>URL.revokeObjectURL(url),1000);
 
     console.log("[SHOW] save completed",{fixtures:showData.fixtures.length,cues:showData.cues.filter(Boolean).length,chases:showData.chases.length,activeEffect:!!activeEffect,savedEffects:Object.keys(savedEffects).length,outputs:multiOutputs.length});
-    if(typeof log==="function")log(`Show saved — ${showData.cues.filter(Boolean).length} cues, ${chases.length} chases${activeEffect?", active effect":""}`,"ok");
+    if(typeof log==="function")log(`Show saved — ${showData.cues.filter(Boolean).length} cues, ${chases.length} chases, ${Object.keys(savedEffects).length} effects${activeEffect?", active effect":""}`,"ok");
   }catch(e){
     console.error("[SHOW] save failed",e);
     if(typeof log==="function")log("Failed to save show","warn");
@@ -113,7 +123,15 @@ function restoreShowSelection(ids){
   State.selected=new Set();
   if(!Array.isArray(ids))return;
   const valid=new Set((State.fixtures||[]).map(f=>String(f?.id)));
-  ids.forEach(id=>{if(valid.has(String(id)))State.selected.add(id)});
+  ids.forEach(id=>{if(valid.has(String(id)))State.selected.add(id)})
+}
+
+function refreshShowEffectsUI(){
+  try{
+    if(typeof window.renderEffects==='function')window.renderEffects();
+    if(typeof window.renderSavedEffects==='function')window.renderSavedEffects();
+    if(typeof window.wireEffectButtons==='function')window.wireEffectButtons();
+  }catch(e){console.warn("[SHOW] effects UI refresh failed",e)}
 }
 
 function loadShow(jsonData){
@@ -136,7 +154,11 @@ function loadShow(jsonData){
     restoreShowFixtureStates(data.fixtureStates);
     restoreShowSelection(data.selected);
 
-    State.savedEffects=data.savedEffects&&typeof data.savedEffects==="object"?showClone(data.savedEffects):{};
+    // Prefer savedEffects, but accept the explicit effects key from v3 files.
+    const effectLibrary=data.savedEffects&&typeof data.savedEffects==="object"&&!Array.isArray(data.savedEffects)
+      ?data.savedEffects
+      :(data.effects&&typeof data.effects==="object"&&!Array.isArray(data.effects)?data.effects:{});
+    State.savedEffects=showClone(effectLibrary);
     State.effectTargetMode=data.effectTargetMode||"selected";
     State.effectTargetIds=new Set(Array.isArray(data.effectTargetIds)?data.effectTargetIds.map(String):[]);
 
@@ -156,6 +178,7 @@ function loadShow(jsonData){
     if(typeof renderCues==="function")renderCues();
     if(typeof renderChases==="function")renderChases();
     if(typeof updateInspectorList==="function")updateInspectorList();
+    refreshShowEffectsUI();
     if(typeof rebuildFixtures==="function")setTimeout(()=>rebuildFixtures(),100);
     if(typeof updateDMX==="function")updateDMX();
     if(typeof sendToVisualizer==="function")sendToVisualizer();
@@ -184,7 +207,7 @@ function loadShow(jsonData){
       savedEffects:Object.keys(State.savedEffects||{}).length,
       outputs:Array.isArray(data.multiOutputs)?data.multiOutputs.length:0
     });
-    if(typeof log==="function")log(`Show loaded — ${State.cues.filter(Boolean).length} cues, ${State.chases.length} chases${activeEffect?", effect restored":""}${activeChase>=0?", chase restored":""}`,"ok");
+    if(typeof log==="function")log(`Show loaded — ${State.cues.filter(Boolean).length} cues, ${State.chases.length} chases, ${Object.keys(State.savedEffects||{}).length} effects${activeEffect?", effect restored":""}${activeChase>=0?", chase restored":""}`,"ok");
   }catch(e){
     console.error("[SHOW] load failed",e);
     if(typeof log==="function")log("Load failed: invalid file","warn");

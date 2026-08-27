@@ -124,7 +124,7 @@
     console.log("🖥️ Visualiser sync guard enabled");
   }
 
-  // Multi-fixture pan/tilt fix. XY input must remain confined to the pad.
+  // Multi-fixture pan/tilt fix. XY input must only start when the dot is grabbed.
   if (!window.__multiFixtureXYFix) {
     window.__multiFixtureXYFix = true;
 
@@ -152,9 +152,15 @@
       return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
     };
 
+    const isXYDotTarget = event => {
+      const dot = document.getElementById("xy");
+      if (!dot || !event?.target) return false;
+      return event.target === dot || (typeof event.target.closest === "function" && event.target.closest("#xy") === dot);
+    };
+
     const applyMultiFixtureXY = event => {
       const pad = document.querySelector(".xy-pad");
-      if (!pad || !event) return;
+      if (!pad || !event || !isXYDotTarget(event)) return;
       const selected = getSelectedFixtures();
       if (selected.length <= 1) return;
 
@@ -164,8 +170,6 @@
       const clientY = Number(event.clientY);
       if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return;
 
-      // Pointer capture means pointermove can still arrive after the cursor has
-      // left the pad. Never clamp an outside position to the edge: just ignore it.
       if (!pointInsidePad(pad, clientX, clientY)) return;
 
       const x = (clientX - rect.left) / rect.width;
@@ -203,14 +207,22 @@
       if (!pad || pad.dataset.multiFixtureXYFix === "1") return;
       pad.dataset.multiFixtureXYFix = "1";
 
-      // The dot is only a visual indicator. It must never become a separate
-      // drag target that interferes with the pad's own pointer handling.
+      // The dot is the only place that starts an XY drag. It remains clickable.
       const dot = document.getElementById("xy");
-      if (dot) dot.style.pointerEvents = "none";
+      if (dot) dot.style.pointerEvents = "auto";
 
-      // Capture phase runs before app.js's bubbling pointermove handler. If the
-      // pointer has been captured and leaves the pad, stop that event here so
-      // app.js cannot clamp it to the pad's edge and keep moving the fixtures.
+      // Block app.js's pad-wide pointerdown unless the user actually grabbed the dot.
+      // This is capture-phase so the existing app.js handler never starts dragging
+      // when the user merely moves/clicks elsewhere inside the grid.
+      pad.addEventListener("pointerdown", event => {
+        if (!isXYDotTarget(event)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+
+      // If a drag was legitimately started on the dot, outside-pad movement is ignored
+      // rather than being clamped to an edge.
       pad.addEventListener("pointermove", event => {
         if (!pointInsidePad(pad, Number(event.clientX), Number(event.clientY))) {
           event.stopImmediatePropagation();
@@ -224,7 +236,7 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", attachXYFix, { once: true });
     else attachXYFix();
 
-    console.log("🎯 Multi-fixture pan/tilt fix enabled — outside-pad movement ignored");
+    console.log("🎯 Multi-fixture pan/tilt fix enabled — grab the XY dot to drag");
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", refreshVisibility, { once: true });

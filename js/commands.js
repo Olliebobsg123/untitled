@@ -230,17 +230,35 @@ function parseCommand(cmd){
     if(g=c.match(/^(.*?)\s+colou?r\s+(\w+)$/)){
       const grp=State.groups.find(x=>String(x.name).toLowerCase()===g[1].trim().toLowerCase()),col=cueColours[g[2]];if(!grp)return log(`Group "${g[1].trim()}" not found`,'warn');if(!col)return log(`Unknown colour: ${g[2]}`,'warn');selectGroup(grp);applyColour(col);return log(`"${grp.name}" → ${g[2]}`,'ok');
     }
-    if(ch=c.match(/^chase\s+(\d+)\s*=\s*((?:\d+\s*,\s*)*\d+)\s+speed\s+(\d+)$/)){
-      const id=Number(ch[1]),cues=ch[2].split(',').map(Number).filter(n=>!isNaN(n)),spd=Math.max(100,Number(ch[3]));
-      Chases[id]={cues,speed:spd,idx:0};return log(`Chase ${id} = Cues ${cues.join(', ')} @ ${spd}ms`,'ok');
-    }
-    if(/^run\s+chase\s+(\d+)$/.test(c)){
-      const id=Number(RegExp.$1);if(!Chases[id])return log(`Chase ${id} not found`,'warn');if(ActiveChase)clearInterval(ActiveChase);
-      ActiveChase=setInterval(()=>{const o=Chases[id];if(!o)return clearInterval(ActiveChase);const t=o.cues[o.idx];if(State.cues[t-1])goToCue(t-1);o.idx=(o.idx+1)%o.cues.length;},Chases[id].speed);
-      return log(`Running Chase ${id}`,'ok');
-    }
-    if(/^(stop|halt)\s+chase$/.test(c)){if(ActiveChase)clearInterval(ActiveChase);ActiveChase=null;return log('Chase stopped','ok');}
+    // ==============================================
+// CHASE COMMANDS
+// ==============================================
 
+// Run Chase 1 -> uses the actual chase engine in chases.js.
+if ((m = c.match(/^run\s+chase\s+(\d+)$/))) {
+  const chaseNumber = Number(m[1]);
+  const chaseIndex = chaseNumber - 1;
+
+  if (!Array.isArray(State.chases) || !State.chases[chaseIndex]) {
+    return log(`Chase ${chaseNumber} not found`, 'warn');
+  }
+
+  if (typeof window.startChase !== 'function') {
+    return log('Chase engine is not loaded', 'error');
+  }
+
+  return window.startChase(chaseIndex);
+}
+
+// Stop Chase / Stop Chase 1 -> stops the actual active chase.
+if (/^(stop|halt)\s+chase(?:\s+\d+)?$/.test(c)) {
+  if (typeof window.stopChase !== 'function') {
+    return log('Chase engine is not loaded', 'error');
+  }
+
+  window.stopChase();
+  return log('Chase stopped', 'ok');
+}
     const rec=c.match(/^record\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))(?:\s+(.+))?$/);
     if(rec){const cues=parseSelection(rec[1]),nm=rec[3]?.trim()||'Cue';cues.forEach((n)=>recordCue(n,cues.length>1?`${nm} ${n}`:nm));return log(`Recorded: ${cues.join(', ')}`,'ok');}
     const delcue=c.match(/^delete\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/);

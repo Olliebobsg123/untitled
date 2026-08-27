@@ -12,18 +12,12 @@
     const state = window.State;
     const library = window.FixtureLibrary;
     let nextDisplay = "none";
-
     if (state && state.selected instanceof Set && state.selected.size) {
-      const fixture = Array.isArray(state.fixtures)
-        ? state.fixtures.find(item => state.selected.has(item?.id))
-        : null;
-      const definition = fixture && library && typeof library === "object"
-        ? library[fixture.name]
-        : null;
+      const fixture = Array.isArray(state.fixtures) ? state.fixtures.find(item => state.selected.has(item?.id)) : null;
+      const definition = fixture && library && typeof library === "object" ? library[fixture.name] : null;
       const map = definition && typeof definition.map === "object" ? definition.map : {};
       if (typeof map.pan === "number" || typeof map.tilt === "number") nextDisplay = "";
     }
-
     if (nextDisplay !== lastPadDisplay) {
       xyPad.style.display = nextDisplay;
       lastPadDisplay = nextDisplay;
@@ -46,13 +40,7 @@
 
     function fixtureSignature() {
       const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
-      return JSON.stringify(fixtures.map(f => ({
-        id: f?.id ?? null,
-        fixtureNumber: f?.fixtureNumber ?? null,
-        name: f?.name ?? null,
-        uni: f?.uni ?? f?.universe ?? null,
-        addr: f?.addr ?? f?.address ?? f?.startAddress ?? null
-      })));
+      return JSON.stringify(fixtures.map(f => ({ id: f?.id ?? null, fixtureNumber: f?.fixtureNumber ?? null, name: f?.name ?? null, uni: f?.uni ?? f?.universe ?? null, addr: f?.addr ?? f?.address ?? f?.startAddress ?? null })));
     }
 
     function updateSelectionOnly() {
@@ -62,7 +50,6 @@
       if (!list) return false;
       const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
       if (list.children.length !== fixtures.length) return false;
-
       fixtures.forEach((fixture, index) => {
         const el = list.children[index];
         if (!el || el.dataset.fixtureId !== String(fixture?.id ?? "")) throw new Error("fixture DOM topology changed");
@@ -108,7 +95,6 @@
       }
       refreshVisibility();
     };
-
     window.__stableFixtureRenderer = true;
     console.log("🖥️ Stable fixture renderer enabled — selection no longer rebuilds the fixture list");
   }
@@ -138,19 +124,14 @@
     console.log("🖥️ Visualiser sync guard enabled");
   }
 
-  // Multi-fixture pan/tilt fix.
-  // IMPORTANT: do not listen on window for pointer events. The old implementation
-  // did that, which made the XY pad react to mouse/pointer movement anywhere on
-  // the page. Instead, attach only to the actual XY pad and only while dragging.
+  // Multi-fixture pan/tilt fix. XY input must remain confined to the pad.
   if (!window.__multiFixtureXYFix) {
     window.__multiFixtureXYFix = true;
 
     const getSelectedFixtures = () => {
       const state = window.State;
       if (!state || !(state.selected instanceof Set) || !state.selected.size) return [];
-      return [...state.selected]
-        .map(id => state.fixtures?.find(f => f?.id === id))
-        .filter(Boolean);
+      return [...state.selected].map(id => state.fixtures?.find(f => f?.id === id)).filter(Boolean);
     };
 
     const getDefinition = fixture => {
@@ -166,24 +147,31 @@
       return state.fixtureStates.get(fixture.id);
     };
 
+    const pointInsidePad = (pad, clientX, clientY) => {
+      const rect = pad.getBoundingClientRect();
+      return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    };
+
     const applyMultiFixtureXY = event => {
       const pad = document.querySelector(".xy-pad");
       if (!pad || !event) return;
-
       const selected = getSelectedFixtures();
       if (selected.length <= 1) return;
 
       const rect = pad.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-
       const clientX = Number(event.clientX);
       const clientY = Number(event.clientY);
       if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return;
 
-      const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-      const pan = Math.round(x * 255);
-      const tilt = Math.round((1 - y) * 255);
+      // Pointer capture means pointermove can still arrive after the cursor has
+      // left the pad. Never clamp an outside position to the edge: just ignore it.
+      if (!pointInsidePad(pad, clientX, clientY)) return;
+
+      const x = (clientX - rect.left) / rect.width;
+      const y = (clientY - rect.top) / rect.height;
+      const pan = Math.round(Math.max(0, Math.min(1, x)) * 255);
+      const tilt = Math.round((1 - Math.max(0, Math.min(1, y))) * 255);
 
       let changed = 0;
       for (const fixture of selected) {
@@ -196,12 +184,11 @@
         window.State.fixtureStates.set(fixture.id, state);
         changed++;
       }
-
       if (!changed) return;
+
       window.State.current ||= {};
       window.State.current.pan = pan;
       window.State.current.tilt = tilt;
-
       const dot = document.getElementById("xy");
       if (dot) {
         dot.style.left = `${(pan / 255) * 100}%`;
@@ -211,13 +198,25 @@
       if (typeof window.sendToVisualizer === "function") window.sendToVisualizer();
     };
 
-    // Listen ONLY on the pad. Pointer capture/dragging remains owned by app.js;
-    // these events merely mirror the final pad position to the other selected
-    // fixtures. A click or movement outside the pad can no longer affect XY.
     const attachXYFix = () => {
       const pad = document.querySelector(".xy-pad");
       if (!pad || pad.dataset.multiFixtureXYFix === "1") return;
       pad.dataset.multiFixtureXYFix = "1";
+
+      // The dot is only a visual indicator. It must never become a separate
+      // drag target that interferes with the pad's own pointer handling.
+      const dot = document.getElementById("xy");
+      if (dot) dot.style.pointerEvents = "none";
+
+      // Capture phase runs before app.js's bubbling pointermove handler. If the
+      // pointer has been captured and leaves the pad, stop that event here so
+      // app.js cannot clamp it to the pad's edge and keep moving the fixtures.
+      pad.addEventListener("pointermove", event => {
+        if (!pointInsidePad(pad, Number(event.clientX), Number(event.clientY))) {
+          event.stopImmediatePropagation();
+        }
+      }, true);
+
       pad.addEventListener("pointerdown", applyMultiFixtureXY);
       pad.addEventListener("pointermove", applyMultiFixtureXY);
     };
@@ -225,7 +224,7 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", attachXYFix, { once: true });
     else attachXYFix();
 
-    console.log("🎯 Multi-fixture pan/tilt fix enabled — XY input is pad-only");
+    console.log("🎯 Multi-fixture pan/tilt fix enabled — outside-pad movement ignored");
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", refreshVisibility, { once: true });

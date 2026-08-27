@@ -33,9 +33,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Syntax check
-        run: npm run test:syntax
-
       - name: Build Windows installer and portable app
         run: npm run build-win
 

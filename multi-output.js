@@ -42,17 +42,16 @@ function frameFor(universe) {
   return universes.get(key) || Buffer.alloc(512, 0);
 }
 
-// The fixture patch is 1-based, while Art-Net's Port-Address universe is 0-based.
-// Keep the frame lookup conversion here so continuous network output uses the
-// same patch universe that sendDMX() populated. sACN remains 1-based.
+// Multi-output universe numbers are the same universe keys produced by the
+// patcher. Do not offset Art-Net by one: the Art-Net packet's Port-Address is
+// already carried separately in buildArtDMX().
 function sourceUniverseFor(output) {
-  const u = Number(output.universe);
-  return output.protocol === 'sacn' ? Math.max(1, u) : Math.max(1, u + 1);
+  return Number(output.universe);
 }
 
 function buildArtDMX(frame, universe) {
   const packet = Buffer.alloc(530);
-  Buffer.from('Art-Net\\0', 'ascii').copy(packet, 0);
+  Buffer.from('Art-Net\0', 'ascii').copy(packet, 0);
   packet.writeUInt16LE(0x5000, 8);
   packet.writeUInt16BE(14, 10);
   packet[12] = artnetSequence = (artnetSequence + 1) & 0xff;
@@ -71,7 +70,7 @@ function buildSacn(frame, universe, priority = 100) {
   const packet = Buffer.alloc(638);
   packet.writeUInt16BE(0x0010, 0);
   packet.writeUInt16BE(0x0000, 2);
-  Buffer.from('ASC-E1.17\\0\\0\\0', 'ascii').copy(packet, 4, 0, 12);
+  Buffer.from('ASC-E1.17\0\0\0', 'ascii').copy(packet, 4, 0, 12);
   setFlagsAndLength(packet, 16, 620);
   packet.writeUInt32BE(0x00000004, 18);
   cid.copy(packet, 22);

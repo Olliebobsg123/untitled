@@ -241,7 +241,7 @@ function broadcastStatus() {
 async function listUsbPorts() {
   const ports = await SerialPort.list();
   const seen = new Set();
-  return ports.filter(p => { const path = String(p.path || ''); const key = path.replace(/^\\/dev\\/(tty|cu)\\./, ''); if (seen.has(key)) return false; seen.add(key); return true; }).map(p => ({ path: p.path, manufacturer: p.manufacturer || null, product: p.product || null, serialNumber: p.serialNumber || null, locationId: p.locationId || null, vendorId: p.vendorId || null, productId: p.productId || null }));
+  return ports.filter(p => { const path = String(p.path || ''); const key = path.replace(/^\/dev\/(tty|cu)\./, ''); if (seen.has(key)) return false; seen.add(key); return true; }).map(p => ({ path: p.path, manufacturer: p.manufacturer || null, product: p.product || null, serialNumber: p.serialNumber || null, locationId: p.locationId || null, vendorId: p.vendorId || null, productId: p.productId || null }));
 }
 
 wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });

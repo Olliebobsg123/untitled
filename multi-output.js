@@ -11,6 +11,8 @@ const MAX_OUTPUTS = 10;
 const USB_RATES = [10, 15, 20, 25, 30, 35, 40];
 const NETWORK_REFRESH_RATE = 40;
 const NETWORK_INTERVAL = Math.round(1000 / NETWORK_REFRESH_RATE);
+const DEFAULT_NETWORK_TARGET = process.env.LIGHTING_CONSOLE_NETWORK_TARGET || '192.168.1.1';
+const WS_KEEPALIVE_INTERVAL = 15000;
 
 const outputs = new Map();
 const universes = new Map();
@@ -41,13 +43,12 @@ function frameFor(universe) {
 }
 
 function sourceUniverseFor(output) {
-  const u = Number(output.universe);
-  return output.protocol === 'sacn' ? Math.max(1, u) : Math.max(1, u + 1);
+  return Number(output.universe);
 }
 
 function buildArtDMX(frame, universe) {
   const packet = Buffer.alloc(530);
-  Buffer.from('Art-Net\0', 'ascii').copy(packet, 0);
+  Buffer.from('Art-Net\\0', 'ascii').copy(packet, 0);
   packet.writeUInt16LE(0x5000, 8);
   packet.writeUInt16BE(14, 10);
   packet[12] = artnetSequence = (artnetSequence + 1) & 0xff;
@@ -66,7 +67,7 @@ function buildSacn(frame, universe, priority = 100) {
   const packet = Buffer.alloc(638);
   packet.writeUInt16BE(0x0010, 0);
   packet.writeUInt16BE(0x0000, 2);
-  Buffer.from('ASC-E1.17\0\0\0', 'ascii').copy(packet, 4, 0, 12);
+  Buffer.from('ASC-E1.17\\0\\0\\0', 'ascii').copy(packet, 4, 0, 12);
   setFlagsAndLength(packet, 16, 620);
   packet.writeUInt32BE(0x00000004, 18);
   cid.copy(packet, 22);
@@ -178,7 +179,7 @@ async function configureOutput(config) {
     universe: protocol === 'sacn' ? clamp(config.universe, 1, 63999, 1) : clamp(config.universe, 0, 32767, 0),
     refreshRate: USB_RATES.includes(Number(config.refreshRate)) ? Number(config.refreshRate) : (previous?.refreshRate || 25),
     enabled: Boolean(config.enabled),
-    target: String(config.target || (protocol === 'artnet' ? '192.168.1.1' : '127.0.0.1')).trim(),
+    target: String(config.target || DEFAULT_NETWORK_TARGET).trim(),
     multicast: protocol === 'sacn' ? Boolean(config.multicast) : false,
     priority: clamp(config.priority, 0, 200, 100),
     connected: previous?.connected || false, error: null,
@@ -219,11 +220,11 @@ function sendNetwork(output) {
   const frame = frameFor(sourceUniverseFor(output));
   if (output.protocol === 'sacn') {
     const universe = clamp(output.universe, 1, 63999, 1);
-    const target = output.multicast ? sacnTarget(universe) : (output.target || '127.0.0.1');
+    const target = output.multicast ? sacnTarget(universe) : (output.target || DEFAULT_NETWORK_TARGET);
     sacnSocket.send(buildSacn(frame, universe, output.priority), 5568, target, err => { if (err) output.error = err.message; else output.tx = (output.tx || 0) + 1; });
     return;
   }
-  const target = output.target || '192.168.1.1';
+  const target = output.target || DEFAULT_NETWORK_TARGET;
   artnetSocket.send(buildArtDMX(frame, output.universe), 6454, target, err => { if (err) output.error = err.message; else output.tx = (output.tx || 0) + 1; });
 }
 
@@ -240,7 +241,7 @@ function broadcastStatus() {
 async function listUsbPorts() {
   const ports = await SerialPort.list();
   const seen = new Set();
-  return ports.filter(p => { const path = String(p.path || ''); const key = path.replace(/^\/dev\/(tty|cu)\./, ''); if (seen.has(key)) return false; seen.add(key); return true; }).map(p => ({ path: p.path, manufacturer: p.manufacturer || null, product: p.product || null, serialNumber: p.serialNumber || null, locationId: p.locationId || null, vendorId: p.vendorId || null, productId: p.productId || null }));
+  return ports.filter(p => { const path = String(p.path || ''); const key = path.replace(/^\\/dev\\/(tty|cu)\\./, ''); if (seen.has(key)) return false; seen.add(key); return true; }).map(p => ({ path: p.path, manufacturer: p.manufacturer || null, product: p.product || null, serialNumber: p.serialNumber || null, locationId: p.locationId || null, vendorId: p.vendorId || null, productId: p.productId || null }));
 }
 
 wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
@@ -267,7 +268,13 @@ wss.on('connection', ws => {
   });
 });
 
+const keepAliveTimer = setInterval(() => {
+  if (!wss) return;
+  wss.clients.forEach(ws => { if (ws.readyState === WebSocket.OPEN) { try { ws.ping(); } catch (_) {} } });
+}, WS_KEEPALIVE_INTERVAL);
+
 async function shutdown() {
+  clearInterval(keepAliveTimer);
   for (const output of outputs.values()) stopOutput(output);
   try { artnetSocket.close(); } catch (_) {}
   try { sacnSocket.close(); } catch (_) {}

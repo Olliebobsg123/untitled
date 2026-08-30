@@ -1,5 +1,34 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const fs = require('fs');
+const vm = require('vm');
 const path = require('path');
+
+const SHOW_FILE_PATH = path.join(__dirname, 'js', 'shows.js');
+let showFileTemplate = null;
+try { showFileTemplate = fs.readFileSync(SHOW_FILE_PATH, 'utf8'); } catch (err) { console.warn('⚠️ Could not read js/shows.js:', err.message); }
+
+function readShowFile() {
+  try {
+    const source = fs.readFileSync(SHOW_FILE_PATH, 'utf8');
+    const sandbox = { window: {}, structuredClone: global.structuredClone, JSON, console };
+    vm.runInNewContext(source, sandbox, { filename: SHOW_FILE_PATH });
+    return sandbox.window.__SHOW_DATA__ || null;
+  } catch (err) {
+    console.warn('⚠️ Could not load js/shows.js:', err.message);
+    return null;
+  }
+}
+
+function writeShowFile(showData) {
+  if (!showData || typeof showData !== 'object') throw new Error('Invalid show data');
+  if (showFileTemplate == null) showFileTemplate = fs.readFileSync(SHOW_FILE_PATH, 'utf8');
+  const marker = 'window.__SHOW_DATA__ = ' + JSON.stringify(showData, null, 2) + ';\n';
+  fs.writeFileSync(SHOW_FILE_PATH, marker + showFileTemplate, 'utf8');
+  return true;
+}
+
+ipcMain.handle('show-file-load', () => readShowFile());
+ipcMain.handle('show-file-save', (_event, showData) => writeShowFile(showData));
 
 let mainWindow = null;
 let servicesStarted = false;
@@ -29,12 +58,24 @@ function buildApplicationMenu() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__storedShowBootstrap) return;
+        window.__storedShowBootstrap = true;
+        const load = () => {
+          if (typeof window.loadStoredShow === 'function') return window.loadStoredShow();
+          setTimeout(load, 100);
+        };
+        load();
+      })();
+    `).catch(err => console.error('❌ Stored show bootstrap failed:', err));
+
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__electronQLabBootstrap) return;

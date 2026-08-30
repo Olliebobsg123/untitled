@@ -1,0 +1,35 @@
+/* Home / Pan-Tilt control */
+.xy-home-control {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin-top: 10px;
+}
+
+#btnHome {
+  min-width: 92px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 7px;
+  background: #131b20;
+  border: 1px solid #2b383f;
+  color: #a9b6b2;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+
+#btnHome:hover {
+  background: #1a252b;
+  border-color: #19d6a3;
+  color: #54f2c8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(25,214,163,.12);
+}
+
+#btnHome:active {
+  transform: translateY(0);
+}

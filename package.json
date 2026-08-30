@@ -7,7 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test:syntax": "node --check main.js && node --check startup.js && node --check relay.js && node --check usb-dmx.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
+    "test:syntax": "node --check main.js && node --check startup.js && node --check relay.js && node --check usb-dmx.js && for f in js/*.js js/fixtures/*.js; do node --check \"$f\" || exit 1; done",
     "build-mac": "rm -rf Build && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never",
     "build-win": "npx electron-builder --win --publish never"
   },

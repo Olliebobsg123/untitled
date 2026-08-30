@@ -52,10 +52,6 @@
 
   if (!window.__multiFixtureXYFix) {
     window.__multiFixtureXYFix=true;
-
-    // Use both the logical selection and the rendered selection rows. This is
-    // deliberate: selectedFixtureId/activeFixture may point to only the last
-    // clicked fixture even when multiple fixture rows are selected.
     const getSelectedFixtures=()=>{
       const state=window.State;
       if(!state||!Array.isArray(state.fixtures))return [];
@@ -73,8 +69,6 @@
     if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",attach,{once:true});else attach();
   }
 
-  // Live strobe control. Kept in controls.js with the other live-control UI
-  // helpers so the control is available from the normal renderer load path.
   if (!window.__strobeControl) {
     window.__strobeControl = true;
     const $ = id => document.getElementById(id);
@@ -103,14 +97,12 @@
       const strobe = Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
       const fixtures = getStrobeFixtures();
       if (!fixtures.length) return;
-
       for (const fixture of fixtures) {
         const state = getStrobeState(fixture);
         if (!state) continue;
         state.strobe = strobe;
         window.State.fixtureStates.set(fixture.id, state);
       }
-
       window.State.current ||= {};
       window.State.current.strobe = strobe;
       $("strobeVal")?.replaceChildren(String(strobe));
@@ -121,9 +113,7 @@
     const installStrobe = () => {
       const existing = $("strobe");
       if (existing) {
-        existing.min = "0";
-        existing.max = "255";
-        existing.step = "1";
+        existing.min = "0"; existing.max = "255"; existing.step = "1";
         existing.setAttribute("aria-label", "Strobe");
         if (!existing.dataset.controlsStrobeBound) {
           existing.dataset.controlsStrobeBound = "1";
@@ -132,34 +122,41 @@
         }
         return true;
       }
-
       const intensity = $("intensity");
       if (!intensity) return false;
-
       const sourceRow = intensity.closest(".form-row") || intensity.parentElement;
       if (!sourceRow?.parentElement) return false;
       if ($("liveStrobeRow")) return true;
-
       const row = document.createElement("label");
       row.className = "range-control";
       row.id = "liveStrobeRow";
       row.innerHTML = '<span>Strobe</span><input type="range" id="strobe" min="0" max="255" step="1" value="0"><strong><span id="strobeVal">0</span></strong>';
       sourceRow.parentElement.insertBefore(row, sourceRow.nextSibling);
-
       const slider = $("strobe");
       slider.addEventListener("input", () => applyStrobe(slider.value));
       slider.addEventListener("change", () => applyStrobe(slider.value));
       return true;
     };
+    const waitForStrobe = () => { if (installStrobe()) return; strobeAttempts += 1; if (strobeAttempts < 150) setTimeout(waitForStrobe, 100); };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", waitForStrobe, { once: true }); else waitForStrobe();
+  }
 
-    const waitForStrobe = () => {
-      if (installStrobe()) return;
-      strobeAttempts += 1;
-      if (strobeAttempts < 150) setTimeout(waitForStrobe, 100);
+  // MA2 importer bootstrap. The importer itself is kept separate from the
+  // control code, but controls.js is guaranteed to load in the renderer.
+  if (!window.__ma2ImporterBootstrap) {
+    window.__ma2ImporterBootstrap = true;
+    const loadMA2Importer = () => {
+      if (window.MA2FixtureImport || document.querySelector('script[data-ma2-import="1"]')) return;
+      const script = document.createElement("script");
+      script.src = "js/ma2-import.js";
+      script.async = false;
+      script.dataset.ma2Import = "1";
+      script.onload = () => console.log("✅ MA2 fixture importer loaded");
+      script.onerror = err => console.error("❌ Failed to load MA2 fixture importer", err);
+      document.head.appendChild(script);
     };
-
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", waitForStrobe, { once: true });
-    else waitForStrobe();
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", loadMA2Importer, { once: true });
+    else loadMA2Importer();
   }
 
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",refreshVisibility,{once:true});else refreshVisibility();

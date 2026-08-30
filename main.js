@@ -76,7 +76,7 @@ function createWindow() {
         if (window.__multiOutputLoader) return;
         window.__multiOutputLoader = true;
         const script = document.createElement('script');
-        script.src = 'js/multi-output.js';
+        script.src = 'js/fixtures/multi-output.js';
         script.onload = () => console.log('✅ Multi-universe output UI loaded');
         script.onerror = err => console.error('❌ Multi-universe output UI failed to load:', err);
         document.head.appendChild(script);
@@ -225,7 +225,7 @@ function createWindow() {
         if (window.__fixtureImportLoader) return;
         window.__fixtureImportLoader = true;
         const script = document.createElement('script');
-        script.src = 'js/fixture-import.js';
+        script.src = 'js/fixtures/fixture-import.js';
         script.onload = () => console.log('✅ External fixture library importer loaded');
         script.onerror = err => console.error('❌ External fixture library importer failed to load:', err);
         document.head.appendChild(script);
@@ -237,7 +237,7 @@ function createWindow() {
         if (window.__gdtfImportLoader) return;
         window.__gdtfImportLoader = true;
         const script = document.createElement('script');
-        script.src = 'js/gdtf-import.js';
+        script.src = 'js/fixtures/gdtf-import.js';
         script.onload = () => console.log('✅ GDTF fixture importer loaded');
         script.onerror = err => console.error('❌ GDTF fixture importer failed to load:', err);
         document.head.appendChild(script);

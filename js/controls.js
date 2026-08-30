@@ -29,6 +29,15 @@
   }
   window.updateControlVisibility = refreshVisibility;
 
+  // Load the dedicated Home-button stylesheet used by this control layer.
+  if (!document.querySelector('link[data-home-button-css]')) {
+    const homeCss = document.createElement("link");
+    homeCss.rel = "stylesheet";
+    homeCss.href = "home-button.css";
+    homeCss.dataset.homeButtonCss = "1";
+    document.head?.appendChild(homeCss);
+  }
+
   if (typeof window.renderFixtures === "function" && !window.__stableFixtureRenderer) {
     const originalRenderFixtures = window.renderFixtures;
     let lastFixtureSignature = null, hasRendered = false;
@@ -106,11 +115,15 @@
       const button = document.createElement("button");
       button.id = "btnHome";
       button.type = "button";
-      button.textContent = "HOME";
+      button.className = "btn-secondary";
+      button.textContent = "⌂ HOME";
       button.title = "Centre Pan/Tilt for selected fixtures";
       button.setAttribute("aria-label", "Home selected fixtures Pan/Tilt");
+      const wrapper = document.createElement("div");
+      wrapper.className = "xy-home-control";
+      wrapper.appendChild(button);
       button.addEventListener("click", homeSelectedPanTilt);
-      xy.parentElement.appendChild(button);
+      xy.insertAdjacentElement("afterend", wrapper);
       return true;
     };
     let attempts = 0;

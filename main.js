@@ -219,6 +219,18 @@ function createWindow() {
         document.head.appendChild(script);
       })();
     `).catch(err => console.error('❌ Effect/chase command loader failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__fixtureImportLoader) return;
+        window.__fixtureImportLoader = true;
+        const script = document.createElement('script');
+        script.src = 'js/fixture-import.js';
+        script.onload = () => console.log('✅ External fixture library importer loaded');
+        script.onerror = err => console.error('❌ External fixture library importer failed to load:', err);
+        document.head.appendChild(script);
+      })();
+    `).catch(err => console.error('❌ Fixture importer loader failed:', err));
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });

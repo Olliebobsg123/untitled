@@ -2,126 +2,21 @@
 (() => {
   const norm = v => String(v ?? "").replace(/\s+/g, " ").trim();
   const key = v => norm(v).toLowerCase().replace(/[^a-z0-9]/g, "");
-
-  function availableChannels(fixture) {
-    const source = fixture?.availableChannels;
-    return source && typeof source === "object" ? source : {};
-  }
-  function channelDefinition(fixture, channelKey) {
-    const channels = availableChannels(fixture);
-    if (typeof channelKey !== "string") return null;
-    if (channels[channelKey]) return channels[channelKey];
-    const wanted = key(channelKey);
-    const found = Object.keys(channels).find(k => key(k) === wanted);
-    return found ? channels[found] : null;
-  }
-  function capabilityOf(channel) {
-    if (!channel || typeof channel !== "object") return null;
-    if (channel.capability && typeof channel.capability === "object") return channel.capability;
-    if (Array.isArray(channel.capabilities) && channel.capabilities.length) return channel.capabilities[0];
-    return null;
-  }
+  function availableChannels(fixture) { const source = fixture?.availableChannels; return source && typeof source === "object" ? source : {}; }
+  function channelDefinition(fixture, channelKey) { const channels = availableChannels(fixture); if (typeof channelKey !== "string") return null; if (channels[channelKey]) return channels[channelKey]; const wanted = key(channelKey); const found = Object.keys(channels).find(k => key(k) === wanted); return found ? channels[found] : null; }
+  function capabilityOf(channel) { if (!channel || typeof channel !== "object") return null; if (channel.capability && typeof channel.capability === "object") return channel.capability; if (Array.isArray(channel.capabilities) && channel.capabilities.length) return channel.capabilities[0]; return null; }
   function mapCapability(channelKey, channel) {
-    const name = key(channelKey), capability = capabilityOf(channel);
-    const type = key(capability?.type || channel?.type || "");
-    const colour = key(capability?.color || capability?.colour || channel?.color || channel?.colour || "");
-    const text = `${name} ${type} ${colour}`;
-    if (colour.includes("red") || name.includes("red") || type === "red") return "r";
-    if (colour.includes("green") || name.includes("green") || type === "green") return "g";
-    if (colour.includes("blue") || name.includes("blue") || type === "blue") return "b";
-    if (colour.includes("white") || name.includes("white") || type === "white") return "w";
-    if (colour.includes("amber") || name.includes("amber")) return "amber";
-    if (colour.includes("lime") || name.includes("lime")) return "lime";
-    if (colour.includes("cyan") || name.includes("cyan")) return "cyan";
-    if (colour.includes("magenta") || name.includes("magenta")) return "magenta";
-    if (colour.includes("yellow") || name.includes("yellow")) return "yellow";
-    if (colour === "uv" || colour.includes("ultraviolet") || name.includes("ultraviolet")) return "uv";
-    if (type.includes("intensity") || type === "dimmer" || name.includes("dimmer") || name === "dim") return "intensity";
-    if (type.includes("shutter") || type.includes("strobe") || name.includes("shutter") || name.includes("strobe")) return "strobe";
-    if (type.includes("pan") || name === "pan" || name.startsWith("pan")) return "pan";
-    if (type.includes("tilt") || name === "tilt" || name.startsWith("tilt")) return "tilt";
-    if (type.includes("zoom") || name.includes("zoom")) return "zoom";
-    if (type.includes("focus") || name.includes("focus")) return "focus";
-    if (type.includes("iris") || name.includes("iris")) return "iris";
-    if (type.includes("frost") || name.includes("frost")) return "frost";
-    if (type.includes("prism") || name.includes("prism")) return type.includes("rotation") || name.includes("rotation") ? "prismr" : "prism";
-    if (type.includes("gobo") || name.includes("gobo")) return type.includes("rotation") || name.includes("rotation") ? "gobor" : "gobo";
-    if (type.includes("effect") && (type.includes("speed") || name.includes("speed"))) return "speed";
-    if (type.includes("effect") || name.includes("effect")) return "effect";
-    if (type.includes("speed") || type.includes("rate") || name.includes("speed")) return "speed";
-    if (type.includes("macro") || name.includes("macro")) return "macro";
-    if (type.includes("colortemperature") || ["cto", "ctb", "ctc", "cct"].includes(type) || name.includes("temperature") || name === "ctc") return "cct";
-    if (type.includes("fog") || name.includes("fog")) return "fog";
-    if (type.includes("haze") || name.includes("haze")) return "haze";
-    if (type.includes("fan") || name.includes("fan")) return "fana";
-    if (text.includes("dimmer") || text.includes("intensity")) return "intensity";
-    return null;
+    const name = key(channelKey), capability = capabilityOf(channel); const type = key(capability?.type || channel?.type || ""); const colour = key(capability?.color || capability?.colour || channel?.color || channel?.colour || ""); const text = `${name} ${type} ${colour}`;
+    if (colour.includes("red") || name.includes("red") || type === "red") return "r"; if (colour.includes("green") || name.includes("green") || type === "green") return "g"; if (colour.includes("blue") || name.includes("blue") || type === "blue") return "b"; if (colour.includes("white") || name.includes("white") || type === "white") return "w";
+    if (colour.includes("amber") || name.includes("amber")) return "amber"; if (colour.includes("lime") || name.includes("lime")) return "lime"; if (colour.includes("cyan") || name.includes("cyan")) return "cyan"; if (colour.includes("magenta") || name.includes("magenta")) return "magenta"; if (colour.includes("yellow") || name.includes("yellow")) return "yellow"; if (colour === "uv" || colour.includes("ultraviolet") || name.includes("ultraviolet")) return "uv";
+    if (type.includes("intensity") || type === "dimmer" || name.includes("dimmer") || name === "dim") return "intensity"; if (type.includes("shutter") || type.includes("strobe") || name.includes("shutter") || name.includes("strobe")) return "strobe"; if (type.includes("pan") || name === "pan" || name.startsWith("pan")) return "pan"; if (type.includes("tilt") || name === "tilt" || name.startsWith("tilt")) return "tilt"; if (type.includes("zoom") || name.includes("zoom")) return "zoom"; if (type.includes("focus") || name.includes("focus")) return "focus"; if (type.includes("iris") || name.includes("iris")) return "iris"; if (type.includes("frost") || name.includes("frost")) return "frost"; if (type.includes("prism") || name.includes("prism")) return type.includes("rotation") || name.includes("rotation") ? "prismr" : "prism"; if (type.includes("gobo") || name.includes("gobo")) return type.includes("rotation") || name.includes("rotation") ? "gobor" : "gobo"; if (type.includes("effect") && (type.includes("speed") || name.includes("speed"))) return "speed"; if (type.includes("effect") || name.includes("effect")) return "effect"; if (type.includes("speed") || type.includes("rate") || name.includes("speed")) return "speed"; if (type.includes("macro") || name.includes("macro")) return "macro"; if (type.includes("colortemperature") || ["cto", "ctb", "ctc", "cct"].includes(type) || name.includes("temperature") || name === "ctc") return "cct"; if (type.includes("fog") || name.includes("fog")) return "fog"; if (type.includes("haze") || name.includes("haze")) return "haze"; if (type.includes("fan") || name.includes("fan")) return "fana"; if (text.includes("dimmer") || text.includes("intensity")) return "intensity"; return null;
   }
-  function expandModeChannels(fixture, mode) {
-    const raw = Array.isArray(mode?.channels) ? mode.channels : [], result = [];
-    const templates = fixture?.templateChannels && typeof fixture.templateChannels === "object" ? fixture.templateChannels : {};
-    const available = availableChannels(fixture);
-    for (const entry of raw) {
-      if (typeof entry === "string") {
-        if (available[entry] || Object.keys(available).some(k => key(k) === key(entry)) || templates[entry]) result.push(entry);
-      } else if (entry && entry.insert === "matrixChannels" && Array.isArray(entry.templateChannels)) {
-        for (const template of entry.templateChannels) if (typeof template === "string") result.push(template);
-      }
-    }
-    return result;
-  }
-  function definition(fixture, mode) {
-    const channelKeys = expandModeChannels(fixture, mode);
-    if (!channelKeys.length) throw new Error("No DMX channels in selected OFL mode.");
-    const map = {};
-    channelKeys.forEach((channelKey, index) => {
-      const channel = channelDefinition(fixture, channelKey) || fixture?.templateChannels?.[channelKey];
-      const mapped = mapCapability(channelKey, channel);
-      if (!mapped) return;
-      const channelName = key(channelKey), fine = channelName.includes("fine") || channelName.includes("16bit") || channelName.includes("24bit");
-      if (!fine && map[mapped] === undefined) map[mapped] = index;
-      else if (fine && map[`${mapped}Fine`] === undefined) map[`${mapped}Fine`] = index;
-    });
-    if (map.intensity !== undefined) map.dimmer ??= map.intensity;
-    if (map.dimmer !== undefined) map.intensity ??= map.dimmer;
-    if (!Object.keys(map).length) throw new Error("OFL mode contains channels, but no supported attributes were recognised.");
-    let type = "dimmer";
-    if (map.pan !== undefined || map.tilt !== undefined || map.zoom !== undefined || map.focus !== undefined) type = "moving";
-    else if (map.r !== undefined || map.g !== undefined || map.b !== undefined || map.w !== undefined || map.amber !== undefined) type = map.w !== undefined ? "rgbw" : "rgb";
-    else if (map.strobe !== undefined && map.intensity === undefined) type = "strobe";
-    return { type, channels: channelKeys.length, map, photometrics: { verified: false, sourceType: fixture?.physical?.bulb?.type || "UNKNOWN", ratedLumens: Number.isFinite(Number(fixture?.physical?.bulb?.lumens)) ? Number(fixture.physical.bulb.lumens) : null, beamAngle: null, beamAngleMin: null, beamAngleMax: null, outputScale: 1, manufacturer: fixture?.manufacturer || undefined, model: fixture?.name || undefined, sourceNote: "Imported from Open Fixture Library JSON. Verify the mode against the fixture manual." }, importedFrom: "Open Fixture Library", importedAt: new Date().toISOString(), importMeta: { mode: norm(mode?.name || mode?.shortName || ""), sourceChannels: channelKeys } };
-  }
+  function expandModeChannels(fixture, mode) { const raw = Array.isArray(mode?.channels) ? mode.channels : [], result = []; const templates = fixture?.templateChannels && typeof fixture.templateChannels === "object" ? fixture.templateChannels : {}; const available = availableChannels(fixture); for (const entry of raw) { if (typeof entry === "string") { if (available[entry] || Object.keys(available).some(k => key(k) === key(entry)) || templates[entry]) result.push(entry); } else if (entry && entry.insert === "matrixChannels" && Array.isArray(entry.templateChannels)) { for (const template of entry.templateChannels) if (typeof template === "string") result.push(template); } } return result; }
+  function definition(fixture, mode) { const channelKeys = expandModeChannels(fixture, mode); if (!channelKeys.length) throw new Error("No DMX channels in selected OFL mode."); const map = {}; channelKeys.forEach((channelKey, index) => { const channel = channelDefinition(fixture, channelKey) || fixture?.templateChannels?.[channelKey]; const mapped = mapCapability(channelKey, channel); if (!mapped) return; const channelName = key(channelKey), fine = channelName.includes("fine") || channelName.includes("16bit") || channelName.includes("24bit"); if (!fine && map[mapped] === undefined) map[mapped] = index; else if (fine && map[`${mapped}Fine`] === undefined) map[`${mapped}Fine`] = index; }); if (map.intensity !== undefined) map.dimmer ??= map.intensity; if (map.dimmer !== undefined) map.intensity ??= map.dimmer; if (!Object.keys(map).length) throw new Error("OFL mode contains channels, but no supported attributes were recognised."); let type = "dimmer"; if (map.pan !== undefined || map.tilt !== undefined || map.zoom !== undefined || map.focus !== undefined) type = "moving"; else if (map.r !== undefined || map.g !== undefined || map.b !== undefined || map.w !== undefined || map.amber !== undefined) type = map.w !== undefined ? "rgbw" : "rgb"; else if (map.strobe !== undefined && map.intensity === undefined) type = "strobe"; return { type, channels: channelKeys.length, map, photometrics: { verified: false, sourceType: fixture?.physical?.bulb?.type || "UNKNOWN", ratedLumens: Number.isFinite(Number(fixture?.physical?.bulb?.lumens)) ? Number(fixture.physical.bulb.lumens) : null, beamAngle: null, beamAngleMin: null, beamAngleMax: null, outputScale: 1, manufacturer: fixture?.manufacturer || undefined, model: fixture?.name || undefined, sourceNote: "Imported from Open Fixture Library JSON. Verify the mode against the fixture manual." }, importedFrom: "Open Fixture Library", importedAt: new Date().toISOString(), importMeta: { mode: norm(mode?.name || mode?.shortName || ""), sourceChannels: channelKeys } }; }
   function fixtureObject(parsed) { return parsed?.fixture && typeof parsed.fixture === "object" ? parsed.fixture : parsed?.fixtureDefinition && typeof parsed.fixtureDefinition === "object" ? parsed.fixtureDefinition : parsed; }
-  function importFixtureJson(parsed) {
-    const f = fixtureObject(parsed), modes = Array.isArray(f?.modes) ? f.modes : [];
-    if (!modes.length) throw new Error("No DMX modes were found.");
-    const manufacturer = norm(f.manufacturer || parsed.manufacturer || "Imported"), base = norm(f.name || f.longName || f.shortName || parsed.name);
-    if (!base) throw new Error("Fixture has no name.");
-    const names = [];
-    modes.forEach((mode, i) => {
-      const modeName = norm(mode?.name || mode?.shortName || `Mode ${i + 1}`), name = (modes.length === 1 ? `${manufacturer} ${base}` : `${manufacturer} ${base} (${modeName})`).trim(), def = definition(f, mode);
-      window.ShowStore?.addFixture({ name, definition: def, source: "OFL" });
-      FixtureLibrary[name] = def;
-      names.push(name);
-    });
-    window.ShowStore?.save?.();
-    window.renderLibrary?.(document.getElementById("fixtureSearch")?.value || "");
-    return names;
-  }
-  function picker() {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".json,.txt,application/json,text/plain";
-    input.onchange = async () => { const file = input.files?.[0]; if (!file) return; try { const names = importFixtureJson(JSON.parse(await file.text())); window.log?.(`Imported ${names.length} OFL fixture mode${names.length === 1 ? "" : "s"}.`, "ok"); } catch (e) { console.error("[OFL]", e); window.log?.(`Fixture import failed: ${e.message}`, "error"); } };
-    input.click();
-  }
-  function install() {
-    if (document.getElementById("btnImportFixture")) return true;
-    const panel = document.getElementById("page-patch")?.querySelector(".panel:first-child .panel-body"); if (!panel) return false;
-    const row = document.createElement("div"); row.className = "action-row"; row.style.marginTop = "10px";
-    row.innerHTML = '<button class="btn-secondary" id="btnImportFixture" type="button">⇩ Import Fixture JSON</button><span class="panel-meta" style="align-self:center">OFL / compatible JSON</span>'; panel.appendChild(row);
-    document.getElementById("btnImportFixture").onclick = picker; return true;
-  }
+  function importFixtureJson(parsed) { const f = fixtureObject(parsed), modes = Array.isArray(f?.modes) ? f.modes : []; if (!modes.length) throw new Error("No DMX modes were found."); const manufacturer = norm(f.manufacturer || parsed.manufacturer || "Imported"), base = norm(f.name || f.longName || f.shortName || parsed.name); if (!base) throw new Error("Fixture has no name."); const names = []; modes.forEach((mode, i) => { const modeName = norm(mode?.name || mode?.shortName || `Mode ${i + 1}`), name = (modes.length === 1 ? `${manufacturer} ${base}` : `${manufacturer} ${base} (${modeName})`).trim(), def = definition(f, mode); window.ShowStore?.addFixture({ name, definition: def, source: "OFL" }); FixtureLibrary[name] = def; names.push(name); }); window.saveShow?.(); window.renderLibrary?.(document.getElementById("fixtureSearch")?.value || ""); return names; }
+  function picker() { const input = document.createElement("input"); input.type = "file"; input.accept = ".json,.txt,application/json,text/plain"; input.onchange = async () => { const file = input.files?.[0]; if (!file) return; try { const names = importFixtureJson(JSON.parse(await file.text())); window.log?.(`Imported ${names.length} OFL fixture mode${names.length === 1 ? "" : "s"}.`, "ok"); } catch (e) { console.error("[OFL]", e); window.log?.(`Fixture import failed: ${e.message}`, "error"); } }; input.click(); }
+  function install() { if (document.getElementById("btnImportFixture")) return true; const panel = document.getElementById("page-patch")?.querySelector(".panel:first-child .panel-body"); if (!panel) return false; const row = document.createElement("div"); row.className = "action-row"; row.style.marginTop = "10px"; row.innerHTML = '<button class="btn-secondary" id="btnImportFixture" type="button">⇩ Import Fixture JSON</button><span class="panel-meta" style="align-self:center">OFL / compatible JSON</span>'; panel.appendChild(row); document.getElementById("btnImportFixture").onclick = picker; return true; }
   function loadMA2() { if (window.MA2FixtureImport || document.getElementById("ma2ImportLoader")) return; const s = document.createElement("script"); s.id = "ma2ImportLoader"; s.src = "js/fixtures/ma2-import.js"; s.onload = () => console.log("[OFL] MA2 importer loaded"); s.onerror = e => console.error("[OFL] MA2 importer failed to load", e); document.head.appendChild(s); }
-  install(); loadMA2();
-  window.FixtureImport = { importFixtureJson, openPicker: picker };
-  window.renderLibrary?.(document.getElementById("fixtureSearch")?.value || "");
+  install(); loadMA2(); window.FixtureImport = { importFixtureJson, openPicker: picker }; window.renderLibrary?.(document.getElementById("fixtureSearch")?.value || "");
 })();

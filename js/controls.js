@@ -148,7 +148,7 @@
     const loadMA2Importer = () => {
       if (window.MA2FixtureImport || document.querySelector('script[data-ma2-import="1"]')) return;
       const script = document.createElement("script");
-      script.src = "js/ma2-import.js";
+      script.src = "js/fixtures/ma2-import.js";
       script.async = false;
       script.dataset.ma2Import = "1";
       script.onload = () => console.log("✅ MA2 fixture importer loaded");

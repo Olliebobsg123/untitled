@@ -1,16 +1,15 @@
 "use strict";
 
-/* grandMA2 FixtureType XML importer. Converts open MA2 XML into the console's existing fixture definition shape. */
+/* grandMA2 FixtureType XML importer. Converts MA2 ChannelTypes into the console's fixture definition shape. */
 (() => {
   const STORAGE_KEY = "lightingConsole.importedFixtures.v1";
   const MAP = {
     DIM:"intensity", DIMMER:"intensity", INTENSITY:"intensity", STROBE:"strobe", SHUTTER:"strobe",
-    RED:"r", GREEN:"g", BLUE:"b", WHITE:"w", WARMWHITE:"warmWhite", COOLWHITE:"coolWhite", COLDWHITE:"coolWhite",
-    AMBER:"amber", LIME:"lime", CYAN:"cyan", MAGENTA:"magenta", YELLOW:"yellow", UV:"uv", INDIGO:"indigo",
-    PAN:"pan", TILT:"tilt", ZOOM:"zoom", FOCUS:"focus", IRIS:"iris", FROST:"frost", PRISM:"prism", PRISMR:"prismr",
-    PRISMROTATION:"prismr", GOBO:"gobo", GOBOR:"gobor", GOBOWHEEL:"gobo", GOBOWHEELROTATION:"gobor",
-    EFFECT:"effect", SPEED:"speed", CCT:"cct", CTO:"cct", CTB:"cct", COLORMACRO:"colmacro", COLORPRESET:"preset",
-    MACRO:"macro", FOG:"fog", HAZE:"haze", FAN:"fana"
+    RED:"r", GREEN:"g", BLUE:"b", WHITE:"w", COLORRGB1:"r", COLORRGB2:"g", COLORRGB3:"b", COLORRGB4:"w", COLORRGB5:"amber", COLORRGB6:"lime", COLORRGB7:"cyan", COLORRGB8:"magenta", COLORRGB9:"yellow", COLORRGB10:"uv",
+    WARMWHITE:"warmWhite", COOLWHITE:"coolWhite", COLDWHITE:"coolWhite", AMBER:"amber", LIME:"lime", CYAN:"cyan", MAGENTA:"magenta", YELLOW:"yellow", UV:"uv", INDIGO:"indigo",
+    PAN:"pan", TILT:"tilt", ZOOM:"zoom", FOCUS:"focus", IRIS:"iris", FROST:"frost", PRISM:"prism", PRISMR:"prismr", PRISMROTATION:"prismr",
+    GOBO:"gobo", GOBO1:"gobo", GOBO2:"gobo2", GOBOR:"gobor", GOBOWHEEL:"gobo", GOBOWHEELROTATION:"gobor",
+    EFFECT:"effect", SPEED:"speed", CCT:"cct", CTO:"cct", CTB:"cct", COLORMACRO:"colmacro", COLORPRESET:"preset", MACRO:"macro", FOG:"fog", HAZE:"haze", FAN:"fana"
   };
 
   const norm = v => String(v || "").replace(/\s+/g, " ").trim();
@@ -22,6 +21,16 @@
   }
   function child(el, name) { return children(el, name)[0] || null; }
   function childText(el, name) { return norm(child(el, name)?.textContent); }
+  function attr(el, ...names) {
+    if (!el) return null;
+    for (const name of names) {
+      const direct = el.getAttribute(name);
+      if (direct !== null) return direct;
+      const match = Array.from(el.attributes || []).find(a => a.name.toLowerCase() === name.toLowerCase());
+      if (match) return match.value;
+    }
+    return null;
+  }
 
   function readStored() {
     try { const raw = localStorage.getItem(STORAGE_KEY); const data = raw ? JSON.parse(raw) : {}; return data && typeof data === "object" ? data : {}; }
@@ -33,7 +42,7 @@
 
   function attributeFor(channel) {
     const fn = child(channel, "ChannelFunction");
-    const candidates = [channel.getAttribute("attribute"), fn?.getAttribute("attribute"), fn?.getAttribute("name")].map(norm);
+    const candidates = [attr(channel, "attribute"), attr(fn, "attribute"), attr(fn, "subattribute"), attr(fn, "name")].map(norm).filter(Boolean);
     for (const candidate of candidates) {
       const mapped = MAP[key(candidate)];
       if (mapped) return mapped;
@@ -57,22 +66,32 @@
   }
 
   function channelNumber(channel, fallback) {
-    const coarse = num(channel.getAttribute("coarse"));
+    // MA2 Coarse/Fine/Ultra are DMX addresses relative to the module. A
+    // ChannelType without any of these is a virtual attribute and must NOT
+    // be assigned a DMX address merely because it has an internal index.
+    const coarse = num(attr(channel, "coarse"));
     if (coarse !== null) return Math.max(0, coarse - 1);
-    const index = num(channel.getAttribute("index"));
+    const index = num(attr(channel, "index"));
     return index !== null ? Math.max(0, index - 1) : fallback;
+  }
+
+  function hasPhysicalDMX(channel) {
+    return num(attr(channel, "coarse")) !== null || num(attr(channel, "fine")) !== null || num(attr(channel, "ultra")) !== null;
   }
 
   function buildMap(channels) {
     const map = {};
     channels.forEach((channel, index) => {
-      const attr = attributeFor(channel); if (!attr) return;
+      const attrName = attributeFor(channel); if (!attrName) return;
+      // Ignore virtual attributes. They are useful in MA2 but have no DMX byte
+      // for this console to write to.
+      if (!hasPhysicalDMX(channel)) return;
       const coarse = channelNumber(channel, index);
-      if (map[attr] === undefined) map[attr] = coarse;
-      const fine = num(channel.getAttribute("fine"));
-      if (fine !== null && map[`${attr}Fine`] === undefined) map[`${attr}Fine`] = Math.max(0, fine - 1);
-      const ultra = num(channel.getAttribute("ultra"));
-      if (ultra !== null && map[`${attr}Ultra`] === undefined) map[`${attr}Ultra`] = Math.max(0, ultra - 1);
+      if (map[attrName] === undefined) map[attrName] = coarse;
+      const fine = num(attr(channel, "fine"));
+      if (fine !== null && map[`${attrName}Fine`] === undefined) map[`${attrName}Fine`] = Math.max(0, fine - 1);
+      const ultra = num(attr(channel, "ultra"));
+      if (ultra !== null && map[`${attrName}Ultra`] === undefined) map[`${attrName}Ultra`] = Math.max(0, ultra - 1);
     });
     if (map.intensity === undefined && map.dimmer !== undefined) map.intensity = map.dimmer;
     if (map.dimmer === undefined && map.intensity !== undefined) map.dimmer = map.intensity;
@@ -93,20 +112,28 @@
     const channels = children(module, "ChannelType");
     if (!channels.length) throw new Error("MA2 module contains no ChannelType entries.");
     const map = buildMap(channels);
+    const physicalChannels = channels.filter(hasPhysicalDMX);
+    const highest = physicalChannels.reduce((max, ch, i) => {
+      const coarse = num(attr(ch, "coarse"), 0);
+      const fine = num(attr(ch, "fine"), 0);
+      const ultra = num(attr(ch, "ultra"), 0);
+      return Math.max(max, coarse, fine, ultra);
+    }, 0);
+
     const definition = {
-      type: inferType(map, module.getAttribute("class")),
-      channels: channels.reduce((max, ch, i) => Math.max(max, channelNumber(ch, i) + 1, num(ch.getAttribute("fine"), 0), num(ch.getAttribute("ultra"), 0)), 0),
+      type: inferType(map, attr(module, "class")),
+      channels: highest || physicalChannels.length || 1,
       map,
       photometrics: {
         verified: false,
-        sourceType: norm(module.getAttribute("beamtype")) || "UNKNOWN",
-        ratedLumens: num(module.getAttribute("beam_intensity")),
-        beamAngle: num(module.getAttribute("beam_angle")),
+        sourceType: norm(attr(module, "beamtype")) || "UNKNOWN",
+        ratedLumens: num(attr(module, "beam_intensity")),
+        beamAngle: num(attr(module, "beam_angle")),
         beamAngleMin: null,
         beamAngleMax: null,
         outputScale: 1,
         manufacturer: childText(fixture, "manufacturer") || undefined,
-        model: childText(fixture, "short_name") || fixture.getAttribute("name") || undefined,
+        model: childText(fixture, "short_name") || attr(fixture, "name") || undefined,
         sourceNote: "Imported from grandMA2 FixtureType XML. Verify the DMX mode against the fixture manual before live use."
       },
       importedFrom: "grandMA2 XML",
@@ -114,10 +141,10 @@
       ma2Channels: channels.map((ch, i) => {
         const fn = child(ch, "ChannelFunction");
         return {
-          index: num(ch.getAttribute("index"), i + 1), attribute: norm(ch.getAttribute("attribute")), coarse: num(ch.getAttribute("coarse")),
-          fine: num(ch.getAttribute("fine")), ultra: num(ch.getAttribute("ultra")), default: num(ch.getAttribute("default")),
-          invert: ch.getAttribute("invert") === "true", functionName: norm(fn?.getAttribute("name")),
-          minDmx: num(fn?.getAttribute("min_dmx")), maxDmx: num(fn?.getAttribute("max_dmx"))
+          index: num(attr(ch, "index"), i + 1), attribute: norm(attr(ch, "attribute")), coarse: num(attr(ch, "coarse")),
+          fine: num(attr(ch, "fine")), ultra: num(attr(ch, "ultra")), default: num(attr(ch, "default")),
+          virtual: !hasPhysicalDMX(ch), invert: String(attr(ch, "invert") || "").toLowerCase() === "true", functionName: norm(attr(fn, "name")),
+          minDmx: num(attr(fn, "min_dmx")), maxDmx: num(attr(fn, "max_dmx"))
         };
       })
     };
@@ -138,13 +165,13 @@
     const saved = readStored(); const names = [];
     fixtureTypes.forEach((fixture, fi) => {
       const manufacturer = childText(fixture, "manufacturer");
-      const fixtureName = norm(fixture.getAttribute("name")) || childText(fixture, "short_name") || `MA2 Fixture ${fi + 1}`;
+      const fixtureName = norm(attr(fixture, "name")) || childText(fixture, "short_name") || `MA2 Fixture ${fi + 1}`;
       const modules = children(child(fixture, "Modules"), "Module");
       if (!modules.length) throw new Error(`${fixtureName} has no Module entries.`);
       modules.forEach((module, mi) => {
-        const mode = norm(fixture.getAttribute("mode")) || childText(fixture, "short_name") || norm(module.getAttribute("name"));
+        const mode = norm(attr(fixture, "mode")) || childText(fixture, "short_name") || norm(attr(module, "name"));
         const base = [manufacturer, fixtureName].filter(Boolean).join(" ").trim();
-        const name = modules.length === 1 ? base : `${base} (${mode || module.getAttribute("name") || `Module ${mi + 1}`})`;
+        const name = modules.length === 1 ? base : `${base} (${mode || attr(module, "name") || `Module ${mi + 1}`})`;
         const definition = buildDefinition(fixture, module);
         FixtureLibrary[name] = definition; saved[name] = definition; names.push(name);
       });

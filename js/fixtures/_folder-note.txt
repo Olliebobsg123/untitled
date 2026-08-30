@@ -1,0 +1,1 @@
+Fixture library files are kept in this folder. The legacy js/*.js paths are compatibility loaders.

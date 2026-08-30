@@ -231,6 +231,18 @@ function createWindow() {
         document.head.appendChild(script);
       })();
     `).catch(err => console.error('❌ Fixture importer loader failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__gdtfImportLoader) return;
+        window.__gdtfImportLoader = true;
+        const script = document.createElement('script');
+        script.src = 'js/gdtf-import.js';
+        script.onload = () => console.log('✅ GDTF fixture importer loaded');
+        script.onerror = err => console.error('❌ GDTF fixture importer failed to load:', err);
+        document.head.appendChild(script);
+      })();
+    `).catch(err => console.error('❌ GDTF importer loader failed:', err));
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });

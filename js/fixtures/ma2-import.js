@@ -1,6 +1,6 @@
 "use strict";
 (() => {
-  const STORAGE_KEY = "lightingConsole.importedFixtures.ma2.v3";
+  const STORAGE_KEY = "lightingConsole.importedFixtures.ma2.v4";
   const norm = v => String(v ?? "").replace(/\s+/g, " ").trim();
   const key = v => norm(v).toLowerCase().replace(/[^a-z0-9]/g, "");
   const descendants = (root, name) => Array.from(root?.getElementsByTagName?.("*") || []).filter(e => (e.localName || e.nodeName) === name);
@@ -19,10 +19,12 @@
   const readStored = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; } };
   const writeStored = v => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); } catch (e) { console.warn("[MA2] save failed", e); } };
 
+  /* grandMA2 XML uses names such as COLORMIX1/2/3 rather than RGB. */
   function mapAttribute(value) {
     const s = key(value); if (!s) return null;
     const exact = {
       dim: "intensity", dimmer: "intensity", intensity: "intensity",
+      colormix1: "r", colormix2: "g", colormix3: "b", colormix4: "w",
       colorrgb1: "r", colorrgb2: "g", colorrgb3: "b", colorrgb4: "w",
       colorrgb5: "amber", colorrgb6: "lime", colorrgb7: "cyan", colorrgb8: "magenta", colorrgb9: "yellow", colorrgb10: "uv",
       red: "r", green: "g", blue: "b", white: "w", amber: "amber", lime: "lime", cyan: "cyan", magenta: "magenta", yellow: "yellow", uv: "uv",
@@ -34,6 +36,10 @@
       fog: "fog", haze: "haze", fan: "fana"
     };
     if (exact[s]) return exact[s];
+    if (s.includes("colormix1")) return "r";
+    if (s.includes("colormix2")) return "g";
+    if (s.includes("colormix3")) return "b";
+    if (s.includes("colormix4")) return "w";
     if (s.includes("dimmer") || s === "dim" || s.includes("intensity")) return "intensity";
     if (s.includes("pan") && !s.includes("tilt")) return "pan";
     if (s.includes("tilt")) return "tilt";
@@ -79,7 +85,8 @@
   }
 
   function instancePatch(instance) {
-    const patch = num(attr(instance, "patch", "Patch"));
+    /* Exporters vary: Patch, patch, address and dmx_address have all been seen. */
+    const patch = num(attr(instance, "patch", "Patch", "address", "dmx_address", "dmxAddress"));
     return patch === null ? 1 : patch;
   }
 
@@ -98,7 +105,10 @@
         targets.push({ module, patch: instancePatch(instance), instance: i + 1, moduleIndex });
       });
     } else {
-      modules.forEach((module, i) => targets.push({ module, patch: 1, instance: i + 1, moduleIndex: String(num(attr(module, "index"), i)) }));
+      /* The XML supplied by the user has no Instances section. In this form
+         the Module's Coarse/Fine/Ultra values are absolute fixture offsets,
+         so Coarse=1 means fixture DMX offset 0. */
+      modules.forEach((module, i) => targets.push({ module, patch: 1, instance: i + 1, moduleIndex: String(num(attr(module, "index"), i)), directModuleOffsets: true }));
     }
 
     const map = {};
@@ -112,20 +122,34 @@
         const coarse = num(attr(ch, "coarse"));
         const fine = num(attr(ch, "fine"));
         const ultra = num(attr(ch, "ultra"));
-        const mapped = mapAttribute(attr(ch, "attribute", "attrib") || attr(ch, "feature") || attr(ch, "preset"));
+        const rawAttribute = attr(ch, "attribute", "attrib");
+        const rawFunction = attr(ch, "feature");
+        const rawPreset = attr(ch, "preset");
+        const mapped = mapAttribute(rawAttribute) || mapAttribute(rawFunction) || mapAttribute(rawPreset);
         const physical = coarse !== null || fine !== null || ultra !== null;
+
         if (!physical) {
-          details.push({ instance: target.instance, moduleIndex: target.moduleIndex, attribute: norm(attr(ch, "attribute", "attrib")), coarse, fine, ultra, virtual: true, mappedAs: mapped });
+          details.push({ instance: target.instance, moduleIndex: target.moduleIndex, attribute: norm(rawAttribute), coarse, fine, ultra, virtual: true, mappedAs: mapped });
           continue;
         }
 
-        // MA2 Coarse/Fine/Ultra values are offsets from the module's instance
-        // patch. Both are 1-based, so convert the final absolute address to
-        // the console's zero-based fixture map.
+        /*
+         * Two MA2 export forms exist:
+         *  1. A Module/ChannelType-only FixtureType like the supplied XML:
+         *     coarse=1 is channel 1, coarse=2 is channel 2, etc.
+         *  2. An Instance-based export where the Instance supplies a patch
+         *     address and ChannelType coarse/fine/ultra are offsets.
+         *
+         * In both cases the app's fixture map is zero-based.
+         */
         const base = Math.max(1, target.patch);
-        const coarseOffset = coarse !== null ? base + coarse - 2 : null;
-        const fineOffset = fine !== null ? base + fine - 2 : null;
-        const ultraOffset = ultra !== null ? base + ultra - 2 : null;
+        const absolute = offset => {
+          if (offset === null) return null;
+          return target.directModuleOffsets ? offset - 1 : base + offset - 2;
+        };
+        const coarseOffset = absolute(coarse);
+        const fineOffset = absolute(fine);
+        const ultraOffset = absolute(ultra);
         const primary = coarseOffset ?? fineOffset ?? ultraOffset;
 
         if (primary !== null) {
@@ -135,18 +159,25 @@
           if (mapped && ultraOffset !== null && map[`${mapped}Ultra`] === undefined) map[`${mapped}Ultra`] = ultraOffset;
         }
 
-        details.push({ instance: target.instance, moduleIndex: target.moduleIndex, patch: target.patch, attribute: norm(attr(ch, "attribute", "attrib")), feature: norm(attr(ch, "feature")), preset: norm(attr(ch, "preset")), coarse, fine, ultra, virtual: false, mappedAs: mapped, mapOffset: primary });
+        details.push({ instance: target.instance, moduleIndex: target.moduleIndex, patch: target.patch, attribute: norm(rawAttribute), feature: norm(rawFunction), preset: norm(rawPreset), coarse, fine, ultra, virtual: false, mappedAs: mapped, mapOffset: primary });
       }
     }
 
     if (map.intensity !== undefined) map.dimmer ??= map.intensity;
     if (map.dimmer !== undefined) map.intensity ??= map.dimmer;
-    if (!Object.keys(map).length) throw new Error("MA2 fixture contains DMX channels, but none of its attributes were recognised.");
+
+    /* The supplied LY fixture is RGBW: COLORMIX1/2/3/WHITE. */
+    const hasRgb = map.r !== undefined && map.g !== undefined && map.b !== undefined;
+    if (hasRgb) map.type = "rgb";
+    if (!Object.keys(map).filter(k => k !== "type").length) throw new Error("MA2 fixture contains DMX channels, but none of its attributes were recognised.");
 
     let type = "dimmer";
     if (map.pan !== undefined || map.tilt !== undefined || map.zoom !== undefined || map.focus !== undefined) type = "moving";
-    else if (map.r !== undefined || map.g !== undefined || map.b !== undefined || map.w !== undefined || map.amber !== undefined) type = map.w !== undefined ? "rgbw" : "rgb";
+    else if (hasRgb || map.w !== undefined || map.amber !== undefined) type = map.w !== undefined ? "rgbw" : "rgb";
     else if (map.strobe !== undefined && map.intensity === undefined) type = "strobe";
+
+    const manufacturer = norm(first(fixture, "manufacturer")?.textContent);
+    const model = norm(first(fixture, "short_name")?.textContent) || norm(attr(fixture, "name"));
 
     return {
       type,
@@ -157,9 +188,9 @@
         sourceType: norm(attr(modules[0], "beamtype")) || "UNKNOWN",
         ratedLumens: num(attr(modules[0], "beam_intensity")),
         beamAngle: num(attr(modules[0], "beam_angle")), beamAngleMin: null, beamAngleMax: null, outputScale: 1,
-        manufacturer: norm(first(fixture, "manufacturer")?.textContent),
-        model: norm(first(fixture, "short_name")?.textContent) || norm(attr(fixture, "name")),
-        sourceNote: "Imported from grandMA2 FixtureType XML. Instance patch offsets and Coarse/Fine/Ultra addresses were resolved. Verify the DMX mode against the fixture manual."
+        manufacturer,
+        model,
+        sourceNote: "Imported from grandMA2 FixtureType XML. Coarse/Fine/Ultra addresses were resolved from the MA2 FixtureType structure. Verify the DMX mode against the fixture manual."
       },
       importedFrom: "grandMA2 XML",
       importedAt: new Date().toISOString(),

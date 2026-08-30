@@ -154,8 +154,101 @@
     window.__effectChaseCommandLayer = true;
   }
 
+  // Home selected moving fixtures: centre both pan and tilt at DMX 128.
+  // Other fixture attributes are deliberately left untouched.
+  function getSelectedMovingFixtures() {
+    const state = window.State;
+    if (!state || !Array.isArray(state.fixtures)) return [];
+
+    const ids = new Set();
+    if (state.selected instanceof Set) state.selected.forEach(id => ids.add(String(id)));
+    document.querySelectorAll("#fixtureList .sel[data-fixture-id]").forEach(el => ids.add(String(el.dataset.fixtureId)));
+
+    return state.fixtures.filter(fixture => {
+      if (!ids.has(String(fixture?.id))) return false;
+      const definition = typeof window.getFixtureDefinition === "function"
+        ? window.getFixtureDefinition(fixture)
+        : window.FixtureLibrary?.[fixture?.name];
+      const map = definition?.map || {};
+      return typeof map.pan === "number" || typeof map.tilt === "number";
+    });
+  }
+
+  function homeSelectedFixtures() {
+    const state = window.State;
+    if (!state) return false;
+
+    const fixtures = getSelectedMovingFixtures();
+    if (!fixtures.length) {
+      log("Select at least one moving fixture first", "warn");
+      return false;
+    }
+
+    if (!(state.fixtureStates instanceof Map)) state.fixtureStates = new Map();
+
+    let homed = 0;
+    for (const fixture of fixtures) {
+      let fixtureState = typeof window.ensureFixtureState === "function"
+        ? window.ensureFixtureState(fixture.id)
+        : state.fixtureStates.get(fixture.id);
+      if (!fixtureState) {
+        fixtureState = { ...(state.current || {}) };
+      }
+
+      const definition = typeof window.getFixtureDefinition === "function"
+        ? window.getFixtureDefinition(fixture)
+        : window.FixtureLibrary?.[fixture?.name];
+      const map = definition?.map || {};
+
+      if (typeof map.pan === "number") fixtureState.pan = 128;
+      if (typeof map.tilt === "number") fixtureState.tilt = 128;
+      state.fixtureStates.set(fixture.id, fixtureState);
+      homed++;
+    }
+
+    state.current ||= {};
+    state.current.pan = 128;
+    state.current.tilt = 128;
+
+    const dot = document.getElementById("xy");
+    if (dot) {
+      dot.style.left = "50%";
+      dot.style.top = "50%";
+    }
+
+    if (typeof window.updateDMX === "function") window.updateDMX();
+    if (typeof window.sendToVisualizer === "function") window.sendToVisualizer();
+
+    log(`Homed ${homed} selected fixture${homed === 1 ? "" : "s"} to centre`, "ok");
+    return true;
+  }
+
+  function addHomeButton() {
+    if (document.getElementById("btnHomePanTilt")) return true;
+
+    const pad = document.querySelector(".xy-pad");
+    if (!pad) return false;
+
+    const button = document.createElement("button");
+    button.id = "btnHomePanTilt";
+    button.type = "button";
+    button.className = "btn-secondary";
+    button.textContent = "⌂ HOME";
+    button.title = "Centre Pan and Tilt on all selected moving fixtures";
+    button.setAttribute("aria-label", "Home selected fixtures pan and tilt");
+    button.addEventListener("click", homeSelectedFixtures);
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "xy-home-control";
+    wrapper.style.cssText = "display:flex;justify-content:center;margin-top:10px;";
+    wrapper.appendChild(button);
+    pad.insertAdjacentElement("afterend", wrapper);
+    return true;
+  }
+
   function init() {
     addDeleteChaseButton();
+    addHomeButton();
     installCommandWrapper();
   }
 
@@ -164,4 +257,5 @@
   window.addEventListener("load", init);
   setTimeout(init, 250);
   setTimeout(init, 1000);
+  setTimeout(init, 2000);
 })();

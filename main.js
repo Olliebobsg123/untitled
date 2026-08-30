@@ -76,7 +76,7 @@ function createWindow() {
         if (window.__multiOutputLoader) return;
         window.__multiOutputLoader = true;
         const script = document.createElement('script');
-        script.src = 'js/fixtures/multi-output.js';
+        script.src = 'js/multi-output.js';
         script.onload = () => console.log('✅ Multi-universe output UI loaded');
         script.onerror = err => console.error('❌ Multi-universe output UI failed to load:', err);
         document.head.appendChild(script);

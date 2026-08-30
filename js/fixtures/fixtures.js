@@ -1,1 +1,0 @@
-// moved from js/fixtures.js

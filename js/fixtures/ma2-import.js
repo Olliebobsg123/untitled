@@ -1,337 +1,91 @@
 "use strict";
-
-/*
- * grandMA2 FixtureType XML importer.
- *
- * MA2's Coarse/Fine/Ultra fields are the real DMX addresses. The importer
- * converts those addresses to this app's zero-based fixture map and ignores
- * virtual attributes that do not have a physical DMX address.
- */
 (() => {
-  const STORAGE_KEY = "lightingConsole.importedFixtures.v1";
+  const STORAGE_KEY = "lightingConsole.importedFixtures.ma2.v2";
+  const norm = v => String(v ?? "").replace(/\s+/g, " ").trim();
+  const key = v => norm(v).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const descendants = (root, name) => Array.from(root?.getElementsByTagName?.("*") || []).filter(e => (e.localName || e.nodeName) === name);
+  const first = (root, name) => descendants(root, name)[0] || null;
+  const attr = (el, ...names) => { for (const n of names) { const v = el?.getAttribute?.(n); if (v !== null) return v; const a = Array.from(el?.attributes || []).find(x => x.name.toLowerCase() === String(n).toLowerCase()); if (a) return a.value; } return null; };
+  const num = (v, fallback = null) => { const n = Number(v); return Number.isFinite(n) ? n : fallback; };
+  const readStored = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; } };
+  const writeStored = v => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); } catch (e) { console.warn("[MA2Import] save failed", e); } };
 
-  const MAP = {
-    DIM: "intensity", DIMMER: "intensity", INTENSITY: "intensity", STROBE: "strobe", SHUTTER: "strobe",
-    RED: "r", GREEN: "g", BLUE: "b", WHITE: "w",
-    COLORRGB1: "r", COLORRGB2: "g", COLORRGB3: "b", COLORRGB4: "w",
-    COLORRGB5: "amber", COLORRGB6: "lime", COLORRGB7: "cyan", COLORRGB8: "magenta", COLORRGB9: "yellow", COLORRGB10: "uv",
-    WARMWHITE: "warmWhite", COOLWHITE: "coolWhite", COLDWHITE: "coolWhite",
-    AMBER: "amber", LIME: "lime", CYAN: "cyan", MAGENTA: "magenta", YELLOW: "yellow", UV: "uv", INDIGO: "indigo",
-    PAN: "pan", TILT: "tilt", ZOOM: "zoom", FOCUS: "focus", IRIS: "iris", FROST: "frost",
-    PRISM: "prism", PRISMR: "prismr", PRISMROTATION: "prismr",
-    GOBO: "gobo", GOBO1: "gobo", GOBO2: "gobo2", GOBOR: "gobor", GOBOWHEEL: "gobo", GOBOWHEELROTATION: "gobor",
-    EFFECT: "effect", SPEED: "speed", CCT: "cct", CTO: "cct", CTB: "cct",
-    COLORMACRO: "colmacro", COLORPRESET: "preset", MACRO: "macro", FOG: "fog", HAZE: "haze", FAN: "fana"
-  };
-
-  const norm = value => String(value ?? "").replace(/\s+/g, " ").trim();
-  const key = value => norm(value).toUpperCase().replace(/[^A-Z0-9_]/g, "");
-  const num = (value, fallback = null) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : fallback;
-  };
-
-  function children(element, name) {
-    return Array.from(element?.children || []).filter(child =>
-      child.localName === name || child.nodeName === name
-    );
-  }
-
-  function child(element, name) {
-    return children(element, name)[0] || null;
-  }
-
-  function childText(element, name) {
-    return norm(child(element, name)?.textContent);
-  }
-
-  function attr(element, ...names) {
-    if (!element) return null;
-    for (const name of names) {
-      const direct = element.getAttribute(name);
-      if (direct !== null) return direct;
-      const match = Array.from(element.attributes || []).find(a =>
-        a.name.toLowerCase() === String(name).toLowerCase()
-      );
-      if (match) return match.value;
-    }
+  function mapAttribute(value) {
+    const s = key(value); if (!s) return null;
+    if (["colorrgb1","colorrgbr","coloraddr","red"].includes(s)) return "r";
+    if (["colorrgb2","colorrgbg","coloraddg","green"].includes(s)) return "g";
+    if (["colorrgb3","colorrgbb","coloraddb","blue"].includes(s)) return "b";
+    if (["colorrgb4","colorrgbw","coloraddw","white"].includes(s)) return "w";
+    if (s.includes("amber")) return "amber";
+    if (s.includes("lime")) return "lime";
+    if (s.includes("cyan")) return "cyan";
+    if (s.includes("magenta")) return "magenta";
+    if (s.includes("yellow")) return "yellow";
+    if (s === "uv" || s.includes("ultraviolet")) return "uv";
+    if (s === "dim" || s.includes("dimmer") || s.includes("intensity")) return "intensity";
+    if (s.includes("strobe") || s.includes("shutter")) return "strobe";
+    if (s === "pan" || s.startsWith("pan")) return "pan";
+    if (s === "tilt" || s.startsWith("tilt")) return "tilt";
+    if (s.includes("zoom")) return "zoom";
+    if (s.includes("focus")) return "focus";
+    if (s.includes("iris")) return "iris";
+    if (s.includes("frost")) return "frost";
+    if (s.includes("prism") && (s.includes("rot") || s.includes("rotation"))) return "prismr";
+    if (s.includes("prism")) return "prism";
+    if (s.includes("gobo") && (s.includes("rot") || s.includes("rotation"))) return "gobor";
+    if (s.includes("gobo")) return "gobo";
+    if (s.includes("effect") && (s.includes("speed") || s.includes("rate"))) return "speed";
+    if (s.includes("effect")) return "effect";
+    if (s.includes("speed") || s.includes("rate")) return "speed";
+    if (s.includes("colormacro")) return "colmacro";
+    if (s.includes("colorpreset")) return "preset";
+    if (s === "macro") return "macro";
+    if (s.includes("temperature") || ["cct","cto","ctb","ctc"].includes(s)) return "cct";
+    if (s.includes("fog")) return "fog";
+    if (s.includes("haze")) return "haze";
+    if (s.includes("fan")) return "fana";
     return null;
   }
 
-  function readStored() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const data = raw ? JSON.parse(raw) : {};
-      return data && typeof data === "object" ? data : {};
-    } catch (_) {
-      return {};
-    }
-  }
-
-  function writeStored(data) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
-    catch (err) { console.warn("[MA2Import] persistence failed", err); }
-  }
-
-  function mappedAttribute(channel) {
-    const fn = child(channel, "ChannelFunction");
-    const candidates = [
-      attr(channel, "attribute", "attrib"),
-      attr(fn, "attribute", "attrib"),
-      attr(fn, "subattribute", "subattrib"),
-      attr(channel, "feature"),
-      attr(channel, "preset"),
-      attr(fn, "feature"),
-      attr(fn, "preset"),
-      attr(fn, "name")
-    ].map(norm).filter(Boolean);
-
-    for (const candidate of candidates) {
-      const mapped = MAP[key(candidate)];
-      if (mapped) return mapped;
-
-      const lower = candidate.toLowerCase();
-      if (lower.includes("pan") && !lower.includes("tilt")) return "pan";
-      if (lower.includes("tilt")) return "tilt";
-      if (lower.includes("dimmer") || lower === "dim" || lower.includes("intensity")) return "intensity";
-      if (lower.includes("strobe") || lower.includes("shutter")) return "strobe";
-      if (lower.includes("red")) return "r";
-      if (lower.includes("green")) return "g";
-      if (lower.includes("blue")) return "b";
-      if (lower.includes("white")) return lower.includes("warm") ? "warmWhite" : "w";
-      if (lower.includes("amber")) return "amber";
-      if (lower.includes("lime")) return "lime";
-      if (lower.includes("cyan")) return "cyan";
-      if (lower.includes("magenta")) return "magenta";
-      if (lower.includes("yellow")) return "yellow";
-      if (lower.includes("uv")) return "uv";
-      if (lower.includes("zoom")) return "zoom";
-      if (lower.includes("focus")) return "focus";
-      if (lower.includes("iris")) return "iris";
-      if (lower.includes("frost")) return "frost";
-      if (lower.includes("prism")) return lower.includes("rot") ? "prismr" : "prism";
-      if (lower.includes("gobo")) return lower.includes("rot") ? "gobor" : "gobo";
-      if (lower.includes("effect")) return "effect";
-      if (lower.includes("speed")) return "speed";
-      if (lower.includes("temperature") || lower === "cct" || lower === "cto" || lower === "ctb") return "cct";
-      if (lower.includes("macro")) return "macro";
-      if (lower.includes("fog")) return "fog";
-      if (lower.includes("haze")) return "haze";
-      if (lower.includes("fan")) return "fana";
-    }
-
-    return null;
-  }
-
-  function physicalAddress(channel) {
-    // Coarse is the 8-bit DMX address. Fine/Ultra are the following physical
-    // bytes when present. MA2's values are 1-based, while this app's map is 0-based.
-    const coarse = num(attr(channel, "coarse"));
-    const fine = num(attr(channel, "fine"));
-    const ultra = num(attr(channel, "ultra"));
-
-    if (coarse !== null) return Math.max(0, coarse - 1);
-    if (fine !== null) return Math.max(0, fine - 1);
-    if (ultra !== null) return Math.max(0, ultra - 1);
-    return null;
-  }
-
-  function hasPhysicalDMX(channel) {
-    return physicalAddress(channel) !== null;
-  }
-
-  function buildMap(channels) {
-    const map = {};
-    const physical = [];
-
-    channels.forEach((channel, index) => {
-      const attribute = mappedAttribute(channel);
-      const address = physicalAddress(channel);
-      if (address === null) return;
-
-      physical.push({ channel, index, attribute, address });
-      if (!attribute) return;
-
-      if (map[attribute] === undefined) map[attribute] = address;
-
-      const fine = num(attr(channel, "fine"));
-      if (fine !== null && map[`${attribute}Fine`] === undefined) {
-        map[`${attribute}Fine`] = Math.max(0, fine - 1);
-      }
-
-      const ultra = num(attr(channel, "ultra"));
-      if (ultra !== null && map[`${attribute}Ultra`] === undefined) {
-        map[`${attribute}Ultra`] = Math.max(0, ultra - 1);
-      }
-    });
-
-    // The DMX engine uses dimmer as the physical intensity output. Keep both
-    // aliases so imported profiles work with either representation.
-    if (map.intensity !== undefined && map.dimmer === undefined) map.dimmer = map.intensity;
-    if (map.dimmer !== undefined && map.intensity === undefined) map.intensity = map.dimmer;
-
-    return { map, physical };
-  }
-
-  function inferType(map, fixtureClass) {
-    const moving = map.pan !== undefined || map.tilt !== undefined || map.zoom !== undefined || map.focus !== undefined;
-    const colour = ["r", "g", "b", "w", "warmWhite", "coolWhite", "amber", "lime", "cyan", "magenta", "yellow", "uv"].some(k => map[k] !== undefined);
-    const cls = key(fixtureClass);
-
-    if (moving || cls.includes("HEADMOVER") || cls.includes("MOVING")) return "moving";
-    if (colour) return map.w !== undefined ? "rgbw" : "rgb";
-    if (map.strobe !== undefined && map.intensity === undefined) return "strobe";
-    return "dimmer";
-  }
+  function address(channel) { const coarse = num(attr(channel, "coarse")); const fine = num(attr(channel, "fine")); const ultra = num(attr(channel, "ultra")); if (coarse !== null) return coarse - 1; if (fine !== null) return fine - 1; if (ultra !== null) return ultra - 1; return null; }
 
   function buildDefinition(fixture, module) {
-    const channelTypes = children(module, "ChannelType");
-    if (!channelTypes.length) throw new Error("MA2 module contains no ChannelType entries.");
-
-    const { map, physical } = buildMap(channelTypes);
-    if (!Object.keys(map).length) {
-      throw new Error("MA2 fixture contains DMX channels, but none of its attributes could be mapped.");
-    }
-
-    const highest = physical.reduce((max, item) => {
-      const coarse = num(attr(item.channel, "coarse"), 0);
-      const fine = num(attr(item.channel, "fine"), 0);
-      const ultra = num(attr(item.channel, "ultra"), 0);
-      return Math.max(max, coarse, fine, ultra);
-    }, 0);
-
-    const definition = {
-      type: inferType(map, attr(module, "class")),
-      channels: Math.max(1, highest),
-      map,
-      photometrics: {
-        verified: false,
-        sourceType: norm(attr(module, "beamtype")) || "UNKNOWN",
-        ratedLumens: num(attr(module, "beam_intensity")),
-        beamAngle: num(attr(module, "beam_angle")),
-        beamAngleMin: null,
-        beamAngleMax: null,
-        outputScale: 1,
-        manufacturer: childText(fixture, "manufacturer") || undefined,
-        model: childText(fixture, "short_name") || attr(fixture, "name") || undefined,
-        sourceNote: "Imported from grandMA2 FixtureType XML. Verify the DMX mode against the fixture manual before live use."
-      },
-      importedFrom: "grandMA2 XML",
-      importedAt: new Date().toISOString(),
-      ma2Channels: channelTypes.map((channel, index) => ({
-        index: num(attr(channel, "index"), index + 1),
-        attribute: norm(attr(channel, "attribute", "attrib")),
-        feature: norm(attr(channel, "feature")),
-        preset: norm(attr(channel, "preset")),
-        coarse: num(attr(channel, "coarse")),
-        fine: num(attr(channel, "fine")),
-        ultra: num(attr(channel, "ultra")),
-        break: num(attr(channel, "break"), 1),
-        default: num(attr(channel, "default")),
-        virtual: !hasPhysicalDMX(channel),
-        mappedAs: mappedAttribute(channel)
-      }))
-    };
-
-    if (definition.photometrics.beamAngle !== null && definition.photometrics.beamAngle <= 0) {
-      definition.photometrics.beamAngle = null;
-    }
-
-    return definition;
+    const channels = descendants(module, "ChannelType"); if (!channels.length) throw new Error("MA2 module contains no ChannelType entries.");
+    const map = {}, details = []; let highest = 0;
+    channels.forEach((ch, i) => {
+      const a = address(ch); const mapped = mapAttribute(attr(ch, "attribute", "attrib") || attr(ch, "feature") || attr(ch, "preset") || attr(ch, "name"));
+      const coarse = num(attr(ch, "coarse")), fine = num(attr(ch, "fine")), ultra = num(attr(ch, "ultra"));
+      if (coarse !== null) highest = Math.max(highest, coarse); if (fine !== null) highest = Math.max(highest, fine); if (ultra !== null) highest = Math.max(highest, ultra);
+      if (a !== null && mapped && map[mapped] === undefined) map[mapped] = Math.max(0, a);
+      if (fine !== null && mapped && map[`${mapped}Fine`] === undefined) map[`${mapped}Fine`] = Math.max(0, fine - 1);
+      if (ultra !== null && mapped && map[`${mapped}Ultra`] === undefined) map[`${mapped}Ultra`] = Math.max(0, ultra - 1);
+      details.push({ index: num(attr(ch, "index"), i + 1), attribute: norm(attr(ch, "attribute", "attrib")), feature: norm(attr(ch, "feature")), preset: norm(attr(ch, "preset")), coarse, fine, ultra, virtual: a === null, mappedAs: mapped });
+    });
+    if (map.intensity !== undefined) map.dimmer ??= map.intensity;
+    if (map.dimmer !== undefined) map.intensity ??= map.dimmer;
+    if (!Object.keys(map).length) throw new Error("MA2 fixture contains DMX channels, but none of its attributes were recognised.");
+    let type = "dimmer";
+    if (map.pan !== undefined || map.tilt !== undefined || map.zoom !== undefined || map.focus !== undefined) type = "moving";
+    else if (map.r !== undefined || map.g !== undefined || map.b !== undefined || map.w !== undefined || map.amber !== undefined) type = map.w !== undefined ? "rgbw" : "rgb";
+    else if (map.strobe !== undefined && map.intensity === undefined) type = "strobe";
+    return { type, channels: Math.max(1, highest), map, photometrics: { verified: false, sourceType: norm(attr(module, "beamtype")) || "UNKNOWN", ratedLumens: num(attr(module, "beam_intensity")), beamAngle: num(attr(module, "beam_angle")), beamAngleMin: null, beamAngleMax: null, outputScale: 1, manufacturer: norm(first(fixture, "manufacturer")?.textContent), model: norm(first(fixture, "short_name")?.textContent) || norm(attr(fixture, "name")), sourceNote: "Imported from grandMA2 FixtureType XML. Verify the DMX mode against the fixture manual." }, importedFrom: "grandMA2 XML", importedAt: new Date().toISOString(), ma2Channels: details };
   }
 
   function importFixtureXml(text) {
-    if (typeof DOMParser === "undefined") throw new Error("XML parsing is not available.");
-
-    // Some MA exports can contain the short "MA DATA" wrapper before the XML
-    // declaration. Strip it so DOMParser sees a real XML document.
-    let source = String(text || "").replace(/^\uFEFF/, "");
-    const xmlStart = source.indexOf("<?xml");
-    if (xmlStart > 0) source = source.slice(xmlStart);
-
-    const xml = new DOMParser().parseFromString(source, "application/xml");
-    const error = xml.querySelector("parsererror");
-    if (error) throw new Error(`Invalid XML: ${norm(error.textContent)}`);
-    if (!xml.documentElement || key(xml.documentElement.localName || xml.documentElement.nodeName) !== "MA") {
-      throw new Error("This is not a grandMA2 XML file.");
-    }
-
-    const fixtureTypes = Array.from(xml.getElementsByTagNameNS("*", "FixtureType"));
-    if (!fixtureTypes.length) throw new Error("No grandMA2 FixtureType found.");
-
-    const stored = readStored();
-    const names = [];
-
-    fixtureTypes.forEach((fixture, fixtureIndex) => {
-      const manufacturer = childText(fixture, "manufacturer");
-      const fixtureName = norm(attr(fixture, "name")) || childText(fixture, "short_name") || `MA2 Fixture ${fixtureIndex + 1}`;
-      const modulesParent = child(fixture, "Modules");
-      const modules = children(modulesParent, "Module");
-      if (!modules.length) throw new Error(`${fixtureName} has no Module entries.`);
-
-      modules.forEach((module, moduleIndex) => {
-        const moduleName = norm(attr(module, "name"));
-        const mode = norm(attr(fixture, "mode"));
-        const baseName = [manufacturer, fixtureName].filter(Boolean).join(" ").trim() || fixtureName;
-        const name = modules.length === 1
-          ? baseName
-          : `${baseName} (${mode || moduleName || `Module ${moduleIndex + 1}`})`;
-
-        const definition = buildDefinition(fixture, module);
-        FixtureLibrary[name] = definition;
-        stored[name] = definition;
-        names.push(name);
-
-        console.info("[MA2Import]", name, "DMX map:", definition.map, "footprint:", definition.channels);
-      });
+    let source = String(text || "").replace(/^\uFEFF/, ""); const start = source.indexOf("<?xml"); if (start > 0) source = source.slice(start);
+    const xml = new DOMParser().parseFromString(source, "application/xml"); if (xml.querySelector("parsererror")) throw new Error("Invalid XML: " + norm(xml.querySelector("parsererror")?.textContent));
+    if (key(xml.documentElement?.localName || xml.documentElement?.nodeName) !== "ma") throw new Error("This is not a grandMA2 XML file.");
+    const fixtures = descendants(xml, "FixtureType"); if (!fixtures.length) throw new Error("No grandMA2 FixtureType elements found.");
+    const stored = readStored(), names = [];
+    fixtures.forEach((fixture, fi) => {
+      const manufacturer = norm(first(fixture, "manufacturer")?.textContent); const fixtureName = norm(attr(fixture, "name")) || norm(first(fixture, "short_name")?.textContent) || `MA2 Fixture ${fi + 1}`;
+      const modules = descendants(fixture, "Module"); if (!modules.length) throw new Error(`${fixtureName} has no Module entries.`);
+      modules.forEach((module, mi) => { const modeName = norm(attr(module, "name")) || norm(attr(fixture, "mode")) || `Module ${mi + 1}`; const base = [manufacturer, fixtureName].filter(Boolean).join(" ").trim(); const name = modules.length === 1 ? base : `${base} (${modeName})`; const def = buildDefinition(fixture, module); FixtureLibrary[name] = def; stored[name] = def; names.push(name); console.info("[MA2Import]", name, def.map, def.channels); });
     });
-
-    writeStored(stored);
-    window.renderLibrary?.(document.getElementById("fixtureSearch")?.value || "");
-    return names;
+    writeStored(stored); window.renderLibrary?.(document.getElementById("fixtureSearch")?.value || ""); return names;
   }
-
-  function openPicker() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".xml,text/xml,application/xml";
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-
-      try {
-        const names = importFixtureXml(await file.text());
-        window.log?.(
-          names.length === 1
-            ? `Imported MA2 fixture: ${names[0]}`
-            : `Imported ${names.length} MA2 fixture definitions.`,
-          "ok"
-        );
-      } catch (err) {
-        console.error("[MA2Import]", err);
-        window.log?.(`MA2 fixture import failed: ${err.message}`, "error");
-      }
-    };
-    input.click();
-  }
-
-  function installUI() {
-    if (document.getElementById("btnImportMA2Fixture")) return;
-    const panel = document.getElementById("page-patch")?.querySelector(".panel:first-child .panel-body");
-    if (!panel) return;
-
-    const row = document.createElement("div");
-    row.className = "action-row";
-    row.style.marginTop = "10px";
-    row.innerHTML = '<button class="btn-secondary" id="btnImportMA2Fixture" type="button">⇩ Import MA2 XML</button><span class="panel-meta" style="align-self:center">grandMA2 FixtureType</span>';
-    panel.appendChild(row);
-    document.getElementById("btnImportMA2Fixture").onclick = openPicker;
-  }
-
-  window.MA2FixtureImport = { importFixtureXml, openPicker };
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", installUI, { once: true });
-  } else {
-    installUI();
-  }
+  function picker() { const input = document.createElement("input"); input.type = "file"; input.accept = ".xml,text/xml,application/xml"; input.onchange = async () => { const file = input.files?.[0]; if (!file) return; try { const names = importFixtureXml(await file.text()); window.log?.(`Imported ${names.length} MA2 fixture definition${names.length === 1 ? "" : "s"}.`, "ok"); } catch (e) { console.error("[MA2Import]", e); window.log?.(`MA2 import failed: ${e.message}`, "error"); } }; input.click(); }
+  function install() { if (document.getElementById("btnImportMA2Fixture")) return; const panel = document.getElementById("page-patch")?.querySelector(".panel:first-child .panel-body"); if (!panel) return false; const row = document.createElement("div"); row.className = "action-row"; row.style.marginTop = "10px"; row.innerHTML = '<button class="btn-secondary" id="btnImportMA2Fixture" type="button">⇩ Import MA2 XML</button><span class="panel-meta" style="align-self:center">grandMA2 FixtureType</span>'; panel.appendChild(row); document.getElementById("btnImportMA2Fixture").onclick = picker; return true; }
+  window.MA2FixtureImport = { importFixtureXml, openPicker: picker };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true }); else install();
 })();

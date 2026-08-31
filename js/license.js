@@ -23,7 +23,54 @@
     return id;
   }
 
-  function persist() { write(STORAGE_KEY, JSON.stringify(state)); syncOutputMode(); updateQlabLock(); }
+  function installTierThemeStyles() {
+    if (document.getElementById("license-tier-theme-styles")) return;
+    const style = document.createElement("style");
+    style.id = "license-tier-theme-styles";
+    style.textContent = `
+      html[data-license-tier="free"]{--tier-accent:#5ca8ff;--tier-accent-soft:rgba(92,168,255,.14);--tier-accent-glow:rgba(92,168,255,.25)}
+      html[data-license-tier="live"]{--tier-accent:#19d6a3;--tier-accent-soft:rgba(25,214,163,.14);--tier-accent-glow:rgba(25,214,163,.25)}
+      html[data-license-tier="pro"]{--tier-accent:#c28cff;--tier-accent-soft:rgba(194,140,255,.14);--tier-accent-glow:rgba(194,140,255,.28)}
+      .license-tier-badge{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--tier-accent);border-radius:7px;background:var(--tier-accent-soft);color:var(--tier-accent);font:900 8px/1 var(--mono,monospace);letter-spacing:1.2px;white-space:nowrap;box-shadow:0 0 12px var(--tier-accent-glow)}
+      .license-tier-badge .tier-dot{width:6px;height:6px;border-radius:50%;background:var(--tier-accent);box-shadow:0 0 7px var(--tier-accent)}
+      html[data-license-tier="free"] .topbar{border-bottom-color:rgba(92,168,255,.3)}
+      html[data-license-tier="live"] .topbar{border-bottom-color:rgba(25,214,163,.3)}
+      html[data-license-tier="pro"] .topbar{border-bottom-color:rgba(194,140,255,.35)}
+      html[data-license-tier="free"] .page-kicker{color:#5ca8ff}
+      html[data-license-tier="live"] .page-kicker{color:#19d6a3}
+      html[data-license-tier="pro"] .page-kicker{color:#c28cff}
+      .license-tier-description{display:none!important;font:700 7px/1 var(--mono,monospace);letter-spacing:.8px;opacity:.65}
+      @media(max-width:700px){.license-tier-description{display:none}.license-tier-badge{padding:0 7px}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function tierInfo() {
+    if (state.tier === TIERS.PRO) return { name: "PRO", description: "LIVE + QLAB" };
+    if (state.tier === TIERS.LIVE) return { name: "LIVE", description: "LIVE DMX" };
+    return { name: "FREE", description: "VISUALIZER ONLY" };
+  }
+
+  function updateTierTheme() {
+    if (!document.documentElement) return;
+    installTierThemeStyles();
+    const info = tierInfo();
+    document.documentElement.dataset.licenseTier = state.tier;
+    document.documentElement.dataset.licenseName = info.name;
+    let badge = document.getElementById("licenseTierBadge");
+    const status = document.querySelector(".topbar-status");
+    if (!badge && status) {
+      badge = document.createElement("div");
+      badge.id = "licenseTierBadge";
+      badge.className = "license-tier-badge";
+      badge.setAttribute("aria-live", "polite");
+      status.prepend(badge);
+    }
+    if (badge) badge.innerHTML = `<span class="tier-dot"></span><span>${info.name}</span><span class="license-tier-description">${info.description}</span>`;
+    document.querySelectorAll("[data-license-tier-label]").forEach(node => { node.textContent = info.name; });
+  }
+
+  function persist() { write(STORAGE_KEY, JSON.stringify(state)); syncOutputMode(); updateQlabLock(); updateTierTheme(); }
   function syncOutputMode() {
     window.__licenseTier = state.tier;
     const consoleMode = String(window.getConsoleMode?.() || "LIVE").toUpperCase();
@@ -75,12 +122,12 @@
     if (document.getElementById("licenseStartupScreen")) return; const overlay = document.createElement("div"); overlay.id = "licenseStartupScreen";
     overlay.innerHTML = `<div class="license-startup-card"><div class="license-startup-eyebrow">LIGHT SPARK</div><h1>Activate Light Spark</h1><p class="license-startup-subtitle">Enter a license key for live DMX output, or continue free in visualiser-only mode.</p><div class="license-startup-field"><label for="licenseStartupKey">License key</label><input id="licenseStartupKey" type="text" autocomplete="off" spellcheck="false" placeholder="LC-..." /></div><button id="licenseStartupActivate" class="license-startup-primary">Activate License</button><button id="licenseStartupFree" class="license-startup-secondary">Continue with Free</button><div id="licenseStartupStatus" class="license-startup-status" aria-live="polite"></div></div>`;
     document.body.appendChild(overlay); const keyInput = document.getElementById("licenseStartupKey"), activateButton = document.getElementById("licenseStartupActivate"), freeButton = document.getElementById("licenseStartupFree"), status = document.getElementById("licenseStartupStatus");
-    const close = () => { overlay.remove(); document.body.classList.remove("license-startup-active"); installChangeLicenseButton(); updateQlabLock(); }; const setBusy = busy => { activateButton.disabled = busy; freeButton.disabled = busy; keyInput.disabled = busy; };
+    const close = () => { overlay.remove(); document.body.classList.remove("license-startup-active"); installChangeLicenseButton(); updateQlabLock(); updateTierTheme(); }; const setBusy = busy => { activateButton.disabled = busy; freeButton.disabled = busy; keyInput.disabled = busy; };
     activateButton.onclick = async () => { setBusy(true); status.textContent = "Activating…"; try { const result = await activate(keyInput.value); status.textContent = `Activated ${result.tier.toUpperCase()} license.`; setTimeout(close, 350); } catch (error) { status.textContent = error.message || "Unable to activate license."; setBusy(false); } };
     freeButton.onclick = () => { state = { ...DEFAULT_STATE, machineId: machineId() }; persist(); close(); }; keyInput.addEventListener("keydown", event => { if (event.key === "Enter") activateButton.click(); }); document.body.classList.add("license-startup-active"); setTimeout(() => keyInput.focus(), 50);
   }
 
-  async function boot() { syncOutputMode(); wireQlabNavigationGuard(); updateQlabLock(); window.addEventListener("license-tier-changed", updateQlabLock); if (state.token) { const valid = await validate(); if (valid) { installChangeLicenseButton(); updateQlabLock(); return; } } showStartupScreen(); }
+  async function boot() { installTierThemeStyles(); updateTierTheme(); syncOutputMode(); wireQlabNavigationGuard(); updateQlabLock(); window.addEventListener("license-tier-changed", () => { updateQlabLock(); updateTierTheme(); }); if (state.token) { const valid = await validate(); if (valid) { installChangeLicenseButton(); updateQlabLock(); updateTierTheme(); return; } } showStartupScreen(); }
   window.License = Object.freeze({ getTier: tier, isLive, isPro, activate, validate, deactivate, getState: () => ({ ...state }), showStartupScreen }); window.getLicenseTier = tier; window.__licenseTier = state.tier;
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true }); else boot();
 })();

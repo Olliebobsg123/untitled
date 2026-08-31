@@ -27,7 +27,7 @@
   const send = m => { if (!socket || socket.readyState !== WebSocket.OPEN) return false; try { socket.send(JSON.stringify(m)); return true; } catch (_) { return false; } };
   const sendConfig = () => send({ type:"MULTI_OUTPUT_CONFIG", outputs:outputs.slice(0,MAX_OUTPUTS) });
   const requestUsbPorts = () => send({ type:"MULTI_USB_PORTS" });
-  const sendMode = mode => send({ type:"MULTI_OUTPUT_MODE", mode: String(mode).toUpperCase() === "BLIND" ? "BLIND" : "LIVE" });
+  const sendMode = mode => send({ type:"MULTI_OUTPUT_MODE", mode: canPhysicalOutput() ? (String(mode).toUpperCase() === "BLIND" ? "BLIND" : "LIVE") : "BLIND" });
   window.__setMultiOutputMode = sendMode;
 
   function normalizeOutputs(next) {

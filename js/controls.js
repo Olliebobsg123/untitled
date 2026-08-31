@@ -1,5 +1,7 @@
 "use strict";
 
+
+
 // UI-only control helpers. Multi-fixture Pan/Tilt and Home live here.
 (function initialiseControls() {
   const getSelectedFixtures = () => {
@@ -215,6 +217,8 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", waitForHomeButton, { once: true });
     else waitForHomeButton();
   }
+
+  
 
   if (!window.__strobeControl) {
     window.__strobeControl = true;

@@ -16,6 +16,9 @@ on:
       - 'usb-dmx.js'
       - '.github/workflows/build-windows.yml'
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -39,9 +42,16 @@ jobs:
       - name: Build Windows installer and portable app
         run: npm run build-win
 
-      - name: Upload Windows builds
-        uses: actions/upload-artifact@v4
-        with:
-          name: lighting-console-windows
-          path: Build/*
-          if-no-files-found: error
+      - name: Upload Windows builds to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: latest-build
+        shell: bash
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --title "Latest Build" \
+              --notes "Latest Light Spark builds for macOS and Windows." \
+              --target "$GITHUB_SHA"
+          fi
+          gh release upload "$RELEASE_TAG" Build/* --clobber

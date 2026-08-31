@@ -24,7 +24,13 @@
   }
 
   function persist() { write(STORAGE_KEY, JSON.stringify(state)); syncOutputMode(); }
-  function syncOutputMode() { window.__licenseTier = state.tier; window.__setMultiOutputMode?.(state.tier === TIERS.FREE ? "BLIND" : "LIVE"); window.dispatchEvent(new CustomEvent("license-tier-changed", { detail: { tier: state.tier } })); }
+  function syncOutputMode() {
+    window.__licenseTier = state.tier;
+    const consoleMode = String(window.getConsoleMode?.() || "LIVE").toUpperCase();
+    const outputMode = state.tier === TIERS.FREE ? "BLIND" : (consoleMode === "BLIND" ? "BLIND" : "LIVE");
+    window.__setMultiOutputMode?.(outputMode);
+    window.dispatchEvent(new CustomEvent("license-tier-changed", { detail: { tier: state.tier } }));
+  }
   function tier() { return state.tier; }
   function isLive() { return state.tier === TIERS.LIVE || state.tier === TIERS.PRO; }
 

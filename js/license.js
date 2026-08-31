@@ -23,7 +23,7 @@
     return id;
   }
 
-  function persist() { write(STORAGE_KEY, JSON.stringify(state)); syncOutputMode(); }
+  function persist() { write(STORAGE_KEY, JSON.stringify(state)); syncOutputMode(); updateQlabLock(); }
   function syncOutputMode() {
     window.__licenseTier = state.tier;
     const consoleMode = String(window.getConsoleMode?.() || "LIVE").toUpperCase();
@@ -33,6 +33,72 @@
   }
   function tier() { return state.tier; }
   function isLive() { return state.tier === TIERS.LIVE || state.tier === TIERS.PRO; }
+  function isPro() { return state.tier === TIERS.PRO; }
+
+  function installQlabLockStyles() {
+    if (document.getElementById("qlab-pro-lock-styles")) return;
+    const style = document.createElement("style");
+    style.id = "qlab-pro-lock-styles";
+    style.textContent = `
+      #page-qlab.qlab-pro-locked{position:relative;overflow:hidden}
+      #page-qlab.qlab-pro-locked > .qlab-pro-lock{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(5,9,12,.88);backdrop-filter:blur(5px);border:1px solid rgba(92,168,255,.25);border-radius:12px}
+      .qlab-pro-lock-card{width:min(430px,calc(100% - 40px));padding:30px;text-align:center;border:1px solid rgba(92,168,255,.35);border-radius:14px;background:rgba(12,18,23,.98);box-shadow:0 18px 60px rgba(0,0,0,.4)}
+      .qlab-pro-lock-card .lock-icon{font-size:30px;margin-bottom:12px}
+      .qlab-pro-lock-card .lock-eyebrow{font:800 9px/1 var(--mono,monospace);letter-spacing:2px;color:#5ca8ff;margin-bottom:10px}
+      .qlab-pro-lock-card h2{margin:0 0 10px;font:800 22px/1.2 var(--mono,monospace);color:#e8f0f2}
+      .qlab-pro-lock-card p{margin:0 0 20px;color:#8d9a9e;font:500 12px/1.6 var(--mono,monospace)}
+      .qlab-pro-lock-card button{height:36px;padding:0 16px;border:1px solid #5ca8ff;border-radius:7px;background:#5ca8ff;color:#07111d;cursor:pointer;font:800 9px/1 var(--mono,monospace);letter-spacing:1px}
+      #page-qlab.qlab-pro-locked .qlab-connection,#page-qlab.qlab-pro-locked .qlab-transport,#page-qlab.qlab-pro-locked .qlab-main,#page-qlab.qlab-pro-locked .qlab-sync{pointer-events:none;user-select:none}
+      .nav-link.qlab-pro-locked-nav{opacity:.55}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function updateQlabLock() {
+    if (!document.body) return;
+    installQlabLockStyles();
+    const page = document.getElementById("page-qlab");
+    const nav = document.querySelector('.nav-link[data-page="qlab"]');
+    if (!page || !nav) return;
+    const locked = !isPro();
+    nav.classList.toggle("qlab-pro-locked-nav", locked);
+    nav.setAttribute("aria-disabled", locked ? "true" : "false");
+    nav.title = locked ? "QLab is a Pro feature" : "QLab";
+    let lock = page.querySelector(".qlab-pro-lock");
+    if (locked) {
+      page.classList.add("qlab-pro-locked");
+      if (!lock) {
+        lock = document.createElement("div");
+        lock.className = "qlab-pro-lock";
+        lock.innerHTML = `<div class="qlab-pro-lock-card"><div class="lock-icon">🔒</div><div class="lock-eyebrow">PRO FEATURE</div><h2>QLab is Locked</h2><p>QLab control is available with a Pro license. Activate a Pro license to unlock QLab integration.</p><button type="button" id="qlabProLicenseButton">CHANGE LICENSE</button></div>`;
+        page.appendChild(lock);
+        lock.querySelector("#qlabProLicenseButton").onclick = () => window.License?.showStartupScreen();
+      }
+      const active = page.classList.contains("active");
+      if (active) {
+        const liveNav = document.querySelector('.nav-link[data-page="live"]');
+        liveNav?.click();
+      }
+    } else {
+      page.classList.remove("qlab-pro-locked");
+      lock?.remove();
+    }
+  }
+
+  function wireQlabNavigationGuard() {
+    const nav = document.querySelector('.nav-link[data-page="qlab"]');
+    if (!nav || nav.dataset.proGuard === "1") return;
+    nav.dataset.proGuard = "1";
+    nav.addEventListener("click", event => {
+      if (!isPro()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        updateQlabLock();
+        return false;
+      }
+    }, true);
+    updateQlabLock();
+  }
 
   async function request(path, body) {
     const response = await fetch(`${apiBase()}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -96,7 +162,7 @@
     overlay.innerHTML = `<div class="license-startup-card"><div class="license-startup-eyebrow">LIGHT SPARK</div><h1>Activate Light Spark</h1><p class="license-startup-subtitle">Enter a license key for live DMX output, or continue free in visualiser-only mode.</p><div class="license-startup-field"><label for="licenseStartupKey">License key</label><input id="licenseStartupKey" type="text" autocomplete="off" spellcheck="false" placeholder="LC-..." /></div><button id="licenseStartupActivate" class="license-startup-primary">Activate License</button><button id="licenseStartupFree" class="license-startup-secondary">Continue with Free</button><div id="licenseStartupStatus" class="license-startup-status" aria-live="polite"></div></div>`;
     document.body.appendChild(overlay);
     const keyInput = document.getElementById("licenseStartupKey"), activateButton = document.getElementById("licenseStartupActivate"), freeButton = document.getElementById("licenseStartupFree"), status = document.getElementById("licenseStartupStatus");
-    const close = () => { overlay.remove(); document.body.classList.remove("license-startup-active"); installChangeLicenseButton(); };
+    const close = () => { overlay.remove(); document.body.classList.remove("license-startup-active"); installChangeLicenseButton(); updateQlabLock(); };
     const setBusy = busy => { activateButton.disabled = busy; freeButton.disabled = busy; keyInput.disabled = busy; };
     activateButton.onclick = async () => { setBusy(true); status.textContent = "Activating…"; try { const result = await activate(keyInput.value); status.textContent = `Activated ${result.tier.toUpperCase()} license.`; setTimeout(close, 350); } catch (error) { status.textContent = error.message || "Unable to activate license."; setBusy(false); } };
     freeButton.onclick = () => { state = { ...DEFAULT_STATE, machineId: machineId() }; persist(); close(); };
@@ -107,14 +173,17 @@
 
   async function boot() {
     syncOutputMode();
+    wireQlabNavigationGuard();
+    updateQlabLock();
+    window.addEventListener("license-tier-changed", updateQlabLock);
     if (state.token) {
       const valid = await validate();
-      if (valid) { installChangeLicenseButton(); return; }
+      if (valid) { installChangeLicenseButton(); updateQlabLock(); return; }
     }
     showStartupScreen();
   }
 
-  window.License = Object.freeze({ getTier: tier, isLive, activate, validate, deactivate, getState: () => ({ ...state }), showStartupScreen });
+  window.License = Object.freeze({ getTier: tier, isLive, isPro, activate, validate, deactivate, getState: () => ({ ...state }), showStartupScreen });
   window.getLicenseTier = tier;
   window.__licenseTier = state.tier;
 

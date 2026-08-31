@@ -54,4 +54,10 @@ jobs:
               --notes "Latest Light Spark builds for macOS and Windows." \
               --target "$GITHUB_SHA"
           fi
-          gh release upload "$RELEASE_TAG" Build/* --clobber
+          files=$(find Build -maxdepth 1 -type f \( -iname '*.exe' -o -iname '*.msi' -o -iname '*.zip' \) -print)
+          if [ -z "$files" ]; then
+            echo "No Windows installer files found in Build/"
+            find Build -maxdepth 2 -type f -print
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" $files --clobber

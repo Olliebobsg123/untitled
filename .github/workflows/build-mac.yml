@@ -54,4 +54,4 @@ jobs:
               --notes "Latest Light Spark builds for macOS and Windows." \
               --target "$GITHUB_SHA"
           fi
-          gh release upload "$RELEASE_TAG" Build/* --clobber
+          find Build -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) -print0 | xargs -0 -r gh release upload "$RELEASE_TAG" --clobber

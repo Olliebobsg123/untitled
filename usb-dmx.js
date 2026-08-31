@@ -9,10 +9,11 @@ let enabled = false;
 let mode = 'LIVE';
 let refreshRate = 25;
 
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const clampRefreshRate = value => {
   const n = Number(value);
-  return Number.isFinite(n) ? Math.max(10, Math.min(40, Math.round(n))) : 25;
+  return Number.isFinite(n) ? clamp(Math.round(n), 10, 40) : 25;
 };
 
 function identify(port) {
@@ -24,35 +25,23 @@ function identify(port) {
   const serial = String(port.serialNumber || '').toUpperCase();
   const usb = { vendorId: vid || null, productId: pid || null, serialNumber: serial || null };
 
-  if (text.includes('dmxking') || text.includes('jpk systems')) {
-    return { id: 'dmxking-pro', name: 'DMXking USB DMX', protocol: 'dmx-usb-pro', usb };
-  }
+  if (text.includes('dmxking') || text.includes('jpk systems')) return { id: 'dmxking-pro', name: 'DMXking USB DMX', protocol: 'dmx-usb-pro', usb };
   if (text.includes('enttec')) {
-    if (text.includes('open dmx') || text.includes('open-dmx')) {
-      return { id: 'enttec-open', name: 'ENTTEC Open DMX', protocol: 'open-dmx', usb };
-    }
-    if (text.includes('dmx usb') || text.includes('dmx pro') || text.includes('dmxusb')) {
-      return { id: 'enttec-pro', name: 'ENTTEC DMX USB Pro', protocol: 'dmx-usb-pro', usb };
-    }
+    if (text.includes('open dmx') || text.includes('open-dmx')) return { id: 'enttec-open', name: 'ENTTEC Open DMX', protocol: 'open-dmx', usb };
+    if (text.includes('dmx usb') || text.includes('dmx pro') || text.includes('dmxusb')) return { id: 'enttec-pro', name: 'ENTTEC DMX USB Pro', protocol: 'dmx-usb-pro', usb };
   }
-  if (vid === '0403' && pid === '6001' && serial === 'BG04IAGK') {
-    return { id: 'dsd-tech-open-dmx', name: 'DSD TECH USB DMX / ENTTEC Open DMX', protocol: 'open-dmx', usb };
-  }
-  if (text.includes('dsd tech') || text.includes('dsdtech')) {
-    return { id: 'dsd-tech-open-dmx', name: 'DSD TECH USB DMX / ENTTEC Open DMX', protocol: 'open-dmx', usb };
-  }
-  if (vid === '0403' && ['6001', '6010', '6011', '6014'].includes(pid)) {
-    return { id: 'open-dmx', name: 'OpenDMX / FTDI-compatible', protocol: 'open-dmx', usb };
-  }
+  if (vid === '0403' && pid === '6001' && serial === 'BG04IAGK') return { id: 'dsd-tech-open-dmx', name: 'DSD TECH USB DMX / ENTTEC Open DMX', protocol: 'open-dmx', usb };
+  if (text.includes('dsd tech') || text.includes('dsdtech')) return { id: 'dsd-tech-open-dmx', name: 'DSD TECH USB DMX / ENTTEC Open DMX', protocol: 'open-dmx', usb };
+  if (vid === '0403' && ['6001', '6010', '6011', '6014'].includes(pid)) return { id: 'open-dmx', name: 'OpenDMX / FTDI-compatible', protocol: 'open-dmx', usb };
   return { id: 'generic-serial', name: product || manufacturer || 'USB serial DMX (manual)', protocol: 'open-dmx', usb };
 }
 
 function preferMacCuPort(devicePath) {
-  const path = String(devicePath || '').trim();
-  if (process.platform !== 'darwin') return path;
-  if (path.startsWith('/dev/cu.')) return path;
-  if (path.startsWith('/dev/tty.')) return `/dev/cu.${path.slice('/dev/tty.'.length)}`;
-  return path;
+  const value = String(devicePath || '').trim();
+  if (process.platform !== 'darwin') return value;
+  if (value.startsWith('/dev/cu.')) return value;
+  if (value.startsWith('/dev/tty.')) return `/dev/cu.${value.slice(9)}`;
+  return value;
 }
 
 function filterMacSerialPorts(ports) {
@@ -60,8 +49,7 @@ function filterMacSerialPorts(ports) {
   const cuPaths = new Set(ports.map(p => String(p.path || '')).filter(p => p.startsWith('/dev/cu.')));
   return ports.filter(port => {
     const path = String(port.path || '');
-    if (!path.startsWith('/dev/tty.')) return true;
-    return !cuPaths.has(`/dev/cu.${path.slice('/dev/tty.'.length)}`);
+    return !path.startsWith('/dev/tty.') || !cuPaths.has(`/dev/cu.${path.slice(9)}`);
   });
 }
 
@@ -79,61 +67,38 @@ class Driver {
 
   async listPorts() {
     const ports = filterMacSerialPorts(await SerialPort.list());
-    return ports.map(p => ({
-      path: p.path,
-      manufacturer: p.manufacturer || null,
-      product: p.product || null,
-      serialNumber: p.serialNumber || null,
-      locationId: p.locationId || null,
-      vendorId: p.vendorId || null,
-      productId: p.productId || null,
-      driver: identify(p)
-    }));
+    return ports.map(p => ({ path: p.path, manufacturer: p.manufacturer || null, product: p.product || null, serialNumber: p.serialNumber || null, locationId: p.locationId || null, vendorId: p.vendorId || null, productId: p.productId || null, driver: identify(p) }));
   }
 
   async open(devicePath, driverInfo) {
     await this.close();
-    const requestedPath = String(devicePath || '').trim();
-    if (!requestedPath) throw new Error('No USB DMX device selected');
-    const path = preferMacCuPort(requestedPath);
+    const requested = String(devicePath || '').trim();
+    if (!requested) throw new Error('No USB DMX device selected');
+    const path = preferMacCuPort(requested);
     this.path = path;
     this.lastError = null;
     const ports = filterMacSerialPorts(await SerialPort.list());
-    const detected = ports.find(p => p.path === path) || ports.find(p => p.path === requestedPath);
+    const detected = ports.find(p => p.path === path) || ports.find(p => p.path === requested);
     this.info = driverInfo || (detected ? identify(detected) : this.info);
-    if (!this.info.protocol) throw new Error('Unknown USB-DMX protocol. Please select DMX USB Pro or OpenDMX.');
     if (!['open-dmx', 'dmx-usb-pro'].includes(this.info.protocol)) throw new Error(`Unsupported USB-DMX protocol: ${this.info.protocol}`);
 
-    console.log(`USB DMX OPEN → ${path}`);
-    console.log(`USB DMX PROTOCOL → ${this.info.protocol === 'open-dmx' ? 'OpenDMX' : 'DMX USB Pro'}`);
-
     this.port = new SerialPort({ path, baudRate: 250000, dataBits: 8, stopBits: 2, parity: 'none', autoOpen: false });
-    this.port.on('error', err => {
-      this.lastError = err?.message || String(err);
-      this.connected = false;
-      console.error('USB DMX SERIAL ERROR:', this.lastError);
-      broadcastStatus();
-    });
+    this.port.on('error', err => { this.lastError = err?.message || String(err); this.connected = false; console.error('USB DMX SERIAL ERROR:', this.lastError); broadcastStatus(); });
     this.port.on('close', () => { this.connected = false; broadcastStatus(); });
-
     await new Promise((resolve, reject) => this.port.open(err => err ? reject(err) : resolve()));
     this.connected = true;
-    console.log(`USB DMX CONNECTED → ${path}`);
     this.start();
   }
 
   start() {
     if (this.timer) clearInterval(this.timer);
     const interval = Math.max(25, Math.round(1000 / refreshRate));
-    this.timer = setInterval(() => this.sendFrame(), interval);
+    this.timer = setInterval(() => { void this.sendFrame(); }, interval);
   }
 
   setRefreshRate(value) {
-    const next = clampRefreshRate(value);
-    const changed = next !== refreshRate;
-    refreshRate = next;
+    refreshRate = clampRefreshRate(value);
     if (this.connected) this.start();
-    if (changed) broadcastStatus();
   }
 
   setFrame(values) {
@@ -144,37 +109,35 @@ class Driver {
 
   async sendOpenDMX() {
     if (!this.port?.isOpen || !this.port?.writable) return false;
+    // OpenDMX uses a serial break followed by a zero start code and 512 slots.
     await new Promise((resolve, reject) => this.port.set({ brk: true }, err => err ? reject(err) : resolve()));
-    await sleep(1);
+    await sleep(process.platform === 'win32' ? 1 : 1);
     await new Promise((resolve, reject) => this.port.set({ brk: false }, err => err ? reject(err) : resolve()));
     const packet = Buffer.alloc(513);
-    packet[0] = 0;
     this.frame.copy(packet, 1);
-    await new Promise((resolve, reject) => this.port.write(packet, err => err ? reject(err) : resolve()));
-    return true;
+    return new Promise((resolve, reject) => this.port.write(packet, err => err ? reject(err) : this.port.drain(err2 => err2 ? reject(err2) : resolve(true))));
   }
 
   sendPro() {
     if (!this.port?.isOpen || !this.port?.writable) return Promise.resolve(false);
+    // ENTTEC/DMX USB Pro packet: 0x7E, label 0x06, payload length 513 (LSB/MSB), start code + 512 slots, 0xE7.
     const packet = Buffer.alloc(518);
-    packet[0] = 0x7e; packet[1] = 0x06; packet[2] = 0x01; packet[3] = 0x02; packet[4] = 0x00;
-    this.frame.copy(packet, 5); packet[517] = 0xe7;
+    packet[0] = 0x7e;
+    packet[1] = 0x06;
+    packet[2] = 0x01;
+    packet[3] = 0x02;
+    packet[4] = 0x00;
+    this.frame.copy(packet, 5);
+    packet[517] = 0xe7;
     return new Promise((resolve, reject) => this.port.write(packet, err => err ? reject(err) : this.port.drain(err2 => err2 ? reject(err2) : resolve(true))));
   }
 
   async sendFrame() {
     if (!enabled || mode !== 'LIVE' || !this.connected || !this.port?.isOpen || !this.port?.writable || this.writing) return false;
     this.writing = true;
-    try {
-      return this.info.protocol === 'dmx-usb-pro' ? await this.sendPro() : await this.sendOpenDMX();
-    } catch (err) {
-      this.lastError = err?.message || String(err);
-      console.error('USB DMX OUTPUT ERROR:', this.lastError);
-      return false;
-    } finally {
-      this.writing = false;
-      broadcastStatus();
-    }
+    try { return this.info.protocol === 'dmx-usb-pro' ? await this.sendPro() : await this.sendOpenDMX(); }
+    catch (err) { this.lastError = err?.message || String(err); console.error('USB DMX OUTPUT ERROR:', this.lastError); return false; }
+    finally { this.writing = false; }
   }
 
   async close() {
@@ -184,12 +147,10 @@ class Driver {
     this.connected = false;
     this.writing = false;
     if (!port || !port.isOpen) return;
-    await new Promise(resolve => port.close(() => resolve()));
+    try { await new Promise(resolve => port.close(() => resolve())); } catch (_) {}
   }
 
-  status() {
-    return { path: this.path, connected: this.connected, error: this.lastError || null, driver: this.info, refreshRate };
-  }
+  status() { return { path: this.path, connected: this.connected, error: this.lastError || null, driver: this.info, refreshRate }; }
 }
 
 const usb = new Driver();
@@ -198,15 +159,9 @@ let configQueue = Promise.resolve();
 
 function broadcast(message) {
   if (!wss) return;
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(JSON.stringify(message)); } catch (_) {}
-    }
-  });
+  wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) { try { client.send(JSON.stringify(message)); } catch (_) {} } });
 }
-function broadcastStatus() {
-  broadcast({ type: 'USB_DMX_STATUS', enabled, mode, ...usb.status(), online: usb.connected && enabled && mode === 'LIVE' });
-}
+function broadcastStatus() { broadcast({ type: 'USB_DMX_STATUS', enabled, mode, ...usb.status(), online: usb.connected && enabled && mode === 'LIVE' }); }
 
 wss = new WebSocket.Server({ host: WS_HOST, port: WS_PORT });
 wss.on('listening', () => console.log(`USB DMX SERVICE READY — ws://${WS_HOST}:${WS_PORT}`));
@@ -215,49 +170,21 @@ wss.on('error', err => console.error('USB DMX SERVICE ERROR:', err.message));
 async function applyConfigNow(message) {
   enabled = Boolean(message.enabled);
   mode = String(message.mode || 'LIVE').toUpperCase() === 'BLIND' ? 'BLIND' : 'LIVE';
+  const requestedRate = message.refreshRate != null ? clampRefreshRate(message.refreshRate) : refreshRate;
 
-  const requestedRefreshRate = message.refreshRate != null
-    ? clampRefreshRate(message.refreshRate)
-    : refreshRate;
-
-  if (!enabled || mode !== 'LIVE') {
-    refreshRate = requestedRefreshRate;
-    await usb.close();
-    broadcastStatus();
-    return;
-  }
+  if (!enabled || mode !== 'LIVE') { refreshRate = requestedRate; await usb.close(); broadcastStatus(); return; }
 
   const devicePath = String(message.device || '').trim();
-  if (!devicePath) {
-    refreshRate = requestedRefreshRate;
-    await usb.close();
-    usb.lastError = 'No USB DMX device selected';
-    broadcastStatus();
-    return;
-  }
+  if (!devicePath) { await usb.close(); usb.lastError = 'No USB DMX device selected'; broadcastStatus(); return; }
 
   try {
     const driverInfo = message.driver && typeof message.driver === 'object' ? message.driver : null;
     const preferredPath = preferMacCuPort(devicePath);
-    const requestedProtocol = driverInfo?.protocol || null;
-    const currentProtocol = usb.info?.protocol || null;
-    const requestedDriverId = driverInfo?.id || null;
-    const currentDriverId = usb.info?.id || null;
-    const needsReopen = usb.path !== preferredPath || !usb.connected ||
-      (requestedDriverId !== null && requestedDriverId !== currentDriverId) ||
-      (requestedProtocol !== null && requestedProtocol !== currentProtocol);
-
-    if (needsReopen) {
-      // Set the rate before opening so the newly-created timer uses it.
-      refreshRate = requestedRefreshRate;
-      await usb.open(preferredPath, driverInfo || usb.info);
-    } else {
-      // The serial port stays open. setRefreshRate() restarts only the DMX
-      // transmission timer, so changing Hz takes effect immediately without
-      // disconnecting/reconnecting the USB interface.
-      usb.setRefreshRate(requestedRefreshRate);
-    }
-
+    const protocol = driverInfo?.protocol || null;
+    const driverId = driverInfo?.id || null;
+    const needsReopen = usb.path !== preferredPath || !usb.connected || (protocol && protocol !== usb.info?.protocol) || (driverId && driverId !== usb.info?.id);
+    if (needsReopen) { refreshRate = requestedRate; await usb.open(preferredPath, driverInfo || usb.info); }
+    else usb.setRefreshRate(requestedRate);
     broadcastStatus();
   } catch (err) {
     await usb.close();
@@ -268,30 +195,19 @@ async function applyConfigNow(message) {
 }
 
 function applyConfig(message) {
-  configQueue = configQueue
-    .then(() => applyConfigNow(message))
-    .catch(err => {
-      usb.lastError = err?.message || String(err);
-      console.error('USB DMX CONFIG ERROR:', usb.lastError);
-      broadcastStatus();
-    });
+  configQueue = configQueue.then(() => applyConfigNow(message)).catch(err => { usb.lastError = err?.message || String(err); broadcastStatus(); });
   return configQueue;
 }
 
 wss.on('connection', ws => {
   ws.send(JSON.stringify({ type: 'USB_DMX_STATUS', enabled, mode, ...usb.status(), online: usb.connected && enabled && mode === 'LIVE' }));
-  ws.on('message', async data => {
+  ws.on('message', data => {
     try {
       const message = JSON.parse(String(data));
-      if (message?.type === 'USB_DMX_CONFIG') return applyConfig(message);
-      if (message?.type === 'USB_DMX_PORTS') {
-        ws.send(JSON.stringify({ type: 'USB_DMX_PORTS', refreshRate, refreshRates: [10, 15, 20, 25, 30, 35, 40], ports: await usb.listPorts() }));
-        return;
-      }
+      if (message?.type === 'USB_DMX_CONFIG') { void applyConfig(message); return; }
+      if (message?.type === 'USB_DMX_PORTS') { usb.listPorts().then(ports => ws.send(JSON.stringify({ type: 'USB_DMX_PORTS', refreshRate, refreshRates: [10, 15, 20, 25, 30, 35, 40], ports }))).catch(err => ws.send(JSON.stringify({ type: 'USB_DMX_PORTS', refreshRate, refreshRates: [10, 15, 20, 25, 30, 35, 40], ports: [], error: err?.message || String(err) }))); return; }
       if (message?.type === 'USB_DMX_UPDATE' && Array.isArray(message.dmx) && enabled && mode === 'LIVE') usb.setFrame(message.dmx);
-    } catch (err) {
-      console.warn('Invalid USB DMX message:', err.message);
-    }
+    } catch (err) { console.warn('Invalid USB DMX message:', err.message); }
   });
 });
 

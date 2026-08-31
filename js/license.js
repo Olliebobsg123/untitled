@@ -5,6 +5,7 @@
 
   const STORAGE_KEY = "lighting-console-license";
   const API_KEY = "lighting-console-license-api";
+  const DEFAULT_API_BASE = "https://api-bice-ten.vercel.app/api/licenses";
   const TIERS = Object.freeze({ FREE: "free", LIVE: "live", PRO: "pro" });
   const TIER_ORDER = Object.freeze({ free: 0, live: 1, pro: 2 });
   const DEFAULT_STATE = Object.freeze({ tier: TIERS.FREE, key: "", token: "", expiresAt: null, machineId: "" });
@@ -12,19 +13,23 @@
   const read = key => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
   const write = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
 
+  function normalizeTier(value) {
+    const tier = String(value || "").trim().toLowerCase();
+    return Object.values(TIERS).includes(tier) ? tier : TIERS.FREE;
+  }
+
   function loadState() {
     try {
       const raw = JSON.parse(read(STORAGE_KEY) || "{}");
-      const tier = Object.values(TIERS).includes(raw.tier) ? raw.tier : TIERS.FREE;
-      return { ...DEFAULT_STATE, ...raw, tier };
+      return { ...DEFAULT_STATE, ...raw, tier: normalizeTier(raw.tier) };
     } catch (_) { return { ...DEFAULT_STATE }; }
   }
 
   let state = loadState();
-  let apiBase = read(API_KEY);
+  let apiBase = read(API_KEY) || DEFAULT_API_BASE;
 
   function save() { write(STORAGE_KEY, JSON.stringify(state)); }
-  function has(tier) { return TIER_ORDER[state.tier] >= TIER_ORDER[tier] && state.tier !== TIERS.FREE || tier === TIERS.FREE; }
+  function has(tier) { return TIER_ORDER[state.tier] >= TIER_ORDER[tier]; }
   function isLiveEnabled() { return has(TIERS.LIVE); }
   function isProEnabled() { return has(TIERS.PRO); }
 
@@ -41,22 +46,53 @@
     return { ...state, apiBase, liveEnabled: isLiveEnabled(), proEnabled: isProEnabled(), machineId: machineId() };
   }
 
+  async function api(path, options = {}) {
+    const response = await fetch(`${apiBase.replace(/\/$/, "")}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error || data?.message || `License server error (${response.status})`);
+    return data;
+  }
+
+  async function validateStoredLicense() {
+    if (!state.token || !state.machineId) return status();
+    try {
+      const data = await api("/validate", { method: "POST", body: JSON.stringify({ token: state.token, machineId: state.machineId }) });
+      if (!data?.valid) throw new Error("License is no longer valid");
+      state = { ...state, tier: normalizeTier(data.tier), expiresAt: data.expiresAt || null };
+      save();
+    } catch (_) {
+      state = { ...DEFAULT_STATE, machineId: state.machineId };
+      save();
+      window.dispatchEvent(new CustomEvent("license-changed", { detail: status() }));
+    }
+    window.dispatchEvent(new CustomEvent("license-changed", { detail: status() }));
+    return status();
+  }
+
   async function activate(licenseKey) {
     const key = String(licenseKey || "").trim();
     if (!key) throw new Error("Enter a license key");
-    if (!apiBase) throw new Error("License server is not configured yet");
 
-    const response = await fetch(`${apiBase.replace(/\/$/, "")}/v1/activate`, {
+    const data = await api("/activate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ licenseKey: key, machineId: machineId(), product: "lighting-console" })
+      body: JSON.stringify({ key, machineId: machineId() })
     });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data?.token || !Object.values(TIERS).includes(data?.tier)) throw new Error(data?.message || "License activation failed");
+    if (!data?.token) throw new Error(data?.error || "License activation failed");
 
-    state = { ...state, key, token: data.token, tier: data.tier, expiresAt: data.expiresAt || null, machineId: data.machineId || machineId() };
+    state = {
+      ...state,
+      key,
+      token: data.token,
+      tier: normalizeTier(data.tier),
+      expiresAt: data.expiresAt || null,
+      machineId: state.machineId || machineId()
+    };
     save();
     window.dispatchEvent(new CustomEvent("license-changed", { detail: status() }));
+    window.__setMultiOutputMode?.(isLiveEnabled() ? "LIVE" : "BLIND");
     return status();
   }
 
@@ -64,10 +100,11 @@
     state = { ...DEFAULT_STATE, machineId: state.machineId || machineId() };
     save();
     window.dispatchEvent(new CustomEvent("license-changed", { detail: status() }));
+    window.__setMultiOutputMode?.("BLIND");
   }
 
   function setApiBase(url) {
-    apiBase = String(url || "").trim().replace(/\/$/, "");
+    apiBase = String(url || "").trim().replace(/\/$/, "") || DEFAULT_API_BASE;
     write(API_KEY, apiBase);
   }
 
@@ -99,7 +136,7 @@
     document.getElementById("licenseDeactivate")?.addEventListener("click", () => { deactivate(); renderPanel(); });
   }
 
-  window.License = Object.freeze({ TIERS, status, has, isLiveEnabled, isProEnabled, activate, deactivate, setApiBase, machineId, renderPanel });
+  window.License = Object.freeze({ TIERS, status, has, isLiveEnabled, isProEnabled, activate, deactivate, setApiBase, machineId, renderPanel, validate: validateStoredLicense });
   window.getConsoleLicenseTier = () => status().tier;
 
   const ensureHost = () => {
@@ -118,6 +155,8 @@
     let attempts = 0;
     const wait = () => { if (ensureHost()) return; attempts += 1; if (attempts < 100) setTimeout(wait, 100); };
     wait();
+    if (state.token) validateStoredLicense();
+    setTimeout(() => window.__setMultiOutputMode?.(isLiveEnabled() ? "LIVE" : "BLIND"), 0);
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true }); else install();
 })();

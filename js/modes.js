@@ -15,7 +15,9 @@ window.__blindLiveMode = true;
     localStorage.removeItem("lighting-output-settings");
   } catch (_) {}
 
-  let mode = localStorage.getItem(MODE_KEY) === "blind" ? "BLIND" : "LIVE";
+  const licenseTier = () => String(window.__licenseTier || window.getLicenseTier?.() || "FREE").toUpperCase();
+  const isFreeTier = () => licenseTier() === "FREE";
+  let mode = isFreeTier() ? "BLIND" : (localStorage.getItem(MODE_KEY) === "blind" ? "BLIND" : "LIVE");
   let emergencyActive = false;
   let blackoutActive = false;
   let savedState = null;
@@ -32,6 +34,7 @@ window.__blindLiveMode = true;
       .console-mode-switch button:hover{color:#dce7e4;background:rgba(255,255,255,.04)}
       .console-mode-switch button.live.active{color:#06130e;background:#19d6a3;border-color:#54f2c8;box-shadow:0 0 14px rgba(25,214,163,.22)}
       .console-mode-switch button.blind.active{color:#07111d;background:#5ca8ff;border-color:#8bc5ff;box-shadow:0 0 14px rgba(92,168,255,.24)}
+      .console-mode-switch button.live:disabled{opacity:.35;cursor:not-allowed;filter:grayscale(1)}
       .safety-controls{display:flex;align-items:center;gap:5px;margin-left:4px}
       .safety-control{min-width:78px;height:30px;padding:0 10px;border-radius:7px;cursor:pointer;font:900 8px/1 var(--mono,monospace);letter-spacing:.8px;transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
       .safety-control:hover{transform:translateY(-1px)}
@@ -79,6 +82,8 @@ window.__blindLiveMode = true;
     installModeStyles();
     live.classList.toggle("active",mode==="LIVE");
     blind.classList.toggle("active",mode==="BLIND");
+    live.disabled = isFreeTier();
+    live.title = isFreeTier() ? "LIVE output requires a LIVE or PRO license" : "Switch to LIVE mode";
     document.body.classList.toggle("console-blind",mode==="BLIND");
     document.documentElement.dataset.consoleMode=mode.toLowerCase();
     const meta=document.querySelector("#page-live .quick-panel .panel-meta");
@@ -95,6 +100,14 @@ window.__blindLiveMode = true;
   }
 
   function setMode(next) {
+    if (isFreeTier()) {
+      mode="BLIND";
+      localStorage.setItem(MODE_KEY,"blind");
+      if(window.ArtNet) window.ArtNet.outputMode="BLIND";
+      if(typeof window.__setMultiOutputMode === "function") window.__setMultiOutputMode("BLIND");
+      updateUI();
+      return;
+    }
     mode=String(next).toUpperCase()==="BLIND" ? "BLIND" : "LIVE";
     localStorage.setItem(MODE_KEY,mode.toLowerCase());
     if(window.ArtNet) window.ArtNet.outputMode=mode;
@@ -239,27 +252,11 @@ window.__blindLiveMode = true;
     if(!live || !blind) return;
     installModeStyles();
     installSafetyControls();
-    live.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
+    live.onclick=()=>{if(isFreeTier()){setMode("BLIND");return;}if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
     blind.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("BLIND");};
-    if(window.ArtNet && !window.ArtNet.__blindLiveModePatched){
-      const originalSend=window.ArtNet.send?.bind(window.ArtNet);
-      window.ArtNet.__blindLiveModePatched=true;
-      window.ArtNet.outputMode=mode;
-      if(originalSend){
-        window.ArtNet.send=function(){
-          if(window.ArtNet.outputMode==="BLIND"){
-            if(typeof window.sendVisualizerDMX==="function") window.sendVisualizerDMX();
-            return;
-          }
-          return originalSend();
-        };
-      }
-    }
     updateUI();
     sendVisualizerMode();
     if(typeof window.__setMultiOutputMode === "function") window.__setMultiOutputMode(mode);
-    // app.js contains legacy chase handlers which call prompt()/confirm().
-    // Rewire them last so the supported chase UI owns the buttons.
     wireChaseButtons();
   }
 
@@ -269,6 +266,7 @@ window.__blindLiveMode = true;
   window.consoleBlackout=blackout;
   window.clearSafetyOverride=clearSafetyOverride;
 
+  window.addEventListener("license-tier-changed",()=>{if(isFreeTier())setMode("BLIND");else updateUI();});
   window.addEventListener("message",event=>{ if(event.data?.type==="VISUALIZER_READY") sendVisualizerMode(); });
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",install,{once:true});
   else install();

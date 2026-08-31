@@ -1,0 +1,47 @@
+name: Build Mac
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'main.js'
+      - 'index.html'
+      - 'styles.css'
+      - 'js/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'relay.js'
+      - 'multi-output.js'
+      - 'usb-dmx.js'
+      - '.github/workflows/build-mac.yml'
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Sync package lock
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Mac app
+        run: npm run build-mac
+
+      - name: Upload Mac build
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighting-console-mac
+          path: Build/*
+          if-no-files-found: error

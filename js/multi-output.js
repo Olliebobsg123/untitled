@@ -46,16 +46,22 @@
     });
   }
 
-  function connect() {
-    clearTimeout(reconnectTimer);
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
-    try {
-      socket = new WebSocket("ws://127.0.0.1:8084");
-      socket.onopen = () => { sendConfig(); requestUsbPorts(); sendMode(window.getConsoleMode?.() || "LIVE"); };
-      socket.onmessage = e => { try { const m=JSON.parse(e.data); if(m.type==="MULTI_USB_PORTS"){usbPorts=Array.isArray(m.ports)?m.ports:[];render();} if(m.type==="MULTI_OUTPUT_STATUS"){const byId=new Map((m.outputs||[]).map(o=>[o.id,o]));outputs.forEach(o=>{const s=byId.get(o.id);if(s)o.__status=s;});renderStatuses();window.dispatchEvent(new CustomEvent("multi-output-status",{detail:m}));} } catch (_) {} };
-      socket.onclose = () => { socket=null; reconnectTimer=setTimeout(connect,1500); };
-      socket.onerror = () => {};
-    } catch (_) { reconnectTimer=setTimeout(connect,1500); }
+  function canPhysicalOutput() {
+    const tier = String(window.__licenseTier || window.getLicenseTier?.() || "FREE").toUpperCase();
+    return tier === "LIVE" || tier === "PRO";
+  }
+
+  function sendDMX() {
+    if (!canPhysicalOutput()) return;
+    if (!outputs.some(o=>o.enabled)) return;
+    const universes = patchUniverseFrames();
+    for (const output of outputs) {
+      if (!output.enabled) continue;
+      const u=Number(output.universe);
+      if (!Number.isInteger(u)) continue;
+      if (!Object.prototype.hasOwnProperty.call(universes,u)) universes[u]=new Array(512).fill(0);
+    }
+    send({type:"MULTI_DMX_UPDATE",universes});
   }
 
   function patchUniverseFrames() {
@@ -75,18 +81,6 @@
       for (let i=0;i<channels && base+i<512;i++) frames[universe][base+i]=Number(dmx[base+i])&255;
     }
     return frames;
-  }
-
-  function sendDMX() {
-    if (!outputs.some(o=>o.enabled)) return;
-    const universes = patchUniverseFrames();
-    for (const output of outputs) {
-      if (!output.enabled) continue;
-      const u=Number(output.universe);
-      if (!Number.isInteger(u)) continue;
-      if (!Object.prototype.hasOwnProperty.call(universes,u)) universes[u]=new Array(512).fill(0);
-    }
-    send({type:"MULTI_DMX_UPDATE",universes});
   }
 
   function usbOptions(current){const a=[`<option value="">— Select USB device —</option>`];for(const p of usbPorts){const label=[p.manufacturer,p.product].filter(Boolean).join(" ")||"USB serial DMX";const value=String(p.path||"");const safe=value.replace(/&/g,"&amp;").replace(/"/g,"&quot;");a.push(`<option value="${safe}" ${value===String(current||"")?"selected":""}>${label} — ${value}</option>`);}return a.join("");}
@@ -126,34 +120,4 @@
 
   function install(){try{window.ArtNet?.stop?.();}catch(_){}installUI();connect();setInterval(sendDMX,40);window.addEventListener("beforeunload",()=>{try{socket?.close();}catch(_){}});}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
-
-  function installNativeShowLoadFix() {
-    if (window.__nativeShowLoadFix) return true;
-    if (typeof window.loadShow !== "function") return false;
-    const originalLoadShow = window.loadShow;
-    window.loadShow = function(...args) {
-      if (args.length) return originalLoadShow.apply(this, args);
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".json,application/json";
-      input.style.display = "none";
-      input.addEventListener("change", event => {
-        try {
-          if (!input.files || !input.files.length) return;
-          originalLoadShow.call(this, event);
-        } finally {
-          setTimeout(() => input.remove(), 0);
-        }
-      }, { once: true });
-      document.body.appendChild(input);
-      input.click();
-      return input;
-    };
-    window.__nativeShowLoadFix = true;
-    return true;
-  }
-  if (!installNativeShowLoadFix()) {
-    const timer = setInterval(() => { if (installNativeShowLoadFix()) clearInterval(timer); }, 100);
-    setTimeout(() => clearInterval(timer), 15000);
-  }
 })();

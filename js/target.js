@@ -25,6 +25,56 @@
     return (State.fixtures || []).filter(f => State.selected.has(f.id));
   }
 
+  function fixtureState(fixtureId) {
+    state();
+    if (typeof window.ensureFixtureState === "function") return window.ensureFixtureState(fixtureId);
+    let current = State.fixtureStates.get(fixtureId);
+    if (!current) { current = { ...State.current }; State.fixtureStates.set(fixtureId, current); }
+    return current;
+  }
+
+  /* Capture is a position lock, not tracking. Once captured, pan/tilt writes are
+     rejected for that fixture until target release is called. */
+  function lockFixturePosition(fixtureId, pan, tilt, targetId) {
+    const current = fixtureState(fixtureId);
+    if (current.__targetPositionLock) {
+      current.__targetPositionLock.pan = pan;
+      current.__targetPositionLock.tilt = tilt;
+      current.__targetPositionLock.targetId = targetId;
+      return;
+    }
+
+    const lock = { pan, tilt, targetId };
+    Object.defineProperty(current, "__targetPositionLock", { value: lock, writable: true, configurable: true, enumerable: false });
+
+    let lockedPan = pan;
+    let lockedTilt = tilt;
+    Object.defineProperty(current, "pan", {
+      configurable: true,
+      enumerable: true,
+      get: () => lockedPan,
+      set: () => { lockedPan = lock.pan; }
+    });
+    Object.defineProperty(current, "tilt", {
+      configurable: true,
+      enumerable: true,
+      get: () => lockedTilt,
+      set: () => { lockedTilt = lock.tilt; }
+    });
+  }
+
+  function unlockFixturePosition(fixtureId) {
+    const current = State.fixtureStates?.get(fixtureId);
+    if (!current || !current.__targetPositionLock) return false;
+    const lock = current.__targetPositionLock;
+    const pan = lock.pan;
+    const tilt = lock.tilt;
+    delete current.__targetPositionLock;
+    Object.defineProperty(current, "pan", { value: pan, writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(current, "tilt", { value: tilt, writable: true, configurable: true, enumerable: true });
+    return true;
+  }
+
   function create(name) {
     state();
     const targetName = clean(name);
@@ -33,9 +83,7 @@
 
     const pan = Number(State.current.pan);
     const tilt = Number(State.current.tilt);
-    if (!Number.isFinite(pan) || !Number.isFinite(tilt)) {
-      return { ok: false, message: "Current pan/tilt values are not available." };
-    }
+    if (!Number.isFinite(pan) || !Number.isFinite(tilt)) return { ok: false, message: "Current pan/tilt values are not available." };
 
     const target = {
       id: `target-${Date.now()}`,
@@ -55,23 +103,21 @@
     state();
     const target = findTarget(name);
     if (!target) return { ok: false, message: `Target \"${clean(name)}\" not found.` };
-    if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before aiming at a target." };
+    const fixtures = selectedFixtures();
+    if (!fixtures.length) return { ok: false, message: "Select at least one fixture before aiming at a target." };
 
     const values = { pan: target.pan, tilt: target.tilt };
     Object.assign(State.current, values);
-    selectedFixtures().forEach(fixture => {
-      const current = typeof window.ensureFixtureState === "function"
-        ? window.ensureFixtureState(fixture.id)
-        : (State.fixtureStates.get(fixture.id) || {});
+    fixtures.forEach(fixture => {
+      const current = fixtureState(fixture.id);
       Object.assign(current, values);
-      if (!State.fixtureStates.has(fixture.id)) State.fixtureStates.set(fixture.id, current);
     });
 
     if (typeof window.fadeTo === "function") window.fadeTo(values, 300);
     if (typeof window.updateDMX === "function") window.updateDMX();
     if (typeof window.renderFixtures === "function") window.renderFixtures();
     if (typeof window.buildControls === "function") window.buildControls();
-    window.log?.(`Aimed ${selectedFixtures().length} fixture(s) at target \"${target.name}\"`, "ok");
+    window.log?.(`Aimed ${fixtures.length} fixture(s) at target \"${target.name}\"`, "ok");
     return { ok: true, target };
   }
 
@@ -84,16 +130,17 @@
 
     const pan = Number(State.current.pan);
     const tilt = Number(State.current.tilt);
-    if (!Number.isFinite(pan) || !Number.isFinite(tilt)) {
-      return { ok: false, message: "Current pan/tilt values are not available." };
-    }
+    if (!Number.isFinite(pan) || !Number.isFinite(tilt)) return { ok: false, message: "Current pan/tilt values are not available." };
 
     target.pan = Math.max(0, Math.min(255, pan));
     target.tilt = Math.max(0, Math.min(255, tilt));
-    target.captures = fixtures.map(f => ({ fixtureId: f.id, pan, tilt }));
+    target.captures = fixtures.map(fixture => ({ fixtureId: fixture.id, pan, tilt, locked: true }));
     target.updatedAt = new Date().toISOString();
+
+    fixtures.forEach(fixture => lockFixturePosition(fixture.id, pan, tilt, target.id));
+
     render();
-    window.log?.(`Captured target \"${target.name}\" from current fixture positions`, "ok");
+    window.log?.(`Captured target \"${target.name}\" — ${fixtures.length} fixture(s) locked at P${Math.round(pan)} T${Math.round(tilt)} until release`, "ok");
     return { ok: true, target };
   }
 
@@ -102,12 +149,18 @@
     const target = findTarget(name);
     if (!target) return { ok: false, message: `Target \"${clean(name)}\" not found.` };
     const selected = selectedFixtures();
-    const ids = new Set(selected.map(f => f.id));
-    if (selected.length) target.captures = (target.captures || []).filter(c => !ids.has(c.fixtureId));
-    else target.captures = [];
+    const captures = target.captures || [];
+    const ids = selected.length ? new Set(selected.map(f => f.id)) : new Set(captures.map(c => c.fixtureId));
+    let released = 0;
+
+    captures.forEach(capture => {
+      if (ids.has(capture.fixtureId) && unlockFixturePosition(capture.fixtureId)) released += 1;
+    });
+
+    target.captures = captures.filter(c => !ids.has(c.fixtureId));
     target.updatedAt = new Date().toISOString();
     render();
-    window.log?.(`Released ${selected.length ? `${selected.length} selected fixture(s) from` : "all fixtures from"} target \"${target.name}\"`, "ok");
+    window.log?.(`Released ${released} fixture(s) from target \"${target.name}\"`, "ok");
     return { ok: true, target };
   }
 
@@ -115,16 +168,14 @@
     state();
     const target = findTarget(name);
     if (!target) return { ok: false, message: `Target \"${clean(name)}\" not found.` };
+    (target.captures || []).forEach(c => unlockFixturePosition(c.fixtureId));
     State.targets.splice(State.targets.indexOf(target), 1);
     render();
-    window.log?.(`Deleted target \"${target.name}\"`, "ok");
+    window.log?.(`Deleted target \"${target.name}\" and released its captured fixtures`, "ok");
     return { ok: true, target };
   }
 
-  function list() {
-    state();
-    return State.targets;
-  }
+  function list() { state(); return State.targets; }
 
   function injectStyles() {
     if (document.getElementById("targetUiStyles")) return;
@@ -208,7 +259,7 @@
       if ((m = command.match(/^target\s+capture\s+(.+)$/i))) { const r = capture(m[1]); if (!r.ok) window.log?.(r.message, "warn"); return r; }
       if ((m = command.match(/^target\s+release\s+(.+)$/i))) { const r = release(m[1]); if (!r.ok) window.log?.(r.message, "warn"); return r; }
       if ((m = command.match(/^target\s+delete\s+(.+)$/i))) { const r = remove(m[1]); if (!r.ok) window.log?.(r.message, "warn"); return r; }
-      if (/^targets$/i.test(command)) { return list(); }
+      if (/^targets$/i.test(command)) return list();
       return previous.apply(this, arguments);
     };
     window.__targetCommandsInstalled = true;

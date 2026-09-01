@@ -232,34 +232,20 @@ function parseCommand(cmd){
       const grp=State.groups.find(x=>String(x.name).toLowerCase()===g[1].trim().toLowerCase()),col=cueColours[g[2]];if(!grp)return log(`Group "${g[1].trim()}" not found`,'warn');if(!col)return log(`Unknown colour: ${g[2]}`,'warn');selectGroup(grp);applyColour(col);return log(`"${grp.name}" → ${g[2]}`,'ok');
     }
     // ==============================================
-// CHASE COMMANDS
-// ==============================================
-
-// Run Chase 1 -> uses the actual chase engine in chases.js.
-if ((m = c.match(/^run\s+chase\s+(\d+)$/))) {
-  const chaseNumber = Number(m[1]);
-  const chaseIndex = chaseNumber - 1;
-
-  if (!Array.isArray(State.chases) || !State.chases[chaseIndex]) {
-    return log(`Chase ${chaseNumber} not found`, 'warn');
-  }
-
-  if (typeof window.startChase !== 'function') {
-    return log('Chase engine is not loaded', 'error');
-  }
-
-  return window.startChase(chaseIndex);
-}
-
-// Stop Chase / Stop Chase 1 -> stops the actual active chase.
-if (/^(stop|halt)\s+chase(?:\s+\d+)?$/.test(c)) {
-  if (typeof window.stopChase !== 'function') {
-    return log('Chase engine is not loaded', 'error');
-  }
-
-  window.stopChase();
-  return log('Chase stopped', 'ok');
-}
+    // CHASE COMMANDS
+    // ==============================================
+    if ((m = c.match(/^run\s+chase\s+(\d+)$/))) {
+      const chaseNumber = Number(m[1]);
+      const chaseIndex = chaseNumber - 1;
+      if (!Array.isArray(State.chases) || !State.chases[chaseIndex]) return log(`Chase ${chaseNumber} not found`, 'warn');
+      if (typeof window.startChase !== 'function') return log('Chase engine is not loaded', 'error');
+      return window.startChase(chaseIndex);
+    }
+    if (/^(stop|halt)\s+chase(?:\s+\d+)?$/.test(c)) {
+      if (typeof window.stopChase !== 'function') return log('Chase engine is not loaded', 'error');
+      window.stopChase();
+      return log('Chase stopped', 'ok');
+    }
     const rec=c.match(/^record\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))(?:\s+(.+))?$/);
     if(rec){const cues=parseSelection(rec[1]),nm=rec[3]?.trim()||'Cue';cues.forEach((n)=>recordCue(n,cues.length>1?`${nm} ${n}`:nm));return log(`Recorded: ${cues.join(', ')}`,'ok');}
     const delcue=c.match(/^delete\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/);
@@ -310,3 +296,119 @@ if (/^(stop|halt)\s+chase(?:\s+\d+)?$/.test(c)) {
     return originalParseCommand(rawCommand);
   };
 })();
+
+// ==============================================
+// PALETTE SYSTEM
+// ==============================================
+// Palettes are stored in State so the existing show save/load system can
+// persist them without introducing another file or storage layer.
+State.palettes = Array.isArray(State.palettes) ? State.palettes : [];
+window.Palettes = window.Palettes || State.palettes;
+
+function paletteSnapshot() {
+  const source = State.current || {};
+  return {
+    intensity: Number.isFinite(Number(source.intensity)) ? Number(source.intensity) : 100,
+    hue: Number.isFinite(Number(source.hue)) ? Number(source.hue) : 0,
+    sat: Number.isFinite(Number(source.sat)) ? Number(source.sat) : 0,
+    strobe: Number.isFinite(Number(source.strobe)) ? Number(source.strobe) : 0,
+    master: Number.isFinite(Number(source.master)) ? Number(source.master) : 100,
+    pan: Number.isFinite(Number(source.pan)) ? Number(source.pan) : 128,
+    tilt: Number.isFinite(Number(source.tilt)) ? Number(source.tilt) : 128
+  };
+}
+
+function refreshPalettes() {
+  State.palettes = Array.isArray(State.palettes) ? State.palettes : [];
+  window.Palettes = State.palettes;
+  if (typeof window.renderPalettes === 'function') window.renderPalettes();
+  if (typeof window.updateInspectorList === 'function') window.updateInspectorList();
+}
+
+function findPalette(name) {
+  const wanted = String(name || '').trim().toLowerCase();
+  return State.palettes.find(p => String(p.name || '').trim().toLowerCase() === wanted) || null;
+}
+
+function recordPalette(name) {
+  const cleanName = String(name || '').trim();
+  if (!cleanName) return log('Palette name cannot be empty','warn');
+  const selected = [...(State.selected || [])];
+  if (!selected.length) return log('Select at least one fixture before recording a palette','warn');
+
+  const existing = findPalette(cleanName);
+  const palette = {
+    id: existing?.id || `palette-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+    name: cleanName,
+    type: 'programmer',
+    values: paletteSnapshot(),
+    fixtures: selected,
+    updatedAt: Date.now()
+  };
+
+  if (existing) Object.assign(existing, palette);
+  else State.palettes.push(palette);
+  refreshPalettes();
+  return log(`${existing ? 'Updated' : 'Recorded'} palette "${cleanName}"`,'ok');
+}
+
+function applyPalette(name) {
+  const palette = findPalette(name);
+  if (!palette) return log(`Palette "${name}" not found`,'warn');
+  const values = palette.values || {};
+  const selected = State.selected || new Set();
+  if (!selected.size && Array.isArray(palette.fixtures) && palette.fixtures.length) {
+    State.selected = new Set(palette.fixtures);
+  }
+  Object.assign(State.current, values);
+  if (typeof fadeTo === 'function') fadeTo(values, 300);
+  updateDMX?.();
+  setIntensityUI(State.current.intensity ?? 100);
+  renderFixtures?.();
+  updateControlsForSelection();
+  return log(`Applied palette "${palette.name}"`,'ok');
+}
+
+function deletePalette(name) {
+  const wanted = String(name || '').trim().toLowerCase();
+  const index = State.palettes.findIndex(p => String(p.name || '').trim().toLowerCase() === wanted);
+  if (index < 0) return log(`Palette "${name}" not found`,'warn');
+  const removed = State.palettes.splice(index, 1)[0];
+  refreshPalettes();
+  return log(`Deleted palette "${removed.name}"`,'ok');
+}
+
+commandDefs.push(
+  {cmd:'record palette',hint:'[name] — save the current programmer state'},
+  {cmd:'update palette',hint:'[name] — overwrite an existing palette'},
+  {cmd:'palette',hint:'[name] — apply a palette'},
+  {cmd:'delete palette',hint:'[name]'},
+  {cmd:'list palettes',hint:''}
+);
+
+(function installPaletteCommands(){
+  const previousParseCommand = window.parseCommand || parseCommand;
+  window.parseCommand = function(rawCommand){
+    const c = String(rawCommand || '').trim();
+    let m;
+
+    if ((m = c.match(/^record\s+palette\s+(.+)$/i))) return recordPalette(m[1]);
+    if ((m = c.match(/^update\s+palette\s+(.+)$/i))) return recordPalette(m[1]);
+    if ((m = c.match(/^palette\s+(.+)$/i))) return applyPalette(m[1]);
+    if ((m = c.match(/^delete\s+palette\s+(.+)$/i))) return deletePalette(m[1]);
+    if (/^list\s+palettes$/i.test(c)) {
+      if (!State.palettes.length) return log('No palettes saved','ok');
+      return log(State.palettes.map((p,i)=>`${i+1}: ${p.name}`).join(', '),'ok');
+    }
+
+    return previousParseCommand(rawCommand);
+  };
+})();
+
+window.PaletteAPI = {
+  list: () => State.palettes,
+  record: recordPalette,
+  apply: applyPalette,
+  remove: deletePalette,
+  refresh: refreshPalettes
+};

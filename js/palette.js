@@ -1,179 +1,183 @@
 "use strict";
 
-(function initPaletteSystem() {
-  const FIELD_LABELS = {
-    intensity: "Intensity", hue: "Hue", sat: "Saturation", pan: "Pan", tilt: "Tilt",
-    strobe: "Strobe", gobo: "Gobo", gobo2: "Gobo 2", prism: "Prism", focus: "Focus",
-    zoom: "Zoom", frost: "Frost", iris: "Iris", rot: "Rotation", effect: "Effect",
-    speed: "Speed", amber: "Amber", uv: "UV"
-  };
-  const PALETTE_FIELDS = Object.keys(FIELD_LABELS);
+/* Palette UI + command bridge. Loaded by index.html after the core console scripts. */
+(function () {
+  const FIELDS = ["intensity", "hue", "sat", "strobe", "master", "pan", "tilt", "zoom", "focus", "gobo", "gobo2", "prism", "frost", "iris", "rot", "effect", "speed", "amber", "uv"];
 
-  function ensureState() {
+  const state = () => {
     window.State = window.State || {};
     if (!Array.isArray(State.palettes)) State.palettes = [];
     if (!(State.selected instanceof Set)) State.selected = new Set();
-    if (!(State.fixtureStates instanceof Map)) State.fixtureStates = new Map();
     if (!State.current || typeof State.current !== "object") State.current = {};
     return State;
-  }
+  };
+
+  const clean = value => String(value || "").trim().replace(/\s+/g, " ");
+  const find = name => {
+    state();
+    const wanted = clean(name).toLowerCase();
+    if (/^\d+$/.test(wanted)) return State.palettes[Number(wanted) - 1] || null;
+    return State.palettes.find(p => clean(p.name).toLowerCase() === wanted) || null;
+  };
 
   function selectedFixtures() {
-    ensureState();
+    state();
     return (State.fixtures || []).filter(f => State.selected.has(f.id));
   }
 
-  function snapshotState() {
-    ensureState();
+  function snapshot() {
+    state();
     const values = {};
-    PALETTE_FIELDS.forEach(field => {
-      const value = State.current[field];
-      if (Number.isFinite(Number(value))) values[field] = Number(value);
+    FIELDS.forEach(field => {
+      const value = Number(State.current[field]);
+      if (Number.isFinite(value)) values[field] = value;
     });
     return values;
   }
 
-  function normaliseName(name) {
-    return String(name || "").trim().replace(/\s+/g, " ");
+  function record(name, category) {
+    state();
+    const paletteName = clean(name);
+    if (!paletteName) return { ok: false, message: "Palette name cannot be empty." };
+    if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before recording a palette." };
+    if (find(paletteName)) return { ok: false, message: `Palette \"${paletteName}\" already exists.` };
+
+    const palette = {
+      id: `palette-${Date.now()}`,
+      name: paletteName,
+      category: clean(category) || "General",
+      values: snapshot(),
+      fixtures: [...State.selected],
+      createdAt: new Date().toISOString()
+    };
+    State.palettes.push(palette);
+    render();
+    return { ok: true, palette };
   }
 
-  function findPalette(name) {
-    const target = normaliseName(name).toLowerCase();
-    return State.palettes.find(p => String(p.name).toLowerCase() === target) || null;
-  }
+  function apply(name) {
+    state();
+    const palette = find(name);
+    if (!palette) return { ok: false, message: `Palette \"${clean(name)}\" not found.` };
+    if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before applying a palette." };
 
-  function applyValues(values) {
-    ensureState();
-    const selected = selectedFixtures();
-    Object.assign(State.current, values);
-    selected.forEach(fixture => {
-      const current = typeof window.ensureFixtureState === "function"
-        ? window.ensureFixtureState(fixture.id)
-        : (State.fixtureStates.get(fixture.id) || {});
-      Object.assign(current, values);
-      State.fixtureStates.set(fixture.id, current);
+    Object.assign(State.current, palette.values || {});
+    selectedFixtures().forEach(fixture => {
+      let current = typeof window.ensureFixtureState === "function" ? window.ensureFixtureState(fixture.id) : null;
+      if (!current) {
+        current = State.fixtureStates?.get(fixture.id) || {};
+        State.fixtureStates?.set(fixture.id, current);
+      }
+      Object.assign(current, palette.values || {});
     });
-    if (typeof window.fadeTo === "function") window.fadeTo(values, 250);
+
+    if (typeof window.fadeTo === "function") window.fadeTo(palette.values || {}, 300);
     if (typeof window.updateDMX === "function") window.updateDMX();
     if (typeof window.renderFixtures === "function") window.renderFixtures();
     if (typeof window.buildControls === "function") window.buildControls();
     if (typeof window.updateColourWheel === "function") window.updateColourWheel();
-    refreshPaletteUI();
-  }
-
-  function recordPalette(name, category = "General") {
-    ensureState();
-    const clean = normaliseName(name);
-    if (!clean) return { ok: false, message: "Palette name cannot be empty" };
-    const fixtures = selectedFixtures();
-    if (!fixtures.length) return { ok: false, message: "Select at least one fixture before recording a palette" };
-    if (findPalette(clean)) return { ok: false, message: `Palette \"${clean}\" already exists` };
-    const palette = {
-      id: `palette-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name: clean,
-      category: normaliseName(category) || "General",
-      values: snapshotState(),
-      createdAt: new Date().toISOString(),
-      fixtureCount: fixtures.length
-    };
-    State.palettes.push(palette);
-    refreshPaletteUI();
+    window.log?.(`Applied palette \"${palette.name}\"`, "ok");
     return { ok: true, palette };
   }
 
-  function updatePalette(name) {
-    ensureState();
-    const palette = findPalette(name);
-    if (!palette) return { ok: false, message: `Palette \"${normaliseName(name)}\" not found` };
-    if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before updating a palette" };
-    palette.values = snapshotState();
+  function update(name) {
+    state();
+    const palette = find(name);
+    if (!palette) return { ok: false, message: `Palette \"${clean(name)}\" not found.` };
+    if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before updating a palette." };
+    palette.values = snapshot();
+    palette.fixtures = [...State.selected];
     palette.updatedAt = new Date().toISOString();
-    palette.fixtureCount = selectedFixtures().length;
-    refreshPaletteUI();
+    render();
     return { ok: true, palette };
   }
 
-  function applyPalette(name) {
-    ensureState();
-    const palette = findPalette(name);
-    if (!palette) return { ok: false, message: `Palette \"${normaliseName(name)}\" not found` };
-    if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before applying a palette" };
-    applyValues({ ...palette.values });
+  function remove(name) {
+    state();
+    const palette = find(name);
+    if (!palette) return { ok: false, message: `Palette \"${clean(name)}\" not found.` };
+    const index = State.palettes.indexOf(palette);
+    State.palettes.splice(index, 1);
+    render();
     return { ok: true, palette };
   }
 
-  function deletePalette(name) {
-    ensureState();
-    const target = normaliseName(name).toLowerCase();
-    const index = State.palettes.findIndex(p => String(p.name).toLowerCase() === target);
-    if (index < 0) return { ok: false, message: `Palette \"${normaliseName(name)}\" not found` };
-    const [removed] = State.palettes.splice(index, 1);
-    refreshPaletteUI();
-    return { ok: true, palette: removed };
-  }
-
-  function listPalettes() {
-    ensureState();
-    return State.palettes.slice();
-  }
-
-  function valuePreview(palette) {
+  function preview(palette) {
     const values = palette.values || {};
-    const parts = [];
-    if (values.intensity != null) parts.push(`${values.intensity}%`);
-    if (values.hue != null && values.sat != null) parts.push(`H${values.hue} S${values.sat}`);
-    if (values.pan != null || values.tilt != null) parts.push(`P${values.pan ?? "-"} T${values.tilt ?? "-"}`);
-    if (values.zoom != null) parts.push(`Z${values.zoom}`);
-    if (values.gobo != null) parts.push(`G${values.gobo}`);
-    return parts.join(" · ") || "Programmer state";
+    const bits = [];
+    if (values.intensity != null) bits.push(`${values.intensity}%`);
+    if (values.hue != null) bits.push(`H${values.hue}`);
+    if (values.sat != null) bits.push(`S${values.sat}`);
+    if (values.pan != null || values.tilt != null) bits.push(`P${values.pan ?? "-"} T${values.tilt ?? "-"}`);
+    if (values.zoom != null) bits.push(`Z${values.zoom}`);
+    return bits.join(" · ") || "Programmer state";
   }
 
-  function escapeHtml(value) {
-    return String(value).replace(/[&<>\"]/g, ch => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\": "&quot;"
-    }[ch] || ch));
+  function injectStyles() {
+    if (document.getElementById("paletteUiStyles")) return;
+    const style = document.createElement("style");
+    style.id = "paletteUiStyles";
+    style.textContent = `
+      .palette-launch{width:100%;margin-top:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;border:1px solid #263238;border-radius:8px;background:#10171b;color:#b9c5c2;cursor:pointer;font-size:9px;font-weight:850;letter-spacing:.7px;text-align:left;transition:.14s ease}
+      .palette-launch:hover{background:#172026;border-color:rgba(25,214,163,.3);color:#54f2c8;transform:translateY(-1px)}
+      .palette-launch span:last-child{color:#4f5d59;font-family:monospace;font-size:8px}
+      .palette-modal{position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(3,6,8,.76);backdrop-filter:blur(8px)}
+      .palette-modal.open{display:flex}
+      .palette-window{width:min(820px,94vw);max-height:88vh;overflow:auto;background:#0b1114;border:1px solid #2b383f;border-radius:12px;box-shadow:0 28px 80px rgba(0,0,0,.55)}
+      .palette-window-head{display:flex;align-items:center;justify-content:space-between;padding:15px 17px;border-bottom:1px solid #202a30}
+      .palette-window-title{font-size:12px;font-weight:850;letter-spacing:.7px}.palette-window-title small{display:block;margin-top:3px;color:#596764;font-size:7px;letter-spacing:1px}
+      .palette-window-close{width:30px;height:30px;border:1px solid #202a30;border-radius:7px;background:#10171b;color:#7d8987;cursor:pointer}.palette-window-close:hover{color:#fff;background:#172026}
+      .palette-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 17px;border-bottom:1px solid #202a30}
+      .palette-toolbar-info{color:#596764;font-size:8px}.palette-toolbar-actions{display:flex;gap:6px}
+      .palette-list-ui{padding:15px 17px}.palette-category{margin-bottom:18px}.palette-category:last-child{margin-bottom:0}.palette-category-title{margin-bottom:8px;color:#19d6a3;font-size:8px;font-weight:900;letter-spacing:1.4px}
+      .palette-grid-ui{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:7px}
+      .palette-card{min-height:62px;display:grid;grid-template-columns:34px 1fr;align-items:center;gap:9px;padding:8px;border:1px solid #202a30;border-radius:8px;background:#10171b;color:#b9c5c2;text-align:left;cursor:pointer;transition:.12s ease}.palette-card:hover{background:#172026;border-color:#39474d;transform:translateY(-1px)}
+      .palette-swatch-ui{width:30px;height:30px;border-radius:7px;border:1px solid rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+      .palette-card strong{display:block;font-size:9px;color:#edf4f2}.palette-card small{display:block;margin-top:3px;color:#5d6b67;font-size:7px;line-height:1.3}
+      .palette-empty-ui{padding:32px;text-align:center;color:#53615e;font-size:9px;border:1px dashed #2b383f;border-radius:8px}
+      .palette-editor-ui{display:none;padding:0 17px 17px}.palette-editor-ui.open{display:block}.palette-editor-grid{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px}.palette-editor-ui input,.palette-editor-ui select{width:100%;height:36px;padding:0 9px;background:#0d1418;border:1px solid #2b383f;border-radius:7px;color:#edf4f2}.palette-editor-ui label{display:block;margin-bottom:5px;color:#66736f;font-size:7px;font-weight:850;letter-spacing:1px;text-transform:uppercase}.palette-actions-row{display:flex;gap:6px;margin-top:9px}
+      @media(max-width:650px){.palette-modal{padding:10px}.palette-window{max-height:94vh}.palette-editor-grid{grid-template-columns:1fr}.palette-toolbar{align-items:flex-start;flex-direction:column}.palette-toolbar-actions{width:100%}.palette-toolbar-actions button{flex:1}}
+    `;
+    document.head.appendChild(style);
   }
 
-  function refreshPaletteUI() {
-    const root = document.getElementById("paletteWorkspace");
-    if (!root) return;
-    const list = root.querySelector("[data-palette-list]");
-    const empty = root.querySelector("[data-palette-empty]");
+  function openModal() {
+    const modal = document.getElementById("paletteModal");
+    if (modal) modal.classList.add("open");
+    render();
+  }
+
+  function closeModal() {
+    document.getElementById("paletteModal")?.classList.remove("open");
+    document.querySelector(".palette-editor-ui")?.classList.remove("open");
+  }
+
+  function render() {
+    state();
+    const list = document.querySelector("[data-palette-list-ui]");
+    const empty = document.querySelector("[data-palette-empty-ui]");
     if (!list) return;
     list.innerHTML = "";
-    ensureState();
-    const categories = {};
-    State.palettes.forEach(p => {
-      const category = normaliseName(p.category) || "General";
-      (categories[category] ||= []).push(p);
-    });
-    Object.entries(categories).forEach(([category, palettes]) => {
-      const section = document.createElement("div");
+    const groups = {};
+    State.palettes.forEach(p => (groups[clean(p.category) || "General"] ||= []).push(p));
+    Object.entries(groups).forEach(([category, palettes]) => {
+      const section = document.createElement("section");
       section.className = "palette-category";
-      const title = document.createElement("div");
-      title.className = "palette-category-title";
-      title.textContent = category.toUpperCase();
-      section.appendChild(title);
+      section.innerHTML = `<div class="palette-category-title">${category.toUpperCase()}</div>`;
       const grid = document.createElement("div");
-      grid.className = "palette-grid";
-      palettes.forEach(palette => {
+      grid.className = "palette-grid-ui";
+      palettes.forEach((palette, index) => {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "palette-button";
-        const swatch = document.createElement("span");
-        swatch.className = "palette-swatch";
+        button.className = "palette-card";
         const hue = Number(palette.values?.hue ?? 0);
         const sat = Number(palette.values?.sat ?? 0);
-        const light = Number(palette.values?.light ?? 50);
-        swatch.style.background = `hsl(${hue} ${sat}% ${light}%)`;
-        button.appendChild(swatch);
-        const text = document.createElement("span");
-        text.className = "palette-button-text";
-        text.innerHTML = `<strong>${escapeHtml(palette.name)}</strong><small>${escapeHtml(valuePreview(palette))}</small>`;
-        button.appendChild(text);
+        const intensity = Number(palette.values?.intensity ?? 100);
+        const light = Math.max(18, Math.min(82, 28 + intensity * .42));
+        button.innerHTML = `<span class="palette-swatch-ui" style="background:hsl(${hue} ${sat}% ${light}%);"></span><span><strong>${index + 1}. ${clean(palette.name)}</strong><small>${preview(palette)}</small></span>`;
         button.addEventListener("click", () => {
-          const result = applyPalette(palette.name);
-          window.log?.(result.ok ? `Applied palette: ${palette.name}` : result.message, result.ok ? "ok" : "warn");
+          const result = apply(palette.name);
+          if (result.ok) closeModal();
         });
         grid.appendChild(button);
       });
@@ -183,141 +187,94 @@
     if (empty) empty.style.display = State.palettes.length ? "none" : "block";
   }
 
-  function openEditor(name = "") {
-    const editor = document.querySelector("[data-palette-editor]");
-    if (!editor) return;
-    editor.hidden = false;
-    const input = editor.querySelector("[data-palette-name]");
-    input.value = name;
-    input.focus();
-  }
+  function createUI() {
+    if (document.getElementById("paletteModal")) return;
+    injectStyles();
 
-  function closeEditor() {
-    const editor = document.querySelector("[data-palette-editor]");
-    if (editor) editor.hidden = true;
-  }
+    const quickPanel = document.querySelector("#page-live .quick-panel .panel-body");
+    if (quickPanel && !document.getElementById("paletteLaunch")) {
+      const launch = document.createElement("button");
+      launch.type = "button";
+      launch.id = "paletteLaunch";
+      launch.className = "palette-launch";
+      launch.innerHTML = `<span>PALETTES</span><span>LIBRARY ↗</span>`;
+      launch.addEventListener("click", openModal);
+      quickPanel.appendChild(launch);
+    }
 
-  function saveFromEditor() {
-    const editor = document.querySelector("[data-palette-editor]");
-    if (!editor) return;
-    const name = normaliseName(editor.querySelector("[data-palette-name]").value);
-    const category = editor.querySelector("[data-palette-category]").value;
-    const result = recordPalette(name, category);
-    window.log?.(result.ok ? `Recorded palette: ${name}` : result.message, result.ok ? "ok" : "warn");
-    if (result.ok) closeEditor();
-  }
-
-  function createPaletteWorkspace() {
-    if (document.getElementById("paletteWorkspace")) return;
-    const livePage = document.getElementById("page-live");
-    if (!livePage) return;
-    const panel = document.createElement("section");
-    panel.className = "panel palette-panel";
-    panel.id = "paletteWorkspace";
-    panel.innerHTML = `
-      <div class="panel-header palette-header">
-        <div><span class="eyebrow">04</span> Palettes</div>
-        <span class="panel-meta">PROGRAMMER</span>
-      </div>
-      <div class="panel-body palette-body">
-        <div class="palette-toolbar">
-          <div><strong>Palette Library</strong><span>Reusable looks from the current programmer state.</span></div>
-          <div class="palette-actions">
-            <button type="button" class="btn-secondary" data-palette-record>＋ Record</button>
-            <button type="button" class="btn-secondary" data-palette-update>↻ Update</button>
-          </div>
-        </div>
-        <div class="palette-list" data-palette-list></div>
-        <div class="palette-empty" data-palette-empty>No palettes recorded yet.</div>
-        <div class="palette-editor" data-palette-editor hidden>
+    const modal = document.createElement("div");
+    modal.id = "paletteModal";
+    modal.className = "palette-modal";
+    modal.innerHTML = `
+      <div class="palette-window" role="dialog" aria-modal="true" aria-label="Palette library">
+        <div class="palette-window-head"><div class="palette-window-title">PALETTE LIBRARY<small>LIVE PROGRAMMER</small></div><button type="button" class="palette-window-close" aria-label="Close">×</button></div>
+        <div class="palette-toolbar"><div class="palette-toolbar-info">Capture reusable programmer looks and recall them on the current selection.</div><div class="palette-toolbar-actions"><button type="button" class="btn-primary" data-palette-new>＋ Record Palette</button></div></div>
+        <div class="palette-list-ui" data-palette-list-ui></div>
+        <div class="palette-empty-ui" data-palette-empty-ui>No palettes recorded yet.</div>
+        <div class="palette-editor-ui" data-palette-editor-ui>
           <div class="section-divider"><span>PALETTE EDITOR</span></div>
-          <div class="form-grid">
-            <div class="form-row form-span"><label>Name</label><input data-palette-name placeholder="e.g. Deep Blue"></div>
-            <div class="form-row"><label>Category</label><select data-palette-category><option>Colour</option><option>Intensity</option><option>Position</option><option>Beam</option><option>General</option></select></div>
-          </div>
-          <div class="action-row">
-            <button type="button" class="btn-primary" data-palette-save>Save Palette</button>
-            <button type="button" class="btn-danger-soft" data-palette-delete>Delete Palette</button>
-            <button type="button" class="btn-secondary" data-palette-close>Close</button>
-          </div>
+          <div class="palette-editor-grid"><div><label>Name</label><input data-palette-name-ui placeholder="e.g. Deep Blue"></div><div><label>Category</label><select data-palette-category-ui><option>Colour</option><option>Intensity</option><option>Position</option><option>Beam</option><option>General</option></select></div></div>
+          <div class="palette-actions-row"><button type="button" class="btn-primary" data-palette-save-ui>Save</button><button type="button" class="btn-secondary" data-palette-close-ui>Cancel</button></div>
         </div>
       </div>`;
-    livePage.querySelector(".live-grid")?.insertAdjacentElement("afterend", panel);
-    panel.querySelector("[data-palette-record]").addEventListener("click", () => openEditor());
-    panel.querySelector("[data-palette-update]").addEventListener("click", () => {
-      const name = window.prompt("Palette name to update:");
-      if (!name) return;
-      const result = updatePalette(name);
-      window.log?.(result.ok ? `Updated palette: ${name}` : result.message, result.ok ? "ok" : "warn");
+    document.body.appendChild(modal);
+
+    modal.querySelector(".palette-window-close").addEventListener("click", closeModal);
+    modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+    modal.querySelector("[data-palette-new]").addEventListener("click", () => {
+      const editor = modal.querySelector("[data-palette-editor-ui]");
+      editor.classList.add("open");
+      modal.querySelector("[data-palette-name-ui]").value = "";
+      modal.querySelector("[data-palette-name-ui]").focus();
     });
-    panel.querySelector("[data-palette-save]").addEventListener("click", saveFromEditor);
-    panel.querySelector("[data-palette-delete]").addEventListener("click", () => {
-      const name = panel.querySelector("[data-palette-name]").value;
-      const result = deletePalette(name);
-      window.log?.(result.ok ? `Deleted palette: ${name}` : result.message, result.ok ? "ok" : "warn");
-      if (result.ok) closeEditor();
+    modal.querySelector("[data-palette-close-ui]").addEventListener("click", () => modal.querySelector("[data-palette-editor-ui]").classList.remove("open"));
+    modal.querySelector("[data-palette-save-ui]").addEventListener("click", () => {
+      const name = modal.querySelector("[data-palette-name-ui]").value;
+      const category = modal.querySelector("[data-palette-category-ui]").value;
+      const result = record(name, category);
+      if (result.ok) modal.querySelector("[data-palette-editor-ui]").classList.remove("open");
+      else window.log?.(result.message, "warn");
     });
-    panel.querySelector("[data-palette-close]").addEventListener("click", closeEditor);
-    refreshPaletteUI();
+    render();
   }
 
-  // Palette commands are layered onto the existing command parser. This keeps
-  // the command engine untouched while exposing the same commands to users.
-  function installCommandLayer() {
-    if (window.__paletteCommandLayerInstalled || typeof window.parseCommand !== "function") return;
-    const originalParseCommand = window.parseCommand;
-    window.parseCommand = function paletteAwareCommand(command) {
-      const c = String(command || "").trim();
+  function installNumericCommandSupport() {
+    if (window.__paletteNumericCommandsInstalled) return;
+    const previous = window.parseCommand;
+    if (typeof previous !== "function") return;
+    window.parseCommand = function (raw) {
+      const command = clean(raw);
       let match;
-      if ((match = c.match(/^record\s+palette\s+(.+)$/i))) {
-        const result = recordPalette(match[1]);
-        window.log?.(result.ok ? `Recorded palette: ${result.palette.name}` : result.message, result.ok ? "ok" : "warn");
-        return;
+      if ((match = command.match(/^palette\s+(\d+)$/i))) {
+        const result = apply(Number(match[1]));
+        if (!result.ok) window.log?.(result.message, "warn");
+        return result;
       }
-      if ((match = c.match(/^update\s+palette\s+(.+)$/i))) {
-        const result = updatePalette(match[1]);
-        window.log?.(result.ok ? `Updated palette: ${result.palette.name}` : result.message, result.ok ? "ok" : "warn");
-        return;
+      if ((match = command.match(/^update\s+palette\s+(\d+)$/i))) {
+        const result = update(Number(match[1]));
+        if (!result.ok) window.log?.(result.message, "warn");
+        return result;
       }
-      if ((match = c.match(/^delete\s+palette\s+(.+)$/i))) {
-        const result = deletePalette(match[1]);
-        window.log?.(result.ok ? `Deleted palette: ${result.palette.name}` : result.message, result.ok ? "ok" : "warn");
-        return;
+      if ((match = command.match(/^delete\s+palette\s+(\d+)$/i))) {
+        const result = remove(Number(match[1]));
+        if (!result.ok) window.log?.(result.message, "warn");
+        return result;
       }
-      if ((match = c.match(/^palette\s+(.+)$/i))) {
-        const result = applyPalette(match[1]);
-        window.log?.(result.ok ? `Applied palette: ${result.palette.name}` : result.message, result.ok ? "ok" : "warn");
-        return;
-      }
-      if (/^list\s+palettes$/i.test(c)) {
-        const palettes = listPalettes();
-        window.log?.(palettes.length ? palettes.map(p => `${p.name} [${p.category}]`).join(", ") : "No palettes saved", "ok");
-        return;
-      }
-      return originalParseCommand.apply(this, arguments);
+      return previous.apply(this, arguments);
     };
-    window.__paletteCommandLayerInstalled = true;
+    window.__paletteNumericCommandsInstalled = true;
   }
 
-  window.Palettes = {
-    record: recordPalette, update: updatePalette, apply: applyPalette,
-    delete: deletePalette, list: listPalettes, refresh: refreshPaletteUI, openEditor
-  };
+  window.Palettes = { record, apply, update, delete: remove, list: () => state().palettes, refresh: render, open: openModal };
 
   function boot() {
-    ensureState();
-    createPaletteWorkspace();
-    installCommandLayer();
-    refreshPaletteUI();
-    // commands.js is loaded before this feature in the normal page boot.
-    // If not, install the command layer as soon as it appears.
-    if (!window.__paletteCommandLayerInstalled) {
-      const timer = setInterval(() => {
-        installCommandLayer();
-        if (window.__paletteCommandLayerInstalled) clearInterval(timer);
-      }, 100);
-      setTimeout(() => clearInterval(timer), 10000);
-    }
+    state();
+    createUI();
+    installNumericCommandSupport();
+    setInterval(() => {
+      if (!document.getElementById("paletteModal")) createUI();
+      installNumericCommandSupport();
+    }, 500);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });

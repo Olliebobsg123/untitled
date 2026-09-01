@@ -68,14 +68,7 @@ window.__blindLiveMode = true;
     if (viz && !viz.closed) viz.postMessage({type:"CONSOLE_MODE",mode},"*");
   }
 
-  function updateSidebarModeLabel() {
-    const liveNav = document.querySelector('.nav-link[data-page="live"]');
-    if (!liveNav) return;
-    const labelNode = Array.from(liveNav.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
-    if (labelNode) labelNode.textContent = mode === "BLIND" ? " Blind Control " : " Live Control ";
-    liveNav.setAttribute("aria-label", mode === "BLIND" ? "Blind Control" : "Live Control");
-  }
-
+  
   function updateUI() {
     const live=$("consoleModeLive"), blind=$("consoleModeBlind");
     if (!live || !blind) return;
@@ -95,7 +88,7 @@ window.__blindLiveMode = true;
     }else if(title && !emergencyActive && !blackoutActive){
       title.textContent=title.dataset.liveTitle || "LIVE CONTROL";
     }
-    updateSidebarModeLabel();
+ 
     sendVisualizerMode();
   }
 

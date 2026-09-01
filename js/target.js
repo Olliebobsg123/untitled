@@ -168,13 +168,7 @@
     if(Array.isArray(window.commandDefs)) TARGET_COMMANDS.forEach(([cmd,hint])=>{if(!window.commandDefs.some(x=>x&&x.cmd===cmd))window.commandDefs.push({cmd,hint});});
   }
 
-  function installCommandSuggestions(){
-    const input=document.getElementById("cmdInput");if(!input||input.dataset.targetSuggestionsReady==="1")return;input.dataset.targetSuggestionsReady="1";
-    const parent=input.parentElement;if(!parent)return;if(getComputedStyle(parent).position==="static")parent.style.position="relative";
-    const menu=document.createElement("div");menu.className="target-command-menu";parent.appendChild(menu);
-    const update=()=>{const value=clean(input.value).toLowerCase();menu.innerHTML="";if(!value.startsWith("target")&&!value.startsWith("targets")){menu.classList.remove("open");return;}const matches=TARGET_COMMANDS.filter(([cmd])=>cmd.toLowerCase().startsWith(value)||value==="target");if(!matches.length){menu.classList.remove("open");return;}matches.forEach(([cmd,hint])=>{const b=document.createElement("button");b.type="button";b.className="target-command-item";b.textContent=cmd+" — "+hint;b.onclick=()=>{input.value=cmd;input.focus();input.dispatchEvent(new Event("input",{bubbles:true}));};menu.appendChild(b);});menu.classList.add("open");};
-    input.addEventListener("input",update);input.addEventListener("blur",()=>setTimeout(()=>menu.classList.remove("open"),150));
-  }
+  
 
   window.Targets={create,aim,capture,release,delete:remove,list,open,refresh:render};
 

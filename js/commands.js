@@ -1,28 +1,294 @@
 "use strict";
 
 // ==============================================
-// COMMAND SYSTEM + FORCE LOG
+// COMMAND CONSOLE LOGGER
 // ==============================================
-// Keep this as an unconditional assignment: the command console must always
-// use this logger, even if another script has created window.log first.
+
+function ensureCommandConsoleStyles() {
+  if (document.getElementById('lxCommandConsoleStyles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'lxCommandConsoleStyles';
+
+  style.textContent = `
+    /* ---------- Console log ---------- */
+
+   #termLog {
+  font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
+  font-size: 9px !important;
+  line-height: 1.5 !important;
+  letter-spacing: .025em;
+  font-weight: 800;
+  text-transform: uppercase;
+  overflow-x: hidden;
+}
+
+#termLog .lx-log-entry {
+  display: grid;
+  grid-template-columns: 58px 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 4px 7px;
+  border-bottom: 1px solid rgba(255,255,255,.035);
+  box-sizing: border-box;
+}
+
+#termLog .lx-log-time {
+  color: #53615e;
+  font-family: var(--mono, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+#termLog .lx-log-level {
+  font-family: var(--mono, monospace);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+
+#termLog .lx-log-level.ok {
+  color: #19d6a3;
+}
+
+#termLog .lx-log-level.info {
+  color: #5ca8ff;
+}
+
+#termLog .lx-log-level.warn {
+  color: #ffb454;
+}
+
+#termLog .lx-log-level.error {
+  color: #ff5265;
+}
+
+#termLog .lx-log-message {
+  min-width: 0;
+  color: #e5ecea;
+  font-weight: 800;
+
+  /* IMPORTANT: don't cut long messages */
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
+}
+  /* ==============================================
+   COMMAND AUTOCOMPLETE
+   ============================================== */
+
+.cmd-line {
+  position: relative !important;
+  min-height: 34px !important;
+  height: 34px !important;
+  overflow: visible !important;
+}
+
+/*
+ * The autocomplete is INSIDE the command line's
+ * positioning context.
+ *
+ * It sits immediately ABOVE the command bar,
+ * without creating another layout row.
+ */
+#cmdAutocompleteList {
+  position: absolute !important;
+
+  left: 0;
+  right: 0;
+
+  bottom: calc(100% + 2px);
+
+  height: 24px;
+  min-height: 24px;
+
+  display: none;
+  align-items: center;
+
+  box-sizing: border-box;
+
+  padding: 0 4px;
+
+  background: #080b0d;
+
+  border: 1px solid #252f34;
+
+  overflow-x: auto;
+  overflow-y: hidden;
+
+  white-space: nowrap;
+
+  z-index: 9999;
+
+  font-family: var(--mono, monospace);
+}
+
+#cmdAutocompleteList.is-visible {
+  display: flex;
+}
+
+/* Individual command */
+#cmdAutocompleteList .cmd-autocomplete-item {
+  flex: 0 0 auto;
+
+  height: 22px;
+
+  display: inline-flex;
+  align-items: center;
+
+  gap: 8px;
+
+  padding: 0 9px;
+
+  margin: 0;
+
+  background: transparent;
+
+  border: 0;
+  border-right: 1px solid #252d31;
+
+  color: #eef4f2;
+
+  font-family: var(--mono, monospace);
+
+  font-size: 8px;
+  font-weight: 900;
+
+  letter-spacing: .04em;
+
+  line-height: 22px;
+
+  text-transform: uppercase;
+
+  white-space: nowrap;
+
+  cursor: pointer;
+}
+
+/* Command name */
+#cmdAutocompleteList .cmd-autocomplete-command {
+  color: #f1f5f4;
+
+  font-weight: 900;
+}
+
+/* Parameters / hint */
+#cmdAutocompleteList .cmd-autocomplete-hint {
+  color: rgba(225,233,231,.48);
+
+  font-weight: 700;
+
+  letter-spacing: .025em;
+}
+
+/* Hover */
+#cmdAutocompleteList .cmd-autocomplete-item:hover {
+  background: rgba(255,255,255,.045);
+  color: #ffffff;
+}
+
+/* Selected */
+#cmdAutocompleteList .cmd-autocomplete-item.is-active {
+  background: rgba(25,214,163,.10);
+
+  color: #ffffff;
+
+  box-shadow:
+    inset 0 -2px 0 #19d6a3;
+}
+
+/* Scrollbar */
+#cmdAutocompleteList::-webkit-scrollbar {
+  height: 3px;
+}
+
+#cmdAutocompleteList::-webkit-scrollbar-track {
+  background: #080b0d;
+}
+
+#cmdAutocompleteList::-webkit-scrollbar-thumb {
+  background: #303a3f;
+}
+  `;
+
+  document.head.appendChild(style);
+}
+
 window.log = function(msg, type = 'info') {
+  ensureCommandConsoleStyles();
+
   const out = document.getElementById('termLog');
+
   if (!out) {
-    console.warn('[LOG] termLog not found in HTML');
+    console.warn('[LX] termLog not found');
     return;
   }
+
+  const levelMap = {
+    ok: 'ok',
+    success: 'ok',
+    warn: 'warn',
+    warning: 'warn',
+    error: 'error',
+    fail: 'error',
+    info: 'info'
+  };
+
+  const level = levelMap[String(type).toLowerCase()] || 'info';
+
+  const now = new Date();
+  const time =
+    String(now.getHours()).padStart(2, '0') + ':' +
+    String(now.getMinutes()).padStart(2, '0') + ':' +
+    String(now.getSeconds()).padStart(2, '0');
+
   const line = document.createElement('div');
-  line.style.cssText = 'padding:2px 4px;font-family:monospace;font-size:11px;line-height:1.4;border-bottom:1px solid #222;';
-  line.style.color = type === 'warn' ? '#ffcc00' : type === 'error' ? '#ff5555' : '#88ff88';
-  line.textContent = `[${String(type).toUpperCase()}] ${msg}`;
+  line.className = 'lx-log-entry';
+
+  const timeEl = document.createElement('span');
+  timeEl.className = 'lx-log-time';
+  timeEl.textContent = time;
+
+  const levelEl = document.createElement('span');
+  levelEl.className = `lx-log-level ${level}`;
+  levelEl.textContent = level.toUpperCase();
+
+  const messageEl = document.createElement('span');
+  messageEl.className = 'lx-log-message';
+  messageEl.textContent = String(msg);
+
+  line.appendChild(timeEl);
+  line.appendChild(levelEl);
+  line.appendChild(messageEl);
+
   out.appendChild(line);
+
+  // Keep the console responsive.
+  while (out.children.length > 250) {
+    out.removeChild(out.firstElementChild);
+  }
+
   out.scrollTop = out.scrollHeight;
 };
 
+function logStartupReady() {
+  ensureCommandConsoleStyles();
+  window.log('COMMAND CONSOLE ONLINE', 'ok');
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', logStartupReady, { once: true });
+} else {
+  logStartupReady();
+}
 // The DOM may not exist yet when this script is parsed, so show the startup
 // message after the page is ready as well as immediately when possible.
 function logStartupReady() {
-  window.log('✅ Log system ready — you should see this line!', 'ok');
+  window.log('SYSTEM ONLINE — COMMAND CONSOLE READY', 'ok');
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', logStartupReady, { once: true });
@@ -110,42 +376,310 @@ const commandDefs = [
   {cmd:'target create',hint:'name'},{cmd:'target delete',hint:'name'},{cmd:'targets',hint:''},{cmd:'target aim',hint:'name'},{cmd:'target capture',hint:'name'},{cmd:'target release',hint:'name'}
 ];
 
+ // ==============================================
+// INLINE COMMAND AUTOCOMPLETE
+// ==============================================
+
+// ==============================================
+// LMX-STYLE COMMAND LIST
+// ==============================================
+
 let autocompleteMatches = [];
+let autocompleteIndex = 0;
+
 function getAutocompleteList() {
-  const names = (window.State?.groups || []).map(g => String(g.name).toLowerCase());
-  return [...new Set([...commandDefs.map(c=>c.cmd), ...Object.keys(cueColours), ...names])].sort();
-}
-function getSyntaxHint(input) {
-  const lower = String(input).toLowerCase().trim();
-  const match = commandDefs.find(c => lower.startsWith(c.cmd) || c.cmd.startsWith(lower));
-  return match ? match.hint : '';
-}
-function setupAutocomplete(inputId='cmdInput') {
-  const input = document.getElementById(inputId);
-  if (!input || input.dataset.autocompleteReady === '1') return;
-  input.dataset.autocompleteReady = '1';
-  const wrap = document.createElement('div');
-  wrap.id = 'cmdAutocompleteWrap';
-  wrap.style.cssText = 'position:relative;display:block;width:100%;height:100%;';
-  input.parentNode.insertBefore(wrap,input); wrap.appendChild(input);
-  input.style.position='relative'; input.style.zIndex='10';
-  const hint=document.createElement('span'); hint.id='cmdHint';
-  hint.style.cssText='position:absolute;inset:0;padding:inherit;margin:inherit;border:inherit;text-align:left;pointer-events:none;color:rgba(160,160,160,.45);font:inherit;letter-spacing:inherit;white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:18px;z-index:5;';
-  wrap.appendChild(hint);
-  const syncPadding=()=>{const s=getComputedStyle(input);hint.style.padding=s.padding;hint.style.textIndent=s.textIndent;};
-  setTimeout(syncPadding,10);
-  input.addEventListener('input',()=>{
-    const val=input.value.trimStart().toLowerCase(); hint.textContent=''; autocompleteMatches=[]; if(!val)return;
-    autocompleteMatches=getAutocompleteList().filter(c=>c.startsWith(val)); const syntax=getSyntaxHint(val);
-    if(autocompleteMatches.length){hint.textContent=''; autocompleteMatches.forEach(m=>{const s=document.createElement('span');s.textContent=m.slice(val.length);hint.appendChild(s);}); if(syntax){const s=document.createElement('span');s.style.color='rgba(100,180,255,.5)';s.textContent=' '+syntax;hint.appendChild(s);}}
-    else if(syntax){const s=document.createElement('span');s.style.color='rgba(100,180,255,.5)';s.textContent=syntax;hint.appendChild(s);}
-  });
-  input.addEventListener('keydown',e=>{
-    if(e.key==='Tab'&&autocompleteMatches.length){e.preventDefault();input.value=autocompleteMatches[0]+' ';input.dispatchEvent(new Event('input'));setTimeout(()=>input.focus(),0);}
-    if(e.key==='Escape'){hint.textContent='';autocompleteMatches=[];}
-  });
+  const commands = commandDefs.map(command => ({
+    value: String(command.cmd).toUpperCase(),
+    hint: String(command.hint || '')
+  }));
+
+  const colours = Object.keys(cueColours || {}).map(name => ({
+    value: String(name).toUpperCase(),
+    hint: 'COLOUR'
+  }));
+
+  const groups = (window.State?.groups || [])
+    .filter(group => group?.name)
+    .map(group => ({
+      value: String(group.name).toUpperCase(),
+      hint: 'GROUP'
+    }));
+
+  const all = [...commands, ...colours, ...groups];
+  const seen = new Set();
+
+  return all
+    .filter(item => {
+      const key = item.value.toLowerCase();
+
+      if (seen.has(key)) return false;
+
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.value.localeCompare(b.value));
 }
 
+function setupAutocomplete(inputId = 'cmdInput') {
+  const input = document.getElementById(inputId);
+
+  if (!input || input.dataset.autocompleteReady === '1') {
+    return;
+  }
+
+  input.dataset.autocompleteReady = '1';
+
+  const commandLine = input.closest('.cmd-line');
+
+  if (!commandLine) {
+    console.warn('[AUTOCOMPLETE] .cmd-line not found');
+    return;
+  }
+
+  /*
+   * The command line itself is the positioning anchor.
+   * Nothing gets added to the terminal layout.
+   */
+  commandLine.style.position = 'relative';
+  commandLine.style.overflow = 'visible';
+
+  const list = document.createElement('div');
+  list.id = 'cmdAutocompleteList';
+
+  commandLine.appendChild(list);
+
+  let matches = [];
+  let selectedIndex = 0;
+
+  function getCommands() {
+    const result = [];
+
+    commandDefs.forEach(command => {
+      result.push({
+        value: String(command.cmd),
+        hint: String(command.hint || '')
+      });
+    });
+
+    Object.keys(cueColours || {}).forEach(name => {
+      result.push({
+        value: String(name),
+        hint: '[COLOUR]'
+      });
+    });
+
+    (window.State?.groups || []).forEach(group => {
+      if (group?.name) {
+        result.push({
+          value: String(group.name),
+          hint: '[GROUP]'
+        });
+      }
+    });
+
+    const seen = new Set();
+
+    return result.filter(item => {
+      const key = item.value.toLowerCase();
+
+      if (seen.has(key)) return false;
+
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function render() {
+    /*
+     * Only autocomplete the COMMAND portion.
+     *
+     * This means:
+     *
+     *   group 1
+     *   group 1 at
+     *   group 1 colour
+     *
+     * does NOT make the autocomplete disappear.
+     */
+    const typed = input.value.trimStart();
+
+    const commandPart = typed
+      .split(/\s+/)
+      .slice(0, 2)
+      .join(' ')
+      .toLowerCase();
+
+    list.innerHTML = '';
+    matches = [];
+
+    if (!commandPart) {
+      list.classList.remove('is-visible');
+      return;
+    }
+
+    matches = getCommands().filter(item =>
+      item.value
+        .toLowerCase()
+        .startsWith(commandPart)
+    );
+
+    if (!matches.length) {
+      list.classList.remove('is-visible');
+      return;
+    }
+
+    if (selectedIndex >= matches.length) {
+      selectedIndex = 0;
+    }
+
+    matches.slice(0, 20).forEach((item, index) => {
+      const button = document.createElement('button');
+
+      button.type = 'button';
+      button.className = 'cmd-autocomplete-item';
+
+      if (index === selectedIndex) {
+        button.classList.add('is-active');
+      }
+
+      const command = document.createElement('span');
+      command.className = 'cmd-autocomplete-command';
+
+      /*
+       * Show the COMPLETE command name.
+       */
+      command.textContent = item.value.toUpperCase();
+
+      button.appendChild(command);
+
+      /*
+       * Show the REAL parameter hint from commandDefs.
+       */
+      if (item.hint) {
+        const hint = document.createElement('span');
+
+        hint.className = 'cmd-autocomplete-hint';
+        hint.textContent = item.hint.toUpperCase();
+
+        button.appendChild(hint);
+      }
+
+      button.addEventListener('mousedown', event => {
+        event.preventDefault();
+
+        /*
+         * Preserve anything already typed after the command.
+         */
+        const remainder = typed
+          .slice(commandPart.length)
+          .replace(/^\s*/, '');
+
+        input.value =
+          item.value +
+          (remainder ? ' ' + remainder : ' ');
+
+        input.focus();
+
+        input.setSelectionRange(
+          input.value.length,
+          input.value.length
+        );
+
+        render();
+      });
+
+      list.appendChild(button);
+    });
+
+    list.classList.add('is-visible');
+  }
+
+  function chooseSelected() {
+    if (!matches.length) {
+      return false;
+    }
+
+    const item = matches[selectedIndex];
+
+    if (!item) {
+      return false;
+    }
+
+    const typed = input.value.trimStart();
+    const commandPart = typed
+      .split(/\s+/)
+      .slice(0, 2)
+      .join(' ');
+
+    const remainder = typed
+      .slice(commandPart.length)
+      .replace(/^\s*/, '');
+
+    input.value =
+      item.value +
+      (remainder ? ' ' + remainder : ' ');
+
+    input.focus();
+
+    input.setSelectionRange(
+      input.value.length,
+      input.value.length
+    );
+
+    render();
+
+    return true;
+  }
+
+  input.addEventListener('input', () => {
+    selectedIndex = 0;
+    render();
+  });
+
+  input.addEventListener('keydown', event => {
+    if (!matches.length) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+
+      selectedIndex =
+        (selectedIndex + 1) % matches.length;
+
+      render();
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+
+      selectedIndex =
+        (selectedIndex - 1 + matches.length) %
+        matches.length;
+
+      render();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      chooseSelected();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+
+      list.classList.remove('is-visible');
+      matches = [];
+
+      return;
+    }
+  });
+
+  input.addEventListener('focus', render);
+}
 function waitForState(cb,tries=0){
   if(window.State&&Array.isArray(window.State.fixtures))return cb();
   if(tries>100)return console.error('[INIT] State never loaded!');

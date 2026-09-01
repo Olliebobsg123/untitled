@@ -1892,3 +1892,147 @@ select:focus-visible {
     grid-template-columns: 1fr !important;
   }
 }
+/* ============================================================
+   SIDEBAR — TRUE ICON RAIL
+   ============================================================ */
+
+body {
+  grid-template-columns: 58px minmax(0, 1fr) 330px;
+  transition: grid-template-columns .22s cubic-bezier(.2,.8,.2,1);
+}
+
+body:has(.sidebar:hover) {
+  grid-template-columns: 214px minmax(0, 1fr) 330px;
+}
+
+.sidebar {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ============================================================
+   COLLAPSED STATE
+   ============================================================ */
+
+/* Hide common sidebar text elements */
+body:not(:has(.sidebar:hover)) .sidebar .nav-label,
+body:not(:has(.sidebar:hover)) .sidebar .nav-text,
+body:not(:has(.sidebar:hover)) .sidebar .label,
+body:not(:has(.sidebar:hover)) .sidebar .title,
+body:not(:has(.sidebar:hover)) .sidebar .subtitle,
+body:not(:has(.sidebar:hover)) .sidebar .description,
+body:not(:has(.sidebar:hover)) .sidebar .nav-key,
+body:not(:has(.sidebar:hover)) .sidebar .brand-name,
+body:not(:has(.sidebar:hover)) .sidebar .brand-sub,
+body:not(:has(.sidebar:hover)) .sidebar small {
+  display: none !important;
+}
+
+/* Hide text spans unless they're explicitly icons */
+body:not(:has(.sidebar:hover)) .sidebar span:not(
+  .nav-icon
+):not(
+  .icon
+):not(
+  [class*="icon"]
+) {
+  display: none !important;
+}
+
+/* Hide headings / section names */
+body:not(:has(.sidebar:hover)) .sidebar h1,
+body:not(:has(.sidebar:hover)) .sidebar h2,
+body:not(:has(.sidebar:hover)) .sidebar h3,
+body:not(:has(.sidebar:hover)) .sidebar h4,
+body:not(:has(.sidebar:hover)) .sidebar p {
+  display: none !important;
+}
+
+/* ============================================================
+   ICONS
+   ============================================================ */
+
+.sidebar .nav-icon,
+.sidebar .icon,
+.sidebar [class*="icon"] {
+  display: flex !important;
+
+  align-items: center;
+  justify-content: center;
+
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+
+  margin: 0 auto;
+
+  flex-shrink: 0;
+}
+
+/* Navigation buttons become pure icon buttons */
+body:not(:has(.sidebar:hover)) .sidebar .nav-link,
+body:not(:has(.sidebar:hover)) .sidebar button {
+  width: 100%;
+  min-height: 42px;
+
+  padding: 0 !important;
+  margin: 0;
+
+  display: flex;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 0 !important;
+
+  white-space: nowrap;
+}
+
+/* ============================================================
+   BRAND
+   ============================================================ */
+
+body:not(:has(.sidebar:hover)) .sidebar .brand {
+  padding: 11px 0 !important;
+  justify-content: center;
+}
+
+body:not(:has(.sidebar:hover)) .sidebar .brand-mark {
+  margin: 0 auto;
+}
+
+/* ============================================================
+   EXPANDED STATE
+   ============================================================ */
+
+body:has(.sidebar:hover) .sidebar .nav-link {
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 9px !important;
+}
+
+body:has(.sidebar:hover) .sidebar span,
+body:has(.sidebar:hover) .sidebar p,
+body:has(.sidebar:hover) .sidebar h1,
+body:has(.sidebar:hover) .sidebar h2,
+body:has(.sidebar:hover) .sidebar h3,
+body:has(.sidebar:hover) .sidebar h4,
+body:has(.sidebar:hover) .sidebar small {
+  display: block;
+}
+
+/* Keep actual icons as flex */
+body:has(.sidebar:hover) .sidebar .nav-icon,
+body:has(.sidebar:hover) .sidebar .icon,
+body:has(.sidebar:hover) .sidebar [class*="icon"] {
+  display: flex !important;
+}
+
+/* Smoothness */
+.sidebar * {
+  transition:
+    opacity .18s ease,
+    padding .22s ease,
+    margin .22s ease;
+}

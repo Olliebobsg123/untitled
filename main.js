@@ -13,9 +13,29 @@ function startServices() {
   if (servicesStarted) return;
   servicesStarted = true;
   try { relayService = require('./relay.js'); console.log('✅ ART-NET relay service started'); } catch (err) { console.error('❌ ART-NET relay failed:', err); }
-  try { qlabBridgeService = require('./js/qlab-bridge.js'); console.log('✅ QLab bridge service started'); } catch (err) { console.error('❌ QLab bridge failed:', err); }
+  // QLab is deliberately NOT started here. It is a Pro-only service and is
+  // started below only after the renderer confirms the active licence tier.
   try { multiOutputService = require('./multi-output.js'); console.log('✅ Multi-universe output service started'); } catch (err) { console.error('❌ Multi-universe output failed:', err); }
   try { usbDmxService = require('./usb-dmx.js'); console.log('✅ USB-DMX service started'); } catch (err) { console.error('❌ USB-DMX service failed:', err); }
+}
+
+function startQLabBridgeIfPro() {
+  if (!mainWindow || mainWindow.isDestroyed() || qlabBridgeService) return;
+  mainWindow.webContents.executeJavaScript(
+    'window.License && typeof window.License.getTier === "function" ? window.License.getTier() : "free"',
+    true
+  ).then(tier => {
+    if (String(tier).toLowerCase() !== 'pro') {
+      console.log(`🔒 QLab bridge disabled for ${String(tier || 'free').toUpperCase()} licence`);
+      return;
+    }
+    try {
+      qlabBridgeService = require('./js/qlab-bridge.js');
+      console.log('🎵 QLab bridge service started for PRO licence');
+    } catch (err) {
+      console.error('❌ QLab bridge failed:', err);
+    }
+  }).catch(err => console.error('❌ Unable to determine licence for QLab bridge:', err));
 }
 
 function stopServices() {
@@ -37,6 +57,8 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
+    startQLabBridgeIfPro();
+
     mainWindow.webContents.executeJavaScript(`
       (() => {
         if (window.__electronQLabBootstrap) return;
@@ -45,6 +67,13 @@ function createWindow() {
         const bootstrap = () => {
           attempts++;
           try {
+            const tier = window.License && typeof window.License.getTier === 'function'
+              ? String(window.License.getTier()).toLowerCase()
+              : 'free';
+            if (tier !== 'pro') {
+              console.log('🔒 QLab UI/connection disabled for ' + tier.toUpperCase() + ' licence');
+              return;
+            }
             if (!window.QLab) {
               if (attempts < 150) return setTimeout(bootstrap, 100);
               console.error('❌ Electron QLab bootstrap timed out: window.QLab missing');

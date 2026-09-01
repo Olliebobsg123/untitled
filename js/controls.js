@@ -312,4 +312,92 @@
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialiseControlUI, { once: true });
   else initialiseControlUI();
+
+  // Target command syntax: TARGET <ACTION> <NAME> <FIXTURES>
+  // Fixtures may be a single number, comma list, or range (e.g. 1,2,4 or 1 thru 5).
+  // We install after target.js's own wrapper so the fixture selection is applied
+  // before its create/aim/capture/release logic runs.
+  if (!window.__targetFixtureCommandInstaller) {
+    window.__targetFixtureCommandInstaller = true;
+    const parseFixtureSelection = value => {
+      const input = String(value || "").trim().toLowerCase().replace(/–/g, "-");
+      const numbers = new Set();
+      for (const token of input.split(/\s*,\s*/).filter(Boolean)) {
+        const range = token.match(/^(\d+)\s*(?:thru|through|-)\s*(\d+)$/);
+        if (range) {
+          const a = Number(range[1]);
+          const b = Number(range[2]);
+          const step = a <= b ? 1 : -1;
+          for (let n = a; ; n += step) {
+            numbers.add(n);
+            if (n === b) break;
+          }
+          continue;
+        }
+        const n = Number(token);
+        if (Number.isInteger(n) && n > 0) numbers.add(n);
+      }
+      return [...numbers].sort((a, b) => a - b);
+    };
+
+    const getFixtureForTargetCommand = number => {
+      const fixtures = window.State?.fixtures || [];
+      const n = Number(number);
+      if (!Number.isInteger(n) || n < 1) return null;
+      return fixtures.find(f => Number(f?.fixtureNumber) === n) || fixtures[n - 1] || null;
+    };
+
+    const installTargetFixtureSyntax = () => {
+      const current = window.parseCommand;
+      if (typeof current !== "function") return;
+      if (current.__lxTargetFixtureSyntax) return;
+
+      const wrapped = function(raw) {
+        const command = String(raw ?? "").trim();
+        const match = command.match(/^target\s+(create|aim|capture|release|delete)\s+(.+?)\s+((?:\d+\s*(?:thru|through|[-–])\s*\d+|\d+(?:\s*,\s*\d+)+|\d+))$/i);
+        if (!match) return current.apply(this, arguments);
+
+        const action = match[1].toLowerCase();
+        const name = match[2].trim();
+        const numbers = parseFixtureSelection(match[3]);
+        if (!numbers.length) return current.apply(this, arguments);
+
+        const selected = new Set();
+        for (const number of numbers) {
+          const fixture = getFixtureForTargetCommand(number);
+          if (fixture) selected.add(fixture.id);
+        }
+        if (!selected.size) {
+          window.log?.("No matching fixtures found", "warn");
+          return;
+        }
+
+        const previousSelection = window.State.selected instanceof Set
+          ? new Set(window.State.selected)
+          : new Set();
+        window.State.selected = selected;
+
+        // Pass the command without the fixture selector to target.js.
+        // This lets target names contain spaces while keeping fixture syntax last.
+        const targetCommand = `target ${action} ${name}`;
+        const result = current.call(this, targetCommand);
+
+        // Keep the selected fixtures as the user's explicit target selection.
+        // Do not restore the old selection: the command itself is a fixture selection.
+        void previousSelection;
+        return result;
+      };
+      wrapped.__lxTargetFixtureSyntax = true;
+      window.parseCommand = wrapped;
+    };
+
+    let targetSyntaxAttempts = 0;
+    const waitForTargetSyntax = () => {
+      installTargetFixtureSyntax();
+      if (window.parseCommand?.__lxTargetFixtureSyntax) return;
+      if (++targetSyntaxAttempts < 200) setTimeout(waitForTargetSyntax, 100);
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", waitForTargetSyntax, { once: true });
+    else waitForTargetSyntax();
+  }
 })();

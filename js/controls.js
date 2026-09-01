@@ -1,7 +1,5 @@
 "use strict";
 
-
-
 // UI-only control helpers. Multi-fixture Pan/Tilt and Home live here.
 (function initialiseControls() {
   const getSelectedFixtures = () => {
@@ -30,9 +28,9 @@
   };
 
   // ------------------------------------------------------------
-  // LMX-inspired programmer deck presentation.
-  // This stays in controls.js so the existing control hooks/IDs are
-  // untouched; the actual lighting behaviour below remains unchanged.
+  // Programmer presentation. The controls remain functional; this
+  // only changes how the existing control cards are presented.
+  // BASIC / BEAM / CUSTOM are real views rather than scroll targets.
   // ------------------------------------------------------------
   function ensureProgrammerStyles() {
     if (document.getElementById("lxProgrammerControlStyles")) return;
@@ -42,54 +40,55 @@
     style.textContent = `
       #controlPanel {
         padding: 0 !important;
-        border-radius: 4px !important;
-        border: 1px solid #252d31 !important;
-        background: #0b0d10 !important;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.018), 0 10px 24px rgba(0,0,0,.24) !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: #0d1013 !important;
+        box-shadow: none !important;
+        overflow: hidden auto;
         scrollbar-width: thin;
-        scrollbar-color: #384248 #0b0d10;
+        scrollbar-color: #39434a #0d1013;
       }
 
       #controlPanel::-webkit-scrollbar { width: 7px; }
-      #controlPanel::-webkit-scrollbar-track { background: #0b0d10; }
-      #controlPanel::-webkit-scrollbar-thumb { background: #384248; border: 2px solid #0b0d10; }
-      #controlPanel::-webkit-scrollbar-thumb:hover { background: #4a565c; }
+      #controlPanel::-webkit-scrollbar-track { background: #0d1013; }
+      #controlPanel::-webkit-scrollbar-thumb { background: #39434a; border: 2px solid #0d1013; }
+      #controlPanel::-webkit-scrollbar-thumb:hover { background: #4b575e; }
 
       #controlPanel .control-deck-header {
-        min-height: 36px;
-        height: 36px;
+        min-height: 34px;
+        height: 34px;
         padding: 0 10px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        border-bottom: 1px solid #252d31;
-        background: #0e1115;
+        border-bottom: 1px solid #252c31;
+        background: #101317;
         position: sticky;
         top: 0;
-        z-index: 8;
+        z-index: 10;
       }
 
       #controlPanel .control-deck-header > div {
         display: flex;
         align-items: baseline;
-        gap: 7px;
+        gap: 8px;
         min-width: 0;
       }
 
       #controlPanel .control-deck-header .eyebrow {
-        margin-right: 0;
-        color: #22d9aa;
+        color: #20d5a5;
         font-family: var(--mono, monospace);
         font-size: 8px;
+        font-weight: 800;
         letter-spacing: .12em;
       }
 
       #controlPanel .control-deck-header strong {
-        color: #d9e2df;
+        color: #e0e7e5;
         font-family: var(--mono, monospace);
         font-size: 9px;
-        letter-spacing: .08em;
         font-weight: 900;
+        letter-spacing: .08em;
       }
 
       #controlPanel .deck-led {
@@ -97,115 +96,146 @@
         height: 6px;
         border-radius: 50%;
         background: #19d6a3;
-        box-shadow: 0 0 8px rgba(25,214,163,.72);
-        flex: 0 0 auto;
+        box-shadow: 0 0 7px rgba(25,214,163,.65);
       }
 
       #controlPanel .lx-programmer-tabs {
-        min-height: 30px;
+        height: 31px;
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        border-bottom: 1px solid #252d31;
-        background: #090b0e;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        border-bottom: 1px solid #252c31;
+        background: #0b0e11;
         position: sticky;
-        top: 36px;
-        z-index: 7;
+        top: 34px;
+        z-index: 9;
       }
 
       #controlPanel .lx-programmer-tab {
-        height: 29px;
+        position: relative;
+        height: 30px;
+        padding: 0 8px;
         border: 0;
-        border-right: 1px solid #1f272b;
+        border-right: 1px solid #20272c;
         background: transparent;
-        color: #6d7977;
+        color: #697572;
         font-family: var(--mono, monospace);
         font-size: 8px;
         font-weight: 900;
-        letter-spacing: .13em;
+        letter-spacing: .14em;
         cursor: pointer;
-        position: relative;
       }
 
       #controlPanel .lx-programmer-tab:last-child { border-right: 0; }
-      #controlPanel .lx-programmer-tab:hover { color: #dbe5e2; background: rgba(255,255,255,.025); }
-      #controlPanel .lx-programmer-tab.is-active { color: #f2f7f5; background: rgba(25,214,163,.065); }
+      #controlPanel .lx-programmer-tab:hover { color: #e6eeeb; background: rgba(255,255,255,.025); }
+      #controlPanel .lx-programmer-tab.is-active { color: #f2f7f5; background: rgba(25,214,163,.055); }
       #controlPanel .lx-programmer-tab.is-active::after {
         content: "";
         position: absolute;
-        left: 9px;
-        right: 9px;
+        left: 14px;
+        right: 14px;
         bottom: 0;
         height: 2px;
         background: #19d6a3;
       }
 
-      #controlPanel > .master-card,
-      #controlPanel > .dynamic-controls,
-      #controlPanel > .parameter-card {
-        margin: 8px 9px 0;
+      #controlPanel .lx-programmer-pages {
+        padding: 0 10px 12px;
+      }
+
+      #controlPanel .lx-programmer-page {
+        display: none;
+        min-width: 0;
+      }
+
+      #controlPanel .lx-programmer-page.is-active {
+        display: block;
+        animation: lxProgrammerPageIn .14s ease-out;
+      }
+
+      @keyframes lxProgrammerPageIn {
+        from { opacity: .45; transform: translateY(2px); }
+        to { opacity: 1; transform: translateY(0); }
       }
 
       #controlPanel > .master-card {
-        margin-top: 9px;
-        padding: 9px;
-        border: 1px solid #2a3439;
-        border-radius: 3px;
-        background: #101419;
+        margin: 9px 10px 0 !important;
+        padding: 0 0 9px !important;
+        border: 0 !important;
+        border-bottom: 1px solid #252c31 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
       }
 
-      #controlPanel .control-group {
-        gap: 7px;
+      #controlPanel .master-card .fader { height: 26px; }
+      #controlPanel .master-card input[type="range"]::-webkit-slider-runnable-track {
+        background: linear-gradient(90deg, #7544ff, #25d7de);
+        border-color: #29343a;
+      }
+      #controlPanel .master-card input[type="range"]::-webkit-slider-thumb {
+        width: 14px;
+        height: 14px;
+        margin-top: -5px;
+        background: #c24cff;
+        border: 2px solid #0b1013;
+        box-shadow: 0 0 0 1px #8e42ff, 0 0 7px rgba(195,76,255,.22);
+      }
+
+      #controlPanel .lx-programmer-page > .parameter-card,
+      #controlPanel .lx-programmer-page > .dynamic-controls {
+        margin: 0 !important;
       }
 
       #controlPanel .parameter-card {
-        padding: 8px 9px 10px;
-        border: 1px solid #242d32;
-        border-radius: 3px;
-        background: #0f1317;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.012);
+        padding: 11px 2px 13px !important;
+        border: 0 !important;
+        border-bottom: 1px solid #20272c !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
       }
 
+      #controlPanel .parameter-card:last-child { border-bottom: 0 !important; }
+
       #controlPanel .control-heading {
-        min-height: 22px;
+        min-height: 24px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        gap: 10px;
       }
 
-      #controlPanel .control-heading > div { min-width: 0; }
-
       #controlPanel .control-label {
-        color: #e1e8e6;
+        color: #dce5e2;
         font-family: var(--mono, monospace);
         font-size: 9px;
         font-weight: 900;
-        letter-spacing: .08em;
+        letter-spacing: .075em;
         text-transform: uppercase;
       }
 
       #controlPanel .control-heading small {
         display: block;
         margin-top: 2px;
-        color: #596563;
+        color: #596662;
         font-family: var(--mono, monospace);
         font-size: 7px;
         font-weight: 700;
-        letter-spacing: .08em;
+        letter-spacing: .07em;
         text-transform: uppercase;
       }
 
       #controlPanel .fader-val,
       #controlPanel .big-value {
-        color: #8c9a96;
+        color: #93a09c;
         font-family: var(--mono, monospace);
         font-size: 9px;
         font-weight: 900;
         white-space: nowrap;
       }
 
-      #controlPanel .big-value { color: #19d6a3; font-size: 11px; }
-      #controlPanel .big-value em { color: #62706d; font-style: normal; font-size: 8px; }
+      #controlPanel .big-value { color: #20d5a5; font-size: 10px; }
+      #controlPanel .big-value em { color: #5d6966; font-style: normal; font-size: 8px; }
 
       #controlPanel .fader {
         position: relative;
@@ -222,8 +252,8 @@
         top: 50%;
         height: 4px;
         transform: translateY(-50%);
-        background: repeating-linear-gradient(90deg, #283238 0 1px, transparent 1px 12px), #11181c;
-        border: 1px solid #1f292e;
+        background: repeating-linear-gradient(90deg, #2c373d 0 1px, transparent 1px 12px), #11181c;
+        border: 1px solid #202a30;
         pointer-events: none;
       }
 
@@ -242,53 +272,52 @@
       #controlPanel input[type="range"]::-webkit-slider-runnable-track {
         height: 4px;
         background: #182126;
-        border: 1px solid #2a353b;
-        border-radius: 0;
+        border: 1px solid #29343a;
+        border-radius: 2px;
       }
 
       #controlPanel input[type="range"]::-webkit-slider-thumb {
         appearance: none;
         -webkit-appearance: none;
-        width: 13px;
-        height: 13px;
+        width: 12px;
+        height: 12px;
         margin-top: -5px;
         border-radius: 50%;
         border: 2px solid #0c1114;
         background: #19d6a3;
-        box-shadow: 0 0 0 1px #19d6a3, 0 0 8px rgba(25,214,163,.25);
+        box-shadow: 0 0 0 1px #19d6a3, 0 0 7px rgba(25,214,163,.22);
       }
 
-      #controlPanel input[type="range"]::-moz-range-track { height: 4px; background: #182126; border: 1px solid #2a353b; border-radius: 0; }
-      #controlPanel input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; border: 2px solid #0c1114; background: #19d6a3; }
-
-      #controlPanel .master-card .fader { height: 28px; }
-      #controlPanel .master-card input[type="range"]::-webkit-slider-thumb {
-        width: 15px;
-        height: 15px;
-        background: #c34cff;
-        box-shadow: 0 0 0 1px #8e42ff, 0 0 8px rgba(195,76,255,.22);
+      #controlPanel input[type="range"]::-moz-range-track {
+        height: 4px;
+        background: #182126;
+        border: 1px solid #29343a;
+        border-radius: 2px;
       }
 
-      #controlPanel .master-card input[type="range"]::-webkit-slider-runnable-track {
-        background: linear-gradient(90deg, #7a42ff, #29d8df);
-        border-color: #29353b;
+      #controlPanel input[type="range"]::-moz-range-thumb {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 2px solid #0c1114;
+        background: #19d6a3;
       }
 
       #controlPanel .dynamic-controls {
-        min-height: 54px;
+        padding-top: 10px;
       }
 
       #controlPanel .selection-empty {
-        min-height: 54px;
-        padding: 8px;
+        min-height: 56px;
+        padding: 9px 0;
         display: grid;
-        grid-template-columns: 28px minmax(0, 1fr);
+        grid-template-columns: 30px minmax(0,1fr);
         grid-template-rows: auto auto;
-        column-gap: 8px;
+        column-gap: 9px;
         align-items: center;
-        border: 1px solid #20292e;
-        border-radius: 3px;
-        background: #0d1114;
+        border-top: 1px solid #20272c;
+        border-bottom: 1px solid #20272c;
+        background: transparent;
       }
 
       #controlPanel .selection-empty .empty-icon {
@@ -300,52 +329,36 @@
         border: 1px solid #29343a;
         color: #596764;
         font-family: var(--mono, monospace);
-        font-size: 13px;
+        font-size: 12px;
       }
 
-      #controlPanel .selection-empty strong { color: #c8d1ce; font-family: var(--mono, monospace); font-size: 8px; letter-spacing: .07em; text-transform: uppercase; }
+      #controlPanel .selection-empty strong {
+        color: #cbd5d1;
+        font-family: var(--mono, monospace);
+        font-size: 8px;
+        letter-spacing: .07em;
+        text-transform: uppercase;
+      }
+
       #controlPanel .selection-empty p { color: #586461; font-size: 7px; line-height: 1.35; margin: 0; }
 
-      #controlPanel .colour-card {
-        padding-bottom: 9px;
-      }
-
-      #controlPanel .colour-wheel {
-        width: min(100%, 190px);
-        margin: 6px auto 7px;
-      }
-
-      #controlPanel .colour-wheel canvas {
-        display: block;
-        width: 100%;
-        height: auto;
-        image-rendering: auto;
-      }
-
-      #controlPanel .colour-swatch {
-        width: 100%;
-        height: 18px;
-        border: 1px solid #303b40;
-        background: #151b1f;
-      }
+      #controlPanel .colour-card { padding-top: 10px !important; }
+      #controlPanel .colour-wheel { width: min(100%, 188px); margin: 5px auto 8px; }
+      #controlPanel .colour-wheel canvas { display: block; width: 100%; height: auto; }
+      #controlPanel .colour-swatch { width: 100%; height: 18px; border: 1px solid #303a40; background: #151b1f; }
 
       #controlPanel .xy-pad {
-        min-height: 150px;
-        height: 150px;
-        border: 1px solid #2a353a;
+        min-height: 155px;
+        height: 155px;
+        border: 1px solid #29343a;
         border-radius: 2px;
         background:
-          linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px),
+          linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px),
           #0a0f12;
         background-size: 25% 25%;
         position: relative;
         overflow: hidden;
-      }
-
-      #controlPanel .xy-crosshair.x,
-      #controlPanel .xy-crosshair.y {
-        background: rgba(25,214,163,.25);
       }
 
       #controlPanel .xy-dot {
@@ -353,19 +366,16 @@
         height: 12px;
         border: 2px solid #0a1012;
         background: #19d6a3;
-        box-shadow: 0 0 0 1px #19d6a3, 0 0 10px rgba(25,214,163,.5);
+        box-shadow: 0 0 0 1px #19d6a3, 0 0 9px rgba(25,214,163,.45);
       }
 
-      #controlPanel .xy-home-control {
-        margin-top: 6px;
-      }
-
+      #controlPanel .xy-home-control { margin-top: 6px; }
       #controlPanel #btnHome {
         width: 100%;
-        min-height: 25px;
+        min-height: 26px;
         padding: 0 8px;
-        border-radius: 2px;
         border: 1px solid #29353a;
+        border-radius: 2px;
         background: #11171b;
         color: #9aa7a4;
         font-family: var(--mono, monospace);
@@ -373,7 +383,6 @@
         font-weight: 900;
         letter-spacing: .08em;
       }
-
       #controlPanel #btnHome:hover { border-color: #19d6a3; color: #eff5f3; background: #151d21; }
 
       @media (max-width: 1100px) {
@@ -384,58 +393,94 @@
     document.head?.appendChild(style);
   }
 
-  function decorateProgrammerDeck() {
+  function classifyProgrammerCard(card) {
+    const text = `${card.id || ""} ${card.className || ""} ${card.textContent || ""}`.toLowerCase();
+    if (/pan|tilt|xy|position|rotation|custom/.test(text)) return "custom";
+    if (/strobe|gobo|zoom|focus|prism|iris|frost|shutter|beam/.test(text)) return "beam";
+    return "basic";
+  }
+
+  function setupProgrammerPages() {
     const panel = document.getElementById("controlPanel");
-    if (!panel || panel.dataset.programmerDeckDecorated === "1") return !!panel;
-    panel.dataset.programmerDeckDecorated = "1";
+    if (!panel) return false;
+    if (panel.dataset.programmerPagesReady === "1") return true;
 
     const header = panel.querySelector(".control-deck-header");
     if (header) {
-      const eyebrow = header.querySelector(".eyebrow");
-      const title = header.querySelector("strong");
-      if (eyebrow) eyebrow.textContent = "PROGRAMMER";
-      if (title) title.textContent = "LIVE PARAMETERS";
+      header.querySelector(".eyebrow")?.replaceChildren("PROGRAMMER");
+      header.querySelector("strong")?.replaceChildren("LIVE PARAMETERS");
     }
+
+    const master = panel.querySelector(":scope > .master-card");
+    const cards = Array.from(panel.children).filter(el => {
+      if (el === master) return false;
+      if (el.classList.contains("lx-programmer-tabs") || el.classList.contains("lx-programmer-pages")) return false;
+      return el.classList.contains("parameter-card") || el.classList.contains("dynamic-controls");
+    });
+
+    if (!cards.length) return false;
 
     const tabs = document.createElement("div");
     tabs.className = "lx-programmer-tabs";
     tabs.setAttribute("role", "tablist");
 
-    const destinations = [
-      ["BASIC", () => document.getElementById("intensity")?.closest(".parameter-card") || document.getElementById("intensity")],
-      ["BEAM", () => document.getElementById("strobeGroup") || document.getElementById("zoomGroup") || document.getElementById("dynamicControls")],
-      ["CUSTOM", () => document.getElementById("xyGroup") || document.querySelector(".xy-pad")]
-    ];
+    const pages = document.createElement("div");
+    pages.className = "lx-programmer-pages";
 
-    destinations.forEach(([label, getTarget], index) => {
+    const pageMap = new Map();
+    [
+      ["basic", "BASIC"],
+      ["beam", "BEAM"],
+      ["custom", "CUSTOM"]
+    ].forEach(([key, label], index) => {
+      const page = document.createElement("section");
+      page.className = `lx-programmer-page${index === 0 ? " is-active" : ""}`;
+      page.dataset.programmerPage = key;
+      page.setAttribute("role", "tabpanel");
+      pageMap.set(key, page);
+
       const tab = document.createElement("button");
       tab.type = "button";
-      tab.className = "lx-programmer-tab";
+      tab.className = `lx-programmer-tab${index === 0 ? " is-active" : ""}`;
       tab.textContent = label;
+      tab.dataset.programmerPage = key;
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-selected", index === 0 ? "true" : "false");
+
       tab.addEventListener("click", () => {
-        const target = getTarget();
-        if (target?.scrollIntoView) target.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        tabs.querySelectorAll(".lx-programmer-tab").forEach(el => {
-          const active = el === tab;
-          el.classList.toggle("is-active", active);
-          el.setAttribute("aria-selected", active ? "true" : "false");
+        tabs.querySelectorAll(".lx-programmer-tab").forEach(other => {
+          const active = other === tab;
+          other.classList.toggle("is-active", active);
+          other.setAttribute("aria-selected", active ? "true" : "false");
         });
+        pageMap.forEach((view, viewKey) => view.classList.toggle("is-active", viewKey === key));
+        panel.dataset.programmerPage = key;
       });
-      if (index === 0) tab.classList.add("is-active");
+
       tabs.appendChild(tab);
+      pages.appendChild(page);
     });
 
-    header?.insertAdjacentElement("afterend", tabs);
-    return true;
-  }
+    cards.forEach(card => {
+      const category = classifyProgrammerCard(card);
+      pageMap.get(category)?.appendChild(card);
+    });
 
-  ensureProgrammerStyles();
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", decorateProgrammerDeck, { once: true });
-  } else {
-    decorateProgrammerDeck();
+    if (master) {
+      const headerTabs = panel.querySelector(".lx-programmer-tabs");
+      if (headerTabs) headerTabs.remove();
+      const existingPages = panel.querySelector(".lx-programmer-pages");
+      if (existingPages) existingPages.remove();
+      panel.insertBefore(tabs, panel.firstChild === master ? master.nextSibling : panel.firstChild);
+      panel.appendChild(pages);
+    } else {
+      panel.prepend(tabs);
+      panel.appendChild(pages);
+    }
+
+    panel.dataset.programmerPagesReady = "1";
+    panel.dataset.programmerPage = "basic";
+    return true;
   }
 
   if (!document.querySelector('link[data-home-button-css]')) {
@@ -465,8 +510,6 @@
   }
   window.updateControlVisibility = refreshVisibility;
 
-  // Capture the XY pointer events before app.js. app.js's original handler
-  // uses activeFixture(), which is only the last selected fixture.
   if (!window.__multiFixtureXYFix) {
     window.__multiFixtureXYFix = true;
     const attach = () => {
@@ -522,8 +565,6 @@
         window.sendToVisualizer?.();
       };
 
-      // Handle the whole pad, not just the existing dot. stopImmediatePropagation
-      // prevents app.js's single-fixture handler from running afterwards.
       pad.addEventListener("pointerdown", e => {
         if (e.button !== undefined && e.button !== 0) return;
         e.preventDefault();
@@ -627,8 +668,6 @@
     else waitForHomeButton();
   }
 
-  
-
   if (!window.__strobeControl) {
     window.__strobeControl = true;
     const $ = id => document.getElementById(id);
@@ -667,6 +706,12 @@
     else waitForStrobe();
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", refreshVisibility, { once: true });
-  else refreshVisibility();
+  const initialiseProgrammerPresentation = () => {
+    ensureProgrammerStyles();
+    setupProgrammerPages();
+    refreshVisibility();
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialiseProgrammerPresentation, { once: true });
+  else initialiseProgrammerPresentation();
 })();

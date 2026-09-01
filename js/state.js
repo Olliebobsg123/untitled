@@ -31,6 +31,7 @@
     fixtures: asArray(existing.fixtures),
     groups: asArray(existing.groups),
     cues: asArray(existing.cues),
+    palettes: asArray(existing.palettes),
     selected: asSet(existing.selected),
     selectedFixtureId: existing.selectedFixtureId ?? null,
     currentCue: Number.isInteger(existing.currentCue) ? existing.currentCue : -1,
@@ -81,4 +82,21 @@
       window.ensureFixtureState(fixture.id);
     });
   };
+
+  // Load the optional palette feature after the base state exists. This keeps
+  // the feature isolated while avoiding another entry in the HTML script list.
+  function loadPaletteFeature() {
+    if (window.Palettes || document.querySelector('script[data-palette-feature]')) return;
+    const script = document.createElement('script');
+    script.src = 'js/palette.js';
+    script.dataset.paletteFeature = '1';
+    script.defer = true;
+    document.head.appendChild(script);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadPaletteFeature, { once: true });
+  } else {
+    loadPaletteFeature();
+  }
 })();

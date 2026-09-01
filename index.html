@@ -129,6 +129,7 @@
 <script src="js/modes.js"></script>
 <script src="js/license.js"></script>
 <script src="js/palette.js"></script>
+<script src="js/target.js"></script>
 <script>
 window.updateQLabStatus=(message,connected)=>{const el=document.getElementById("qlabStatus"),top=document.getElementById("topQlabStatus");if(el){el.className="qlab-status "+(connected?"connected":"disconnected");el.textContent=(connected?"✅ ":"❌ ")+message;}if(top){top.classList.toggle("is-online",!!connected);const d=top.querySelector(".status-dot");if(d)d.className="status-dot "+(connected?"online":"offline");}};
 window.updateTopMidiStatus=connected=>{const top=document.getElementById("topMidiStatus");if(!top)return;top.classList.toggle("is-online",!!connected);const d=top.querySelector(".status-dot");if(d)d.className="status-dot "+(connected?"online":"offline");};

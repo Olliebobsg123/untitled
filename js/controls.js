@@ -46,6 +46,7 @@
     const livePage = document.getElementById("page-live");
     const visible = !!livePage && livePage.classList.contains("active");
     panel.style.display = visible ? "" : "none";
+    document.body?.classList.toggle("control-panel-hidden", !visible);
     return true;
   }
 
@@ -62,6 +63,27 @@
       attributes: true,
       attributeFilter: ["class"]
     });
+
+    if (!document.getElementById("controlPanelWorkspaceStyle")) {
+      const style = document.createElement("style");
+      style.id = "controlPanelWorkspaceStyle";
+      style.textContent = `
+        @media (min-width: 901px) {
+          body.control-panel-hidden {
+            grid-template-columns: 58px minmax(0, 1fr);
+            grid-template-areas:
+              "sidebar topbar"
+              "sidebar workspace"
+              "sidebar bottom-row"
+              "sidebar cmd-line";
+          }
+          body.control-panel-hidden:has(.sidebar:hover) {
+            grid-template-columns: 214px minmax(0, 1fr);
+          }
+        }
+      `;
+      document.head?.appendChild(style);
+    }
   }
 
   let refreshQueued = false;

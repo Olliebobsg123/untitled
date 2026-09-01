@@ -8,6 +8,7 @@ let qlabBridgeService = null;
 let multiOutputService = null;
 let usbDmxService = null;
 let shuttingDown = false;
+let qlabLicenseTimer = null;
 
 function startServices() {
   if (servicesStarted) return;
@@ -26,7 +27,8 @@ function startQLabBridgeIfPro() {
     true
   ).then(tier => {
     if (String(tier).toLowerCase() !== 'pro') {
-      console.log(`🔒 QLab bridge disabled for ${String(tier || 'free').toUpperCase()} licence`);
+      console.log(`🔒 QLab bridge waiting for PRO licence (current: ${String(tier || 'free').toUpperCase()})`);
+      if (!qlabLicenseTimer) qlabLicenseTimer = setTimeout(() => { qlabLicenseTimer = null; startQLabBridgeIfPro(); }, 1000);
       return;
     }
     try {
@@ -34,13 +36,18 @@ function startQLabBridgeIfPro() {
       console.log('🎵 QLab bridge service started for PRO licence');
     } catch (err) {
       console.error('❌ QLab bridge failed:', err);
+      if (!qlabLicenseTimer) qlabLicenseTimer = setTimeout(() => { qlabLicenseTimer = null; startQLabBridgeIfPro(); }, 1000);
     }
-  }).catch(err => console.error('❌ Unable to determine licence for QLab bridge:', err));
+  }).catch(err => {
+    console.error('❌ Unable to determine licence for QLab bridge:', err);
+    if (!qlabLicenseTimer) qlabLicenseTimer = setTimeout(() => { qlabLicenseTimer = null; startQLabBridgeIfPro(); }, 1000);
+  });
 }
 
 function stopServices() {
   if (shuttingDown) return;
   shuttingDown = true;
+  if (qlabLicenseTimer) { clearTimeout(qlabLicenseTimer); qlabLicenseTimer = null; }
   for (const [name, service] of [['Art-Net relay', relayService], ['QLab bridge', qlabBridgeService], ['Multi-universe output', multiOutputService], ['USB-DMX', usbDmxService]]) {
     try { if (service && typeof service.shutdown === 'function') service.shutdown(); } catch (err) { console.error(`❌ ${name} shutdown failed:`, err); }
   }
@@ -71,19 +78,19 @@ function createWindow() {
               ? String(window.License.getTier()).toLowerCase()
               : 'free';
             if (tier !== 'pro') {
-              console.log('🔒 QLab UI/connection disabled for ' + tier.toUpperCase() + ' licence');
-              return;
+              if (attempts < 150) return setTimeout(bootstrap, 100);
+              console.log('🔒 QLab UI/connection waiting for Pro license activation');
+              attempts = 0;
+              return setTimeout(bootstrap, 1000);
             }
             if (!window.QLab) {
-              if (attempts < 150) return setTimeout(bootstrap, 100);
-              console.error('❌ Electron QLab bootstrap timed out: window.QLab missing');
-              return;
+              return setTimeout(bootstrap, 100);
             }
             if (typeof window.QLab.loadSettings === 'function') window.QLab.loadSettings();
             if (typeof window.QLab.renderSettings === 'function') window.QLab.renderSettings();
             if (typeof window.QLab.connect === 'function') { console.log('🎵 Electron: starting QLab bridge connection'); window.QLab.connect(); }
             setTimeout(() => { try { if (window.QLab && typeof window.QLab.syncCues === 'function') { console.log('🎵 Electron: forcing QLab cue sync'); window.QLab.syncCues(); } } catch (err) { console.error('❌ Electron QLab sync failed:', err); } }, 750);
-          } catch (err) { if (attempts < 150) return setTimeout(bootstrap, 100); console.error('❌ Electron QLab bootstrap failed:', err); }
+          } catch (err) { setTimeout(bootstrap, 1000); }
         };
         bootstrap();
       })();

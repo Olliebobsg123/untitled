@@ -2,7 +2,14 @@
 
 /* Palette UI + command bridge. Loaded by index.html after the core console scripts. */
 (function () {
-  const FIELDS = ["intensity", "hue", "sat", "strobe", "master", "pan", "tilt", "zoom", "focus", "gobo", "gobo2", "prism", "frost", "iris", "rot", "effect", "speed", "amber", "uv"];
+  const FIELD_GROUPS = {
+    Colour: ["hue", "sat", "amber", "uv"],
+    Intensity: ["intensity", "master"],
+    Position: ["pan", "tilt"],
+    Beam: ["zoom", "focus", "gobo", "gobo2", "prism", "frost", "iris", "rot", "effect", "speed", "strobe"],
+    General: ["intensity", "hue", "sat", "strobe", "master", "pan", "tilt", "zoom", "focus", "gobo", "gobo2", "prism", "frost", "iris", "rot", "effect", "speed", "amber", "uv"]
+  };
+  const FIELDS = FIELD_GROUPS.General;
 
   const state = () => {
     window.State = window.State || {};
@@ -13,6 +20,10 @@
   };
 
   const clean = value => String(value || "").trim().replace(/\s+/g, " ");
+  const categoryKey = category => {
+    const wanted = clean(category).toLowerCase();
+    return Object.keys(FIELD_GROUPS).find(key => key.toLowerCase() === wanted) || "General";
+  };
   const find = name => {
     state();
     const wanted = clean(name).toLowerCase();
@@ -25,10 +36,11 @@
     return (State.fixtures || []).filter(f => State.selected.has(f.id));
   }
 
-  function snapshot() {
+  function snapshot(category = "General") {
     state();
     const values = {};
-    FIELDS.forEach(field => {
+    const fields = FIELD_GROUPS[categoryKey(category)] || FIELDS;
+    fields.forEach(field => {
       const value = Number(State.current[field]);
       if (Number.isFinite(value)) values[field] = value;
     });
@@ -38,6 +50,7 @@
   function record(name, category) {
     state();
     const paletteName = clean(name);
+    const paletteCategory = categoryKey(category);
     if (!paletteName) return { ok: false, message: "Palette name cannot be empty." };
     if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before recording a palette." };
     if (find(paletteName)) return { ok: false, message: `Palette \"${paletteName}\" already exists.` };
@@ -45,8 +58,8 @@
     const palette = {
       id: `palette-${Date.now()}`,
       name: paletteName,
-      category: clean(category) || "General",
-      values: snapshot(),
+      category: paletteCategory,
+      values: snapshot(paletteCategory),
       fixtures: [...State.selected],
       createdAt: new Date().toISOString()
     };
@@ -61,17 +74,18 @@
     if (!palette) return { ok: false, message: `Palette \"${clean(name)}\" not found.` };
     if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before applying a palette." };
 
-    Object.assign(State.current, palette.values || {});
+    const values = palette.values || {};
+    Object.assign(State.current, values);
     selectedFixtures().forEach(fixture => {
       let current = typeof window.ensureFixtureState === "function" ? window.ensureFixtureState(fixture.id) : null;
       if (!current) {
         current = State.fixtureStates?.get(fixture.id) || {};
         State.fixtureStates?.set(fixture.id, current);
       }
-      Object.assign(current, palette.values || {});
+      Object.assign(current, values);
     });
 
-    if (typeof window.fadeTo === "function") window.fadeTo(palette.values || {}, 300);
+    if (typeof window.fadeTo === "function") window.fadeTo(values, 300);
     if (typeof window.updateDMX === "function") window.updateDMX();
     if (typeof window.renderFixtures === "function") window.renderFixtures();
     if (typeof window.buildControls === "function") window.buildControls();
@@ -85,7 +99,8 @@
     const palette = find(name);
     if (!palette) return { ok: false, message: `Palette \"${clean(name)}\" not found.` };
     if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before updating a palette." };
-    palette.values = snapshot();
+    palette.category = categoryKey(palette.category);
+    palette.values = snapshot(palette.category);
     palette.fixtures = [...State.selected];
     palette.updatedAt = new Date().toISOString();
     render();
@@ -159,14 +174,14 @@
     if (!list) return;
     list.innerHTML = "";
     const groups = {};
-    State.palettes.forEach(p => (groups[clean(p.category) || "General"] ||= []).push(p));
+    State.palettes.forEach(p => (groups[categoryKey(p.category)] ||= []).push(p));
     Object.entries(groups).forEach(([category, palettes]) => {
       const section = document.createElement("section");
       section.className = "palette-category";
       section.innerHTML = `<div class="palette-category-title">${category.toUpperCase()}</div>`;
       const grid = document.createElement("div");
       grid.className = "palette-grid-ui";
-      palettes.forEach((palette, index) => {
+      palettes.forEach(palette => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "palette-card";
@@ -174,7 +189,7 @@
         const sat = Number(palette.values?.sat ?? 0);
         const intensity = Number(palette.values?.intensity ?? 100);
         const light = Math.max(18, Math.min(82, 28 + intensity * .42));
-        button.innerHTML = `<span class="palette-swatch-ui" style="background:hsl(${hue} ${sat}% ${light}%);"></span><span><strong>${index + 1}. ${clean(palette.name)}</strong><small>${preview(palette)}</small></span>`;
+        button.innerHTML = `<span class="palette-swatch-ui" style="background:hsl(${hue} ${sat}% ${light}%);"></span><span><strong>${State.palettes.indexOf(palette) + 1}. ${clean(palette.name)}</strong><small>${preview(palette)}</small></span>`;
         button.addEventListener("click", () => {
           const result = apply(palette.name);
           if (result.ok) closeModal();

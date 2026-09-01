@@ -37,6 +37,33 @@
     document.head?.appendChild(link);
   }
 
+  // Keep the controls.js UI confined to the Live Control workspace.
+  // Blind mode uses the same page, so its controls remain available there too.
+  let controlPageObserver = null;
+  function refreshControlPanelPageVisibility() {
+    const panel = document.getElementById("controlPanel");
+    if (!panel) return false;
+    const livePage = document.getElementById("page-live");
+    const visible = !!livePage && livePage.classList.contains("active");
+    panel.style.display = visible ? "" : "none";
+    return true;
+  }
+
+  function watchControlPanelPageVisibility() {
+    refreshControlPanelPageVisibility();
+    if (controlPageObserver || !document.body) return;
+    controlPageObserver = new MutationObserver(mutations => {
+      if (mutations.some(m => m.type === "attributes" && m.attributeName === "class")) {
+        refreshControlPanelPageVisibility();
+      }
+    });
+    controlPageObserver.observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"]
+    });
+  }
+
   let refreshQueued = false;
   function refreshVisibilityNow() {
     refreshQueued = false;
@@ -218,8 +245,6 @@
     else waitForHomeButton();
   }
 
-  
-
   if (!window.__strobeControl) {
     window.__strobeControl = true;
     const $ = id => document.getElementById(id);
@@ -258,6 +283,11 @@
     else waitForStrobe();
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", refreshVisibility, { once: true });
-  else refreshVisibility();
+  const initialiseControlUI = () => {
+    watchControlPanelPageVisibility();
+    refreshVisibility();
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialiseControlUI, { once: true });
+  else initialiseControlUI();
 })();

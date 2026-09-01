@@ -9,18 +9,12 @@ let multiOutputService = null;
 let usbDmxService = null;
 let shuttingDown = false;
 
-function startQLabBridge() {
-  if (qlabBridgeService || shuttingDown) return;
-  try { qlabBridgeService = require('./js/qlab-bridge.js'); console.log('✅ QLab bridge service started (Pro license)'); } catch (err) { console.error('❌ QLab bridge failed:', err); }
-}
-
 function startServices() {
   if (servicesStarted) return;
   servicesStarted = true;
   try { relayService = require('./relay.js'); console.log('✅ ART-NET relay service started'); } catch (err) { console.error('❌ ART-NET relay failed:', err); }
-  // QLab is deliberately NOT started here. It is a Pro-only service and is
-  // started only after the renderer confirms that the active license is Pro.
-  try { multiOutputService = require('./multi-output.js'); console.log('✅ Multi-universe output service started'); } catch (err) { console.error('❌ Multi-universe output service failed:', err); }
+  try { qlabBridgeService = require('./js/qlab-bridge.js'); console.log('✅ QLab bridge service started'); } catch (err) { console.error('❌ QLab bridge failed:', err); }
+  try { multiOutputService = require('./multi-output.js'); console.log('✅ Multi-universe output service started'); } catch (err) { console.error('❌ Multi-universe output failed:', err); }
   try { usbDmxService = require('./usb-dmx.js'); console.log('✅ USB-DMX service started'); } catch (err) { console.error('❌ USB-DMX service failed:', err); }
 }
 
@@ -51,21 +45,14 @@ function createWindow() {
         const bootstrap = () => {
           attempts++;
           try {
-            if (!window.QLab || !window.License) {
+            if (!window.QLab) {
               if (attempts < 150) return setTimeout(bootstrap, 100);
-              console.error('❌ Electron QLab bootstrap timed out: QLab or License missing');
+              console.error('❌ Electron QLab bootstrap timed out: window.QLab missing');
               return;
             }
             if (typeof window.QLab.loadSettings === 'function') window.QLab.loadSettings();
             if (typeof window.QLab.renderSettings === 'function') window.QLab.renderSettings();
-            const tier = String(window.License.getTier?.() || window.__licenseTier || 'free').toLowerCase();
-            if (tier !== 'pro') {
-              console.log(`🔒 Electron: QLab bridge disabled for ${tier.toUpperCase()} license`);
-              return;
-            }
-            window.__electronStartQLabBridge = true;
-            console.log('🎵 Electron: Pro license confirmed; starting QLab bridge connection');
-            if (typeof window.QLab.connect === 'function') window.QLab.connect();
+            if (typeof window.QLab.connect === 'function') { console.log('🎵 Electron: starting QLab bridge connection'); window.QLab.connect(); }
             setTimeout(() => { try { if (window.QLab && typeof window.QLab.syncCues === 'function') { console.log('🎵 Electron: forcing QLab cue sync'); window.QLab.syncCues(); } } catch (err) { console.error('❌ Electron QLab sync failed:', err); } }, 750);
           } catch (err) { if (attempts < 150) return setTimeout(bootstrap, 100); console.error('❌ Electron QLab bootstrap failed:', err); }
         };
@@ -133,7 +120,7 @@ function createWindow() {
         if (window.__effectChaseCommandLoader) return;
         window.__effectChaseCommandLoader = true;
         const script = document.createElement('script'); script.src = 'js/effect-chase-commands.js';
-        script.onload = () => console.log('✅ Effect/chase command layer loaded'); script.onerror = err => console.error('❌ Effect/chase command loader failed:', err); document.head.appendChild(script);
+        script.onload = () => console.log('✅ Effect/chase command layer loaded'); script.onerror = err => console.error('❌ Effect/chase command layer failed to load:', err); document.head.appendChild(script);
       })();
     `).catch(err => console.error('❌ Effect/chase command loader failed:', err));
   });

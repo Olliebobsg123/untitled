@@ -103,6 +103,78 @@
 
   function list(){state();return State.targets;}
 
+  // Target fixture selector used by the command parser. Supports:
+  //   1
+  //   1,2,3,4
+  //   1 thru 5
+  //   1 through 5
+  //   1-5 / 1–5
+  //   mixed selectors such as 1,3 thru 5,8
+  function parseFixtureSelector(value) {
+    const input = clean(value).toLowerCase().replace(/–/g, "-");
+    if (!input) return [];
+    const numbers = new Set();
+    for (const token of input.split(",").map(part => part.trim()).filter(Boolean)) {
+      const range = token.match(/^(\d+)\s*(?:thru|through|-)\s*(\d+)$/i);
+      if (range) {
+        const start = Number(range[1]);
+        const end = Number(range[2]);
+        const step = start <= end ? 1 : -1;
+        for (let n = start; ; n += step) {
+          numbers.add(n);
+          if (n === end) break;
+        }
+        continue;
+      }
+      if (/^\d+$/.test(token)) numbers.add(Number(token));
+      else return [];
+    }
+    return [...numbers].filter(n => n > 0).sort((a,b) => a-b);
+  }
+
+  function fixtureByNumber(number) {
+    state();
+    const fixtures = State.fixtures || [];
+    const n = Number(number);
+    if (!Number.isInteger(n) || n < 1) return null;
+    return fixtures.find(f => Number(f?.fixtureNumber) === n)
+      || fixtures.find(f => Number(f?.number) === n)
+      || fixtures[n - 1]
+      || null;
+  }
+
+  function selectFixturesForCommand(selector) {
+    const numbers = parseFixtureSelector(selector);
+    if (!numbers.length) return { ok:false, message:"Invalid fixture selector. Use 1, 1,2,3 or 1 thru 5." };
+    const selected = [];
+    for (const number of numbers) {
+      const fixture = fixtureByNumber(number);
+      if (fixture) selected.push(fixture);
+    }
+    if (!selected.length) return { ok:false, message:`No fixtures found for selector ${selector}.` };
+    State.selected = new Set(selected.map(f => f.id));
+    window.updateControlVisibility?.();
+    return { ok:true, fixtures:selected, numbers };
+  }
+
+  function splitTargetCommand(command) {
+    const prefix = command.match(/^target\s+(create|aim|capture|release|delete)\s+(.+)$/i);
+    if (!prefix) return null;
+    const action = prefix[1].toLowerCase();
+    const rest = clean(prefix[2]);
+
+    // Fixture selectors are deliberately parsed from the END of the command so
+    // target names can contain spaces and numbers.
+    const fixturePattern = /(?:^|\s)((?:\d+\s*(?:thru|through|[-–])\s*\d+|\d+)(?:\s*,\s*(?:\d+\s*(?:thru|through|[-–])\s*\d+|\d+))*)$/i;
+    const match = rest.match(fixturePattern);
+    if (!match) return { action, name:rest, selector:null };
+
+    const selector = match[1].trim();
+    const name = rest.slice(0, match.index).trim();
+    if (!name) return { action, name:rest, selector:null };
+    return { action, name, selector };
+  }
+
   function injectStyles(){
     if(document.getElementById("targetUiStyles"))return;
     const style=document.createElement("style");style.id="targetUiStyles";style.textContent=`
@@ -143,9 +215,9 @@
 
   const TARGET_COMMANDS=[
     ["target create ","Create a target from the current pan/tilt"],
-    ["target aim ","Aim selected fixtures at a target"],
-    ["target capture ","Lock selected fixtures at their current position"],
-    ["target release ","Release captured fixtures"],
+    ["target aim ","Aim selected fixtures at a target — add fixture numbers last"],
+    ["target capture ","Lock selected fixtures at their current position — add fixture numbers last"],
+    ["target release ","Release captured fixtures — add fixture numbers last"],
     ["target delete ","Delete a target"],
     ["targets","List targets"]
   ];
@@ -156,11 +228,25 @@
     const previous=current;
     window.parseCommand=function(raw){
       const command=clean(raw);let m;
-      if((m=command.match(/^target\s+create\s+(.+)$/i))){const r=create(m[1]);if(!r.ok)window.log?.(r.message,"warn");return r;}
-      if((m=command.match(/^target\s+aim\s+(.+)$/i))){const r=aim(m[1]);if(!r.ok)window.log?.(r.message,"warn");return r;}
-      if((m=command.match(/^target\s+capture\s+(.+)$/i))){const r=capture(m[1]);if(!r.ok)window.log?.(r.message,"warn");return r;}
-      if((m=command.match(/^target\s+release\s+(.+)$/i))){const r=release(m[1]);if(!r.ok)window.log?.(r.message,"warn");return r;}
-      if((m=command.match(/^target\s+delete\s+(.+)$/i))){const r=remove(m[1]);if(!r.ok)window.log?.(r.message,"warn");return r;}
+
+      // Full target syntax lives here so target.js is the single source of truth:
+      // TARGET AIM <NAME> <FIXTURES>
+      // TARGET CAPTURE <NAME> <FIXTURES>
+      // TARGET RELEASE <NAME> <FIXTURES>
+      // TARGET CREATE <NAME> (fixture selector is optional/ignored)
+      // TARGET DELETE <NAME> (fixture selector is optional/ignored)
+      const parsed=splitTargetCommand(command);
+      if(parsed){
+        if(parsed.selector){
+          const selection=selectFixturesForCommand(parsed.selector);
+          if(!selection.ok){window.log?.(selection.message,"warn");return selection;}
+        }
+        const fn=parsed.action==="create"?create:parsed.action==="aim"?aim:parsed.action==="capture"?capture:parsed.action==="release"?release:remove;
+        const r=fn(parsed.name);
+        if(!r.ok)window.log?.(r.message,"warn");
+        return r;
+      }
+
       if(/^targets$/i.test(command)){const items=list();return window.log?.(items.length?items.map((t,i)=>`${i+1}: ${t.name}`).join(", "):"No targets saved","ok");}
       return previous.apply(this,arguments);
     };
@@ -168,9 +254,28 @@
     if(Array.isArray(window.commandDefs)) TARGET_COMMANDS.forEach(([cmd,hint])=>{if(!window.commandDefs.some(x=>x&&x.cmd===cmd))window.commandDefs.push({cmd,hint});});
   }
 
-  
+  function installCommandSuggestions(){
+    if(window.__targetCommandSuggestionsInstalled)return;
+    window.__targetCommandSuggestionsInstalled=true;
+    const attach=()=>{
+      const input=document.querySelector("#commandInput, #commandLine, input[data-command-input], textarea[data-command-input]");
+      if(!input||input.dataset.targetSuggestionsBound)return;
+      input.dataset.targetSuggestionsBound="1";
+      const menu=document.createElement("div");menu.className="target-command-menu";menu.id="targetCommandMenu";input.parentElement?.appendChild(menu);
+      input.addEventListener("input",()=>{
+        const value=clean(input.value); if(!/^target\b/i.test(value)){menu.classList.remove("open");return;}
+        const query=value.toLowerCase();
+        const matches=TARGET_COMMANDS.filter(([cmd])=>cmd.toLowerCase().startsWith(query)||query.startsWith(cmd.toLowerCase().trim()));
+        menu.innerHTML="";
+        matches.slice(0,8).forEach(([cmd,hint])=>{const item=document.createElement("button");item.type="button";item.className="target-command-item";item.textContent=`${cmd} — ${hint}`;item.onclick=()=>{input.value=cmd;input.focus();menu.classList.remove("open");input.dispatchEvent(new Event("input",{bubbles:true}));};menu.appendChild(item);});
+        menu.classList.toggle("open",matches.length>0);
+      });
+    };
+    attach();
+    let attempts=0; const wait=()=>{attach();if(++attempts<150&&!document.querySelector("#commandInput[data-target-suggestions-bound]"))setTimeout(wait,100);}; setTimeout(wait,100);
+  }
 
-  window.Targets={create,aim,capture,release,delete:remove,list,open,refresh:render};
+  window.Targets={create,aim,capture,release,delete:remove,list,open,refresh:render,parseFixtureSelector,selectFixturesForCommand};
 
   function boot(){state();createUI();installCommands();installCommandSuggestions();setInterval(()=>{if(!document.getElementById("targetModal"))createUI();installCommands();installCommandSuggestions();},500);}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot,{once:true});else boot();

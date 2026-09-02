@@ -26,11 +26,28 @@
   }
 
   function snapshotExternalSettings() {
+    // QLab keeps the editable lighting links in the live QLab object. Reading
+    // localStorage here can save an older copy when the user has changed links
+    // without a browser-storage write happening first.
+    const liveQLab = window.QLab;
+    const liveCueLinks = liveQLab?.cueLinks && typeof liveQLab.cueLinks === "object"
+      ? cloneValue(liveQLab.cueLinks) : null;
+    const liveTimeTriggers = liveQLab?.timeTriggers && typeof liveQLab.timeTriggers === "object"
+      ? cloneValue(liveQLab.timeTriggers) : null;
+    const storedConnection = readStoredJSON("qlabConnectionSettings", {});
+    const connection = liveQLab && typeof liveQLab === "object"
+      ? {
+          ip: liveQLab.ip,
+          bridgePort: liveQLab.bridgePort,
+          passcode: liveQLab.passcode
+        }
+      : storedConnection;
+
     return {
       qlab: {
-        connection: readStoredJSON("qlabConnectionSettings", {}),
-        cueLinks: readStoredJSON("qlabCueLinks", {}),
-        timeTriggers: readStoredJSON("qlabTimeTriggers", {})
+        connection: cloneValue(connection || storedConnection || {}),
+        cueLinks: liveCueLinks || readStoredJSON("qlabCueLinks", {}),
+        timeTriggers: liveTimeTriggers || readStoredJSON("qlabTimeTriggers", {})
       },
       multiOutputs: readStoredJSON("lighting-multi-outputs", []),
       networkTarget: (() => {
@@ -55,7 +72,9 @@
 
   function restoreExternalSettings(show) {
     const external = show?.externalSettings || {};
-    const qlab = external.qlab || {};
+    // Also accept the older temporary top-level qlab format so shows saved by
+    // the earlier QLab persistence attempt can still be loaded correctly.
+    const qlab = external.qlab || show?.qlab || {};
 
     if (qlab.connection && typeof qlab.connection === "object") writeStoredJSON("qlabConnectionSettings", qlab.connection);
     if (qlab.cueLinks && typeof qlab.cueLinks === "object") writeStoredJSON("qlabCueLinks", qlab.cueLinks);
@@ -74,14 +93,16 @@
         if (connection.passcode != null) window.QLab.passcode = String(connection.passcode);
         if (qlab.cueLinks && typeof qlab.cueLinks === "object") window.QLab.cueLinks = cloneValue(qlab.cueLinks);
         if (qlab.timeTriggers && typeof qlab.timeTriggers === "object") window.QLab.timeTriggers = cloneValue(qlab.timeTriggers);
+        // Keep both the live QLab object and browser persistence in sync after
+        // LOAD so a subsequent SAVE cannot accidentally overwrite the loaded
+        // links with the old localStorage copy.
+        if (typeof window.QLab.saveStoredLinks === "function") window.QLab.saveStoredLinks();
         window.QLab.renderLinkEditor?.();
         window.QLab.renderCueSync?.();
         window.QLab.updateStatus?.(window.QLab.connected);
       }
     } catch (error) { console.warn("[SHOW] QLab settings refresh failed:", error); }
 
-    // multi-output.js listens on window, not document. Dispatching on document
-    // meant the saved output configuration never reached its live state.
     try {
       window.dispatchEvent(new CustomEvent("show-multi-output-restore", {
         detail: {
@@ -96,7 +117,7 @@
     const state = window.State || {};
     return {
       format: "lx-console-show",
-      version: 4,
+      version: 5,
       savedAt: new Date().toISOString(),
       fixtures: cloneValue(state.fixtures || []),
       groups: cloneValue(state.groups || []),
@@ -156,8 +177,6 @@
       chase.fade = Math.max(0, Math.min(60000, Number.isFinite(Number(chase.fade)) ? Number(chase.fade) : 0));
       chase.loop = chase.loop !== false;
       chase.mode = ["sequence", "spread", "snapshot"].includes(String(chase.mode)) ? String(chase.mode) : "sequence";
-      // Keep the original step order, but remove only steps that cannot point
-      // at a cue. Do not use Set here because duplicate steps can be deliberate.
       chase.steps = Array.isArray(chase.steps) ? chase.steps.map(Number).filter(i => Number.isInteger(i) && i >= 0 && i < cueCount) : [];
       chase.snapshots = Array.isArray(chase.snapshots) ? chase.snapshots.map(snapshot => ({
         globalState: cloneValue(snapshot?.globalState || snapshot?.state || {}),
@@ -191,15 +210,12 @@
     if (!chases.length) return;
     let index = Number(show?.selectedChaseIndex);
     if (!Number.isInteger(index) || index < 0 || index >= chases.length) index = 0;
-    // chases.js intentionally keeps its selection private. Selecting the card
-    // through the same UI path keeps its private selectedChase in sync.
     const list = document.getElementById("chaseList");
     const items = list ? [...list.querySelectorAll(".cue-item")] : [];
     if (items[index]) {
       items[index].click();
       return;
     }
-    // If rendering happened before the DOM is ready, retry once on the next tick.
     setTimeout(() => {
       const retry = document.getElementById("chaseList");
       const retryItems = retry ? [...retry.querySelectorAll(".cue-item")] : [];
@@ -246,9 +262,6 @@
     try { window.updateDMX?.(); } catch (_) {}
     try { window.sendToVisualizer?.(); } catch (_) {}
 
-    // Re-apply the saved selections after every list has been rebuilt. This
-    // makes a loaded show behave like the show did before SAVE rather than
-    // merely displaying the stored names.
     try { restoreSelectedEffect(show); } catch (error) { console.warn("[SHOW] Effect selection restore failed:", error); }
     try { restoreSelectedChase(show); } catch (error) { console.warn("[SHOW] Chase selection restore failed:", error); }
     try { window.fxRenderEffectTargetUI?.(); } catch (_) {}

@@ -107,7 +107,7 @@
       if (!match) return current.apply(this, arguments);
 
       const action = match[1].toLowerCase();
-      const requestedPath = match[2].trim().replace(/^['"]|['"]$/g, "");
+      const requestedPath = match[2].trim().replace(/^['"]|['"]$/g, "").replace(/^\(|\)$/g, "").trim();
       if (!requestedPath) {
         showResult(`${action.toUpperCase()} requires a .json show path`, "warn");
         return;

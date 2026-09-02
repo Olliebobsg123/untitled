@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow = null;
 let servicesStarted = false;
@@ -9,6 +10,39 @@ let multiOutputService = null;
 let usbDmxService = null;
 let shuttingDown = false;
 let qlabLicenseTimer = null;
+
+function getShowDirectory() {
+  const directory = path.join(app.getPath('documents'), 'LX Console Shows');
+  fs.mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
+function resolveShowPath(filePath) {
+  const requested = String(filePath || '').trim();
+  if (!requested) throw new Error('No show path supplied');
+  const directory = getShowDirectory();
+  const resolved = path.isAbsolute(requested) ? path.resolve(requested) : path.resolve(directory, requested);
+  if (!/\.json$/i.test(resolved)) throw new Error('Show files must use the .json extension');
+  return resolved;
+}
+
+ipcMain.handle('lx-show-default-directory', () => getShowDirectory());
+ipcMain.handle('lx-show-save', (_event, payload) => {
+  const filePath = resolveShowPath(payload?.filePath);
+  const show = payload?.show;
+  if (!show || typeof show !== 'object') throw new Error('No show data supplied');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(show, null, 2), 'utf8');
+  return { path: filePath };
+});
+ipcMain.handle('lx-show-load', (_event, payload) => {
+  const filePath = resolveShowPath(payload?.filePath);
+  if (!fs.existsSync(filePath)) throw new Error(`Show file not found: ${filePath}`);
+  let show;
+  try { show = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+  catch (err) { throw new Error(`Could not read show file: ${err.message}`); }
+  return { path: filePath, show };
+});
 
 function startServices() {
   if (servicesStarted) return;
@@ -58,7 +92,7 @@ function buildApplicationMenu() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -159,6 +193,17 @@ function createWindow() {
         script.onload = () => console.log('✅ Effect/chase command layer loaded'); script.onerror = err => console.error('❌ Effect/chase command layer failed to load:', err); document.head.appendChild(script);
       })();
     `).catch(err => console.error('❌ Effect/chase command loader failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
+        if (window.__showFileCommandLoader) return;
+        window.__showFileCommandLoader = true;
+        const script = document.createElement('script'); script.src = 'js/showfile.js';
+        script.onload = () => console.log('💾 Show file commands loaded');
+        script.onerror = err => console.error('❌ Show file command layer failed to load:', err);
+        document.head.appendChild(script);
+      })();
+    `).catch(err => console.error('❌ Show file loader failed:', err));
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });

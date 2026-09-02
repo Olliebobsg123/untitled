@@ -92,7 +92,10 @@ function buildApplicationMenu() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') } });
+  // Keep context isolation enabled for security, but disable Electron's
+  // sandbox so the preload can reliably expose the file IPC bridge used by
+  // SAVE / LOAD in the desktop app.
+  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   mainWindow.loadFile(path.join(__dirname, 'index.html'));

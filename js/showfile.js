@@ -129,29 +129,33 @@
   window.LXShowFiles.loadShow = loadShow;
   window.LXShowFiles.snapshot = snapshotShow;
 
-  // The main parser in commands.js is a lexical function, so wrapping
-  // window.parseCommand cannot reliably intercept it. Catch SAVE/LOAD at
-  // the log boundary too: commands.js logs "Unknown command: ..." here.
-  function installLogFallback() {
-    if (window.log && window.log.__lxShowLogFallback) return true;
-    if (typeof window.log !== "function") return false;
+  // IMPORTANT: commands.js contains a lexical parseCommand and its Enter
+  // handler may run before this script's input listener. Listen on WINDOW in
+  // capture phase so SAVE/LOAD is handled before any renderer command handler.
+  function installWindowInputFallback() {
+    if (window.__lxShowWindowCaptureInstalled) return true;
+    window.__lxShowWindowCaptureInstalled = true;
 
-    const originalLog = window.log;
-    const wrappedLog = function (message, type) {
-      const text = String(message ?? "");
-      const unknown = text.match(/^Unknown command:\s*(save|load)\s+(.+?)(?:\s+—.*)?$/i);
+    const intercept = event => {
+      if (event.key !== "Enter") return;
 
-      if (unknown) {
-        void executeShowCommand(`${unknown[1]} ${unknown[2]}`);
-        return;
-      }
+      const target = event.target;
+      if (!target || target.id !== "cmdInput") return;
 
-      return originalLog.apply(this, arguments);
+      const command = String(target.value || "").trim();
+      if (!/^(save|load)\s+.+$/i.test(command)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+
+      target.value = "";
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      void executeShowCommand(command);
     };
 
-    wrappedLog.__lxShowLogFallback = true;
-    wrappedLog.__lxShowOriginal = originalLog;
-    window.log = wrappedLog;
+    window.addEventListener("keydown", intercept, true);
+    window.addEventListener("keypress", intercept, true);
     return true;
   }
 
@@ -172,6 +176,29 @@
       void executeShowCommand(command);
     }, true);
 
+    return true;
+  }
+
+  function installLogFallback() {
+    if (window.log && window.log.__lxShowLogFallback) return true;
+    if (typeof window.log !== "function") return false;
+
+    const originalLog = window.log;
+    const wrappedLog = function (message, type) {
+      const text = String(message ?? "");
+      const unknown = text.match(/^Unknown command:\s*(save|load)\s+(.+?)(?:\s+—.*)?$/i);
+
+      if (unknown) {
+        void executeShowCommand(`${unknown[1]} ${unknown[2]}`);
+        return;
+      }
+
+      return originalLog.apply(this, arguments);
+    };
+
+    wrappedLog.__lxShowLogFallback = true;
+    wrappedLog.__lxShowOriginal = originalLog;
+    window.log = wrappedLog;
     return true;
   }
 
@@ -196,10 +223,11 @@
   }
 
   function install() {
+    const windowCapture = installWindowInputFallback();
     const input = installInputFallback();
     const log = installLogFallback();
     const parser = installParserFallback();
-    return input || log || parser;
+    return windowCapture || input || log || parser;
   }
 
   function waitForInstall(attempts = 0) {

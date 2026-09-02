@@ -14,11 +14,91 @@
     return out;
   };
 
+  function readStoredJSON(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallback : JSON.parse(raw);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function writeStoredJSON(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+  }
+
+  function snapshotExternalSettings() {
+    return {
+      qlab: {
+        connection: readStoredJSON("qlabConnectionSettings", {}),
+        cueLinks: readStoredJSON("qlabCueLinks", {}),
+        timeTriggers: readStoredJSON("qlabTimeTriggers", {})
+      },
+      multiOutputs: readStoredJSON("lighting-multi-outputs", []),
+      networkTarget: (() => {
+        try { return localStorage.getItem("lighting-network-target") || ""; } catch (_) { return ""; }
+      })()
+    };
+  }
+
+  function restoreExternalSettings(show) {
+    const external = show?.externalSettings || {};
+    const qlab = external.qlab || {};
+
+    // QLab stores its connection details and cue/lighting links outside State,
+    // in localStorage. Copy them into the loaded show as well so SAVE/LOAD is
+    // a complete show-file operation rather than only a lighting-state backup.
+    if (qlab.connection && typeof qlab.connection === "object") {
+      writeStoredJSON("qlabConnectionSettings", qlab.connection);
+    }
+    if (qlab.cueLinks && typeof qlab.cueLinks === "object") {
+      writeStoredJSON("qlabCueLinks", qlab.cueLinks);
+    }
+    if (qlab.timeTriggers && typeof qlab.timeTriggers === "object") {
+      writeStoredJSON("qlabTimeTriggers", qlab.timeTriggers);
+    }
+
+    if (external.networkTarget) {
+      try { localStorage.setItem("lighting-network-target", String(external.networkTarget)); } catch (_) {}
+    }
+    if (Array.isArray(external.multiOutputs)) {
+      writeStoredJSON("lighting-multi-outputs", external.multiOutputs);
+    }
+
+    // Refresh the live QLab object/UI if qlab.js is already running.
+    try {
+      if (window.QLab) {
+        const connection = qlab.connection || {};
+        if (connection.ip != null) window.QLab.ip = String(connection.ip);
+        if (connection.bridgePort != null) window.QLab.bridgePort = Number(connection.bridgePort) || 8083;
+        if (connection.passcode != null) window.QLab.passcode = String(connection.passcode);
+        if (qlab.cueLinks && typeof qlab.cueLinks === "object") window.QLab.cueLinks = cloneValue(qlab.cueLinks);
+        if (qlab.timeTriggers && typeof qlab.timeTriggers === "object") window.QLab.timeTriggers = cloneValue(qlab.timeTriggers);
+        window.QLab.renderLinkEditor?.();
+        window.QLab.renderCueSync?.();
+        window.QLab.updateStatus?.(window.QLab.connected);
+      }
+    } catch (error) {
+      console.warn("[SHOW] QLab settings refresh failed:", error);
+    }
+
+    // multi-output.js already has a dedicated restore listener. The old
+    // implementation never dispatched it, so output/universe settings were
+    // silently left in the browser's previous localStorage configuration.
+    try {
+      document.dispatchEvent(new CustomEvent("show-multi-output-restore", {
+        detail: { outputs: Array.isArray(external.multiOutputs) ? external.multiOutputs : [] }
+      }));
+    } catch (error) {
+      console.warn("[SHOW] Multi-output settings refresh failed:", error);
+    }
+  }
+
   function snapshotShow() {
     const state = window.State || {};
     return {
       format: "lx-console-show",
-      version: 2,
+      version: 3,
       savedAt: new Date().toISOString(),
       fixtures: cloneValue(state.fixtures || []),
       groups: cloneValue(state.groups || []),
@@ -39,7 +119,8 @@
       selected: state.selected instanceof Set ? [...state.selected] : [],
       currentCue: Number.isInteger(state.currentCue) ? state.currentCue : -1,
       chaseFade: Number.isFinite(state.chaseFade) ? state.chaseFade : 800,
-      chaseWait: Number.isFinite(state.chaseWait) ? state.chaseWait : 500
+      chaseWait: Number.isFinite(state.chaseWait) ? state.chaseWait : 500,
+      externalSettings: snapshotExternalSettings()
     };
   }
 
@@ -140,6 +221,10 @@
 
     window.chaseFade = state.chaseFade;
     window.chaseWait = state.chaseWait;
+
+    // Restore settings that live outside State (QLab links, QLab connection,
+    // Art-Net/sACN/USB output definitions and the default network target).
+    restoreExternalSettings(show);
 
     // Reconnect UI/state helpers after replacing the show data.
     try { window.initFixtureStates?.(); } catch (error) { console.warn("[SHOW] Fixture state rebuild failed:", error); }

@@ -24,6 +24,7 @@
     "productName": "Lighting Console",
     "directories": {"output": "Build"},
     "asar": true,
+    "afterPack": "scripts/after-pack-mac.js",
     "mac": {
       "category": "public.app-category.utilities",
       "identity": null,

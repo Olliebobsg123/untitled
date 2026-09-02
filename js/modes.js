@@ -42,7 +42,7 @@ window.__blindLiveMode = true;
       .safety-emergency.active{background:#e8e8e8;border-color:#111;box-shadow:0 0 12px rgba(255,255,255,.35)}
       .safety-blackout{color:#fff;background:#190b0e;border:1px solid #ff5265}
       .safety-blackout.active{background:#ff5265;color:#fff;border-color:#ff8996}
-      html.emergency-active,html.emergency-active body{background:#e9e9e9!important;color:#171717!important}
+      html.emergency-active,html.emergency-active body{background:!important;color:#171717!important}
       html.emergency-active .sidebar,html.emergency-active .topbar,html.emergency-active .panel,html.emergency-active .controls,html.emergency-active .bottom-row,html.emergency-active .cmd-line,html.emergency-active .command-line{background:#e9e9e9!important;color:#171717!important;border-color:#c9c9c9!important;box-shadow:0 3px 14px rgba(0,0,0,.07)!important}
       html.emergency-active .panel-header,html.emergency-active .brand,html.emergency-active .sidebar-footer,html.emergency-active .topbar-divider,html.emergency-active .section-divider{border-color:#c9c9c9!important}
       html.emergency-active .panel-header,html.emergency-active .panel-meta,html.emergency-active .sidebar-section-label,html.emergency-active .brand-sub,html.emergency-active .version,html.emergency-active .toolbar-label,html.emergency-active .toolbar-hint,html.emergency-active .page-kicker,html.emergency-active .top-master span{color:#606060!important}

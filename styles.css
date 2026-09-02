@@ -617,11 +617,11 @@ select:focus-visible {
 }
 
 .preset-danger { background: rgba(255,55,74,.10); border-color: rgba(255,82,101,.30); color: #ff7180; }
-.preset-bright { background: rgba(255,255,255,.07); color: #fff; }
+.preset-bright { background: rgba(255,255,255,.07); color: #ffffff; }
 .preset-red { border-bottom: 3px solid #ff404d; }
 .preset-green { border-bottom: 3px solid #38dc76; }
 .preset-blue { border-bottom: 3px solid #438cff; }
-.preset-white { border-bottom: 3px solid #fff; }
+.preset-white { border-bottom: 3px solid #fffdfd; }
 .preset-yellow { border-bottom: 3px solid #ffd447; }
 .preset-cyan { border-bottom: 3px solid #30e7dc; }
 .preset-magenta { border-bottom: 3px solid #ef55ff; }

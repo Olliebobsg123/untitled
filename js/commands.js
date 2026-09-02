@@ -373,7 +373,9 @@ const commandDefs = [
   {cmd:'list groups',hint:''},{cmd:'list cues',hint:''},{cmd:'status',hint:''},{cmd:'chase',hint:'[number] = [cue numbers] speed [ms]'},
   {cmd:'run chase',hint:'[number]'},{cmd:'stop chase',hint:''},{cmd:'halt chase',hint:''},{cmd:'new chase',hint:''},{cmd:'delete chase',hint:'number'},{cmd:'chase',hint:'number'},
   {cmd:'new effect',hint:''},{cmd:'run effect',hint:'number'},{cmd:'stop effect',hint:''},{cmd:'effect',hint:'number'},
-  {cmd:'target create',hint:'name'},{cmd:'target delete',hint:'name'},{cmd:'targets',hint:''},{cmd:'target aim',hint:'name'},{cmd:'target capture',hint:'name'},{cmd:'target release',hint:'name'}
+  {cmd:'target create',hint:'name'},{cmd:'target delete',hint:'name'},{cmd:'targets',hint:''},{cmd:'target aim',hint:'name'},{cmd:'target capture',hint:'name'},{cmd:'target release',hint:'name'},
+  {cmd:'save',hint:'[filename.json]'},
+{cmd:'load',hint:'[filename.json]'}
 ];
 
  // ==============================================
@@ -702,6 +704,28 @@ function applyLevel(v){Object.assign(State.current,{intensity:v});fadeTo?.({inte
 
 function parseCommand(cmd){
   console.log('[COMMAND] Received:',JSON.stringify(cmd));
+    const showCommand = String(cmd || '').trim();
+  const showMatch = showCommand.match(/^(save|load)\s+(.+)$/i);
+
+  if (showMatch) {
+    const action = showMatch[1].toLowerCase();
+    const path = showMatch[2].trim();
+
+    const handler =
+      action === 'save'
+        ? window.LXShowFiles?.saveShow
+        : window.LXShowFiles?.loadShow;
+
+    if (typeof handler !== 'function') {
+      return log('Show file support is unavailable — restart LX Console', 'error');
+    }
+
+    Promise.resolve(handler(path)).catch(error => {
+      log(`${action.toUpperCase()} failed: ${error?.message || error}`, 'error');
+    });
+
+    return;
+  }
   if(!cmd||!String(cmd).trim())return log('Empty command','warn');
   if(!window.State||!Array.isArray(window.State.fixtures))return log('System still starting — wait 1 second','warn');
   const c=String(cmd).trim().toLowerCase(); let m,g,ch;

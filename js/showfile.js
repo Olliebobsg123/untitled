@@ -1,6 +1,9 @@
 "use strict";
 
 (function () {
+  // Electron exposes the real IPC bridge from preload.js.  Keep the renderer
+  // command implementation separate so we never try to mutate a
+  // contextBridge object from the page.
   const api = () => window.LXShowFiles;
 
   const cloneValue = value => {
@@ -90,9 +93,13 @@
     const requested = normalisePath(path);
     if (!requested) throw new Error("SAVE requires a show path");
     if (!/\.json$/i.test(requested)) throw new Error("Show files must use the .json extension");
-    if (!api()?.save) throw new Error("Show file support is unavailable");
 
-    const result = await api().save(requested, snapshotShow());
+    const bridge = api();
+    if (!bridge || typeof bridge.save !== "function") {
+      throw new Error("Show file IPC bridge is unavailable — restart LX Console");
+    }
+
+    const result = await bridge.save(requested, snapshotShow());
     report(`Show saved: ${result?.path || requested}`, "ok");
     return result;
   }
@@ -101,9 +108,13 @@
     const requested = normalisePath(path);
     if (!requested) throw new Error("LOAD requires a show path");
     if (!/\.json$/i.test(requested)) throw new Error("Show files must use the .json extension");
-    if (!api()?.load) throw new Error("Show file support is unavailable");
 
-    const result = await api().load(requested);
+    const bridge = api();
+    if (!bridge || typeof bridge.load !== "function") {
+      throw new Error("Show file IPC bridge is unavailable — restart LX Console");
+    }
+
+    const result = await bridge.load(requested);
     restoreShow(result.show);
     report(`Show loaded: ${result?.path || requested}`, "ok");
     return result;
@@ -124,21 +135,21 @@
     return true;
   }
 
-  window.LXShowFiles = window.LXShowFiles || {};
-  window.LXShowFiles.saveShow = saveShow;
-  window.LXShowFiles.loadShow = loadShow;
-  window.LXShowFiles.snapshot = snapshotShow;
+  // Do NOT mutate window.LXShowFiles here.  That object is supplied by
+  // Electron's contextBridge and is not a normal mutable renderer object.
+  window.LXShowCommands = Object.freeze({
+    saveShow,
+    loadShow,
+    snapshot: snapshotShow,
+    execute: executeShowCommand
+  });
 
-  // IMPORTANT: commands.js contains a lexical parseCommand and its Enter
-  // handler may run before this script's input listener. Listen on WINDOW in
-  // capture phase so SAVE/LOAD is handled before any renderer command handler.
   function installWindowInputFallback() {
     if (window.__lxShowWindowCaptureInstalled) return true;
     window.__lxShowWindowCaptureInstalled = true;
 
     const intercept = event => {
       if (event.key !== "Enter") return;
-
       const target = event.target;
       if (!target || target.id !== "cmdInput") return;
 
@@ -186,8 +197,23 @@
     const originalLog = window.log;
     const wrappedLog = function (message, type) {
       const text = String(message ?? "");
-      const unknown = text.match(/^Unknown command:\s*(save|load)\s+(.+?)(?:\s+—.*)?$/i);
 
+      // commands.js has a lexical parseCommand and therefore its
+      // window.parseCommand wrapper cannot reliably intercept SAVE/LOAD.
+      // It now also reports this availability message because the old
+      // contextBridge mutation is intentionally gone.  Catch that exact
+      // message and route the command into the real show-file implementation.
+      if (/^Show file support is unavailable\s*[—-]/i.test(text)) {
+        const input = document.getElementById("cmdInput");
+        const command = String(input?.dataset?.lxPendingShowCommand || "").trim();
+        if (command) {
+          delete input.dataset.lxPendingShowCommand;
+          void executeShowCommand(command);
+          return;
+        }
+      }
+
+      const unknown = text.match(/^Unknown command:\s*(save|load)\s+(.+?)(?:\s+—.*)?$/i);
       if (unknown) {
         void executeShowCommand(`${unknown[1]} ${unknown[2]}`);
         return;
@@ -222,12 +248,34 @@
     return true;
   }
 
+  // This hook records the exact SAVE/LOAD command immediately before the
+  // lexical commands.js parser gets a chance to emit its availability error.
+  function installPendingCommandCapture() {
+    if (window.__lxShowPendingCaptureInstalled) return true;
+    window.__lxShowPendingCaptureInstalled = true;
+
+    const capture = event => {
+      if (event.key !== "Enter") return;
+      const target = event.target;
+      if (!target || target.id !== "cmdInput") return;
+      const command = String(target.value || "").trim();
+      if (!/^(save|load)\s+.+$/i.test(command)) return;
+      target.dataset.lxPendingShowCommand = command;
+    };
+
+    // Bubble phase deliberately: the normal command handler gets to run and
+    // emit its existing message, while we retain the command for the log hook.
+    window.addEventListener("keydown", capture, false);
+    return true;
+  }
+
   function install() {
     const windowCapture = installWindowInputFallback();
     const input = installInputFallback();
     const log = installLogFallback();
     const parser = installParserFallback();
-    return windowCapture || input || log || parser;
+    const pending = installPendingCommandCapture();
+    return windowCapture || input || log || parser || pending;
   }
 
   function waitForInstall(attempts = 0) {

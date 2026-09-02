@@ -1,6 +1,6 @@
 "use strict";
 
-(function initialiseShowFiles() {
+(function () {
   const api = () => window.LXShowFiles;
 
   const cloneValue = value => {
@@ -60,6 +60,7 @@
 
     window.chaseFade = state.chaseFade;
     window.chaseWait = state.chaseWait;
+
     if (typeof window.initFixtureStates === "function") window.initFixtureStates();
     window.renderFixtures?.();
     window.renderGroups?.();
@@ -72,11 +73,6 @@
     document.dispatchEvent(new CustomEvent("lx-show-loaded", { detail: show }));
   }
 
-  function showResult(message, level = "ok") {
-    if (typeof window.log === "function") window.log(message, level);
-    else console.log(`[SHOW] ${message}`);
-  }
-
   function normalisePath(raw) {
     return String(raw || "")
       .trim()
@@ -85,25 +81,47 @@
       .trim();
   }
 
-  async function saveShow(filePath) {
-    if (!api()?.save) throw new Error("Show file support is unavailable");
-    const requested = normalisePath(filePath);
+  function report(message, level = "ok") {
+    if (typeof window.log === "function") window.log(message, level);
+    else console.log(`[SHOW] ${message}`);
+  }
+
+  async function saveShow(path) {
+    const requested = normalisePath(path);
     if (!requested) throw new Error("SAVE requires a show path");
     if (!/\.json$/i.test(requested)) throw new Error("Show files must use the .json extension");
+    if (!api()?.save) throw new Error("Show file support is unavailable");
+
     const result = await api().save(requested, snapshotShow());
-    showResult(`Show saved: ${result.path}`, "ok");
+    report(`Show saved: ${result?.path || requested}`, "ok");
     return result;
   }
 
-  async function loadShow(filePath) {
-    if (!api()?.load) throw new Error("Show file support is unavailable");
-    const requested = normalisePath(filePath);
+  async function loadShow(path) {
+    const requested = normalisePath(path);
     if (!requested) throw new Error("LOAD requires a show path");
     if (!/\.json$/i.test(requested)) throw new Error("Show files must use the .json extension");
+    if (!api()?.load) throw new Error("Show file support is unavailable");
+
     const result = await api().load(requested);
     restoreShow(result.show);
-    showResult(`Show loaded: ${result.path}`, "ok");
+    report(`Show loaded: ${result?.path || requested}`, "ok");
     return result;
+  }
+
+  async function executeShowCommand(raw) {
+    const command = String(raw ?? "").trim();
+    const match = command.match(/^(save|load)\s+(.+)$/i);
+    if (!match) return false;
+
+    try {
+      if (match[1].toLowerCase() === "save") await saveShow(match[2]);
+      else await loadShow(match[2]);
+    } catch (err) {
+      console.error(`[SHOW] ${match[1].toUpperCase()} failed:`, err);
+      report(`${match[1].toUpperCase()} failed: ${err?.message || err}`, "error");
+    }
+    return true;
   }
 
   window.LXShowFiles = window.LXShowFiles || {};
@@ -111,36 +129,37 @@
   window.LXShowFiles.loadShow = loadShow;
   window.LXShowFiles.snapshot = snapshotShow;
 
-  async function executeShowCommand(raw) {
-    const command = String(raw ?? "").trim();
-    const match = command.match(/^(save|load)\s+(.+)$/i);
-    if (!match) return false;
+  // The main parser in commands.js is a lexical function, so wrapping
+  // window.parseCommand cannot reliably intercept it. Catch SAVE/LOAD at
+  // the log boundary too: commands.js logs "Unknown command: ..." here.
+  function installLogFallback() {
+    if (window.log && window.log.__lxShowLogFallback) return true;
+    if (typeof window.log !== "function") return false;
 
-    const action = match[1].toLowerCase();
-    const requestedPath = normalisePath(match[2]);
-    if (!requestedPath) {
-      showResult(`${action.toUpperCase()} requires a .json show path`, "warn");
-      return true;
-    }
+    const originalLog = window.log;
+    const wrappedLog = function (message, type) {
+      const text = String(message ?? "");
+      const unknown = text.match(/^Unknown command:\s*(save|load)\s+(.+?)(?:\s+—.*)?$/i);
 
-    try {
-      if (action === "save") await saveShow(requestedPath);
-      else await loadShow(requestedPath);
-    } catch (err) {
-      console.error(`[SHOW] ${action} failed:`, err);
-      showResult(`${action.toUpperCase()} failed: ${err?.message || err}`, "error");
-    }
+      if (unknown) {
+        void executeShowCommand(`${unknown[1]} ${unknown[2]}`);
+        return;
+      }
+
+      return originalLog.apply(this, arguments);
+    };
+
+    wrappedLog.__lxShowLogFallback = true;
+    wrappedLog.__lxShowOriginal = originalLog;
+    window.log = wrappedLog;
     return true;
   }
 
-  // The normal command handler is a lexical function in commands.js, so
-  // replacing window.parseCommand alone does not intercept Enter. Capture
-  // SAVE/LOAD at the command input before the normal handler sees the event.
-  function installCommandInput() {
+  function installInputFallback() {
     const input = document.getElementById("cmdInput");
     if (!input || input.dataset.showFileCommands === "1") return !!input;
-    input.dataset.showFileCommands = "1";
 
+    input.dataset.showFileCommands = "1";
     input.addEventListener("keydown", event => {
       if (event.key !== "Enter") return;
       const command = String(input.value || "").trim();
@@ -148,20 +167,20 @@
 
       event.preventDefault();
       event.stopImmediatePropagation();
-      void executeShowCommand(command);
       input.value = "";
       input.dispatchEvent(new Event("input", { bubbles: true }));
+      void executeShowCommand(command);
     }, true);
 
     return true;
   }
 
-  function installCommandWrapper() {
+  function installParserFallback() {
     const current = window.parseCommand;
     if (typeof current !== "function") return false;
     if (current.__lxShowFiles) return true;
 
-    const wrapped = function(raw) {
+    const wrapped = function (raw) {
       const command = String(raw ?? "").trim();
       if (/^(save|load)\s+.+$/i.test(command)) {
         void executeShowCommand(command);
@@ -169,6 +188,7 @@
       }
       return current.apply(this, arguments);
     };
+
     wrapped.__lxShowFiles = true;
     wrapped.__lxShowFilesOriginal = current;
     window.parseCommand = wrapped;
@@ -176,13 +196,14 @@
   }
 
   function install() {
-    const inputReady = installCommandInput();
-    const parserReady = installCommandWrapper();
-    return inputReady || parserReady;
+    const input = installInputFallback();
+    const log = installLogFallback();
+    const parser = installParserFallback();
+    return input || log || parser;
   }
 
   function waitForInstall(attempts = 0) {
-    if (install()) return;
+    install();
     if (attempts < 200) setTimeout(() => waitForInstall(attempts + 1), 100);
   }
 

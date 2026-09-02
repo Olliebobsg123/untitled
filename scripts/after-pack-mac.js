@@ -4,24 +4,23 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
-/**
- * electron-builder calls this hook after the app bundle has been assembled,
- * but before the DMG/ZIP targets are produced.
- *
- * CI does not have an Apple Developer signing identity, so we apply an
- * ad-hoc Apple signature instead of shipping a completely unsigned bundle.
- * This does NOT provide Apple notarization; it simply prevents macOS from
- * treating the downloaded application as a modified/invalid bundle.
- */
 module.exports = async function afterPack(context) {
   if (context.electronPlatformName !== "darwin") return;
 
-  const appPath = context.appOutDir;
-  if (!fs.existsSync(appPath)) {
-    throw new Error(`macOS app bundle was not found: ${appPath}`);
+  const outputDir = context.appOutDir;
+  if (!fs.existsSync(outputDir)) {
+    throw new Error(`macOS app output directory was not found: ${outputDir}`);
   }
 
-  console.log(`[macOS] Applying ad-hoc signature to ${path.basename(appPath)}`);
+  const appEntry = fs.readdirSync(outputDir, { withFileTypes: true })
+    .find(entry => entry.isDirectory() && entry.name.endsWith(".app"));
+
+  if (!appEntry) {
+    throw new Error(`macOS .app bundle was not found inside: ${outputDir}`);
+  }
+
+  const appPath = path.join(outputDir, appEntry.name);
+  console.log(`[macOS] Applying ad-hoc signature to ${appEntry.name}`);
 
   const result = spawnSync(
     "codesign",

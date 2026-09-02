@@ -14,7 +14,7 @@ on:
       - 'relay.js'
       - 'multi-output.js'
       - 'usb-dmx.js'
-      - 'scripts/after-pack-mac.js'
+      - 'scripts/**'
       - '.github/workflows/build-mac.yml'
 
 permissions:
@@ -40,8 +40,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify macOS signing hook
-        run: node --check scripts/after-pack-mac.js
+      - name: Validate JavaScript
+        run: npm run test:syntax
 
       - name: Build Mac app
         run: npm run build-mac

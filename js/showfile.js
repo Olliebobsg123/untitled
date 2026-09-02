@@ -1,9 +1,6 @@
 "use strict";
 
 (function () {
-  // Electron exposes the real IPC bridge from preload.js.  Keep the renderer
-  // command implementation separate so we never try to mutate a
-  // contextBridge object from the page.
   const api = () => window.LXShowFiles;
 
   const cloneValue = value => {
@@ -11,7 +8,7 @@
     if (Array.isArray(value)) return value.map(cloneValue);
     const out = {};
     for (const [key, item] of Object.entries(value)) {
-      if (key === "chaseTimer" || key === "fading" || key === "Viz") continue;
+      if (key === "chaseTimer" || key === "fading" || key === "Viz" || key === "effectFrame") continue;
       try { out[key] = cloneValue(item); } catch (_) {}
     }
     return out;
@@ -21,12 +18,19 @@
     const state = window.State || {};
     return {
       format: "lx-console-show",
-      version: 1,
+      version: 2,
       savedAt: new Date().toISOString(),
       fixtures: cloneValue(state.fixtures || []),
       groups: cloneValue(state.groups || []),
       cues: cloneValue(state.cues || []),
       chases: cloneValue(state.chases || []),
+      // Effects are stored as a name -> effect definition object by effects.js.
+      // Keep the whole library, including fixture targets and speed.
+      savedEffects: cloneValue(state.savedEffects || {}),
+      effectTargetMode: String(state.effectTargetMode || "selected"),
+      effectTargetIds: state.effectTargetIds instanceof Set
+        ? [...state.effectTargetIds]
+        : Array.isArray(state.effectTargetIds) ? state.effectTargetIds.slice() : [],
       palettes: cloneValue(state.palettes || []),
       targets: cloneValue(state.targets || []),
       fixtureStates: state.fixtureStates instanceof Map
@@ -41,16 +45,46 @@
     };
   }
 
+  function stopLivePlayback() {
+    try { window.stopEffect?.(true); } catch (error) { console.warn("[SHOW] Could not stop effect:", error); }
+    try { window.stopChase?.(false); } catch (error) { console.warn("[SHOW] Could not stop chase:", error); }
+
+    const state = window.State;
+    if (!state) return;
+    if (state.chaseTimer) {
+      try { clearTimeout(state.chaseTimer); } catch (_) {}
+      state.chaseTimer = null;
+    }
+    if (state.fading != null) {
+      try { cancelAnimationFrame(state.fading); } catch (_) {}
+      state.fading = null;
+    }
+    state.currentChase = -1;
+    state.activeEffect = null;
+    state.effectFrame = null;
+  }
+
   function restoreShow(show) {
     if (!show || typeof show !== "object" || show.format !== "lx-console-show") {
       throw new Error("Not a valid LX Console show file");
     }
+
+    stopLivePlayback();
 
     const state = window.State || (window.State = {});
     state.fixtures = Array.isArray(show.fixtures) ? show.fixtures : [];
     state.groups = Array.isArray(show.groups) ? show.groups : [];
     state.cues = Array.isArray(show.cues) ? show.cues : [];
     state.chases = Array.isArray(show.chases) ? show.chases : [];
+
+    // Restore the programmed effect library. Older show files simply do not
+    // have this property, so they remain fully compatible.
+    state.savedEffects = show.savedEffects && typeof show.savedEffects === "object"
+      ? cloneValue(show.savedEffects)
+      : {};
+    state.effectTargetMode = String(show.effectTargetMode || "selected");
+    state.effectTargetIds = new Set(Array.isArray(show.effectTargetIds) ? show.effectTargetIds.map(String) : []);
+
     state.palettes = Array.isArray(show.palettes) ? show.palettes : [];
     state.targets = Array.isArray(show.targets) ? show.targets : [];
     state.current = show.current && typeof show.current === "object" ? show.current : {};
@@ -64,22 +98,26 @@
     window.chaseFade = state.chaseFade;
     window.chaseWait = state.chaseWait;
 
-    if (typeof window.initFixtureStates === "function") window.initFixtureStates();
-    window.renderFixtures?.();
-    window.renderGroups?.();
-    window.renderCues?.();
-    window.buildControls?.();
-    window.render?.();
-    window.updateControlVisibility?.();
-    window.updateDMX?.();
-    window.sendToVisualizer?.();
+    // Reconnect any UI/state helpers after replacing the show data.
+    try { window.initFixtureStates?.(); } catch (error) { console.warn("[SHOW] Fixture state rebuild failed:", error); }
+    try { window.fxRenderEffectTargetUI?.(); } catch (_) {}
+    try { window.renderFixtures?.(); } catch (_) {}
+    try { window.renderGroups?.(); } catch (_) {}
+    try { window.renderCues?.(); } catch (_) {}
+    try { window.renderChases?.(); } catch (_) {}
+    try { window.buildControls?.(); } catch (_) {}
+    try { window.render?.(); } catch (_) {}
+    try { window.updateControlVisibility?.(); } catch (_) {}
+    try { window.updateDMX?.(); } catch (_) {}
+    try { window.sendToVisualizer?.(); } catch (_) {}
+
     document.dispatchEvent(new CustomEvent("lx-show-loaded", { detail: show }));
   }
 
   function normalisePath(raw) {
     return String(raw || "")
       .trim()
-      .replace(/^['"]+|['"]+$/g, "")
+      .replace(/^[\'"]+|[\'"]+$/g, "")
       .replace(/^\((.*)\)$/s, "$1")
       .trim();
   }
@@ -135,8 +173,6 @@
     return true;
   }
 
-  // Do NOT mutate window.LXShowFiles here.  That object is supplied by
-  // Electron's contextBridge and is not a normal mutable renderer object.
   window.LXShowCommands = Object.freeze({
     saveShow,
     loadShow,
@@ -198,11 +234,6 @@
     const wrappedLog = function (message, type) {
       const text = String(message ?? "");
 
-      // commands.js has a lexical parseCommand and therefore its
-      // window.parseCommand wrapper cannot reliably intercept SAVE/LOAD.
-      // It now also reports this availability message because the old
-      // contextBridge mutation is intentionally gone.  Catch that exact
-      // message and route the command into the real show-file implementation.
       if (/^Show file support is unavailable\s*[—-]/i.test(text)) {
         const input = document.getElementById("cmdInput");
         const command = String(input?.dataset?.lxPendingShowCommand || "").trim();
@@ -248,8 +279,6 @@
     return true;
   }
 
-  // This hook records the exact SAVE/LOAD command immediately before the
-  // lexical commands.js parser gets a chance to emit its availability error.
   function installPendingCommandCapture() {
     if (window.__lxShowPendingCaptureInstalled) return true;
     window.__lxShowPendingCaptureInstalled = true;
@@ -263,8 +292,6 @@
       target.dataset.lxPendingShowCommand = command;
     };
 
-    // Bubble phase deliberately: the normal command handler gets to run and
-    // emit its existing message, while we retain the command for the log hook.
     window.addEventListener("keydown", capture, false);
     return true;
   }

@@ -24,8 +24,6 @@
       groups: cloneValue(state.groups || []),
       cues: cloneValue(state.cues || []),
       chases: cloneValue(state.chases || []),
-      // Effects are stored as a name -> effect definition object by effects.js.
-      // Keep the whole library, including fixture targets and speed.
       savedEffects: cloneValue(state.savedEffects || {}),
       effectTargetMode: String(state.effectTargetMode || "selected"),
       effectTargetIds: state.effectTargetIds instanceof Set
@@ -64,6 +62,52 @@
     state.effectFrame = null;
   }
 
+  function normaliseEffects(rawEffects) {
+    if (!rawEffects || typeof rawEffects !== "object" || Array.isArray(rawEffects)) return {};
+    const effects = {};
+    for (const [key, raw] of Object.entries(rawEffects)) {
+      if (!raw || typeof raw !== "object") continue;
+      const name = String(raw.name || key).trim();
+      if (!name) continue;
+      const fixtureIds = Array.isArray(raw.fixtureIds) ? raw.fixtureIds.map(String) : [];
+      const fixtureMode = ["selected", "all", "custom"].includes(String(raw.fixtureMode))
+        ? String(raw.fixtureMode)
+        : fixtureIds.length ? "custom" : "selected";
+      effects[name] = {
+        ...cloneValue(raw),
+        name,
+        type: String(raw.type || "rainbow").toLowerCase(),
+        speed: Number.isFinite(Number(raw.speed)) ? Number(raw.speed) : 1,
+        fixtureMode,
+        fixtureIds
+      };
+    }
+    return effects;
+  }
+
+  function normaliseChases(rawChases, cueCount) {
+    if (!Array.isArray(rawChases)) return [];
+    return rawChases.filter(Boolean).map(raw => {
+      const chase = cloneValue(raw);
+      chase.name = String(chase.name || "Unnamed Chase").trim();
+      chase.fixtureIds = Array.isArray(chase.fixtureIds) ? chase.fixtureIds.map(String) : [];
+      chase.speed = Math.max(10, Math.min(100, Number.isFinite(Number(chase.speed)) ? Number(chase.speed) : 50));
+      chase.fade = Math.max(0, Math.min(60000, Number.isFinite(Number(chase.fade)) ? Number(chase.fade) : 0));
+      chase.loop = chase.loop !== false;
+      chase.mode = ["sequence", "spread", "snapshot"].includes(String(chase.mode)) ? String(chase.mode) : "sequence";
+      chase.steps = Array.isArray(chase.steps)
+        ? [...new Set(chase.steps.map(Number).filter(i => Number.isInteger(i) && i >= 0 && i < cueCount))]
+        : [];
+      chase.snapshots = Array.isArray(chase.snapshots) ? chase.snapshots.map(snapshot => ({
+        globalState: cloneValue(snapshot?.globalState || snapshot?.state || {}),
+        fixtureStates: Array.isArray(snapshot?.fixtureStates)
+          ? snapshot.fixtureStates.filter(x => Array.isArray(x) && x.length > 1).map(x => [x[0], cloneValue(x[1])])
+          : []
+      })) : [];
+      return chase;
+    });
+  }
+
   function restoreShow(show) {
     if (!show || typeof show !== "object" || show.format !== "lx-console-show") {
       throw new Error("Not a valid LX Console show file");
@@ -75,13 +119,12 @@
     state.fixtures = Array.isArray(show.fixtures) ? show.fixtures : [];
     state.groups = Array.isArray(show.groups) ? show.groups : [];
     state.cues = Array.isArray(show.cues) ? show.cues : [];
-    state.chases = Array.isArray(show.chases) ? show.chases : [];
+    state.chases = normaliseChases(show.chases, state.cues.length);
 
-    // Restore the programmed effect library. Older show files simply do not
-    // have this property, so they remain fully compatible.
-    state.savedEffects = show.savedEffects && typeof show.savedEffects === "object"
-      ? cloneValue(show.savedEffects)
-      : {};
+    // Restore the complete programmed effect library. Re-normalising here is
+    // important because JSON turns Sets/Maps into plain values and older show
+    // files may contain missing effect metadata.
+    state.savedEffects = normaliseEffects(show.savedEffects);
     state.effectTargetMode = String(show.effectTargetMode || "selected");
     state.effectTargetIds = new Set(Array.isArray(show.effectTargetIds) ? show.effectTargetIds.map(String) : []);
 
@@ -98,18 +141,24 @@
     window.chaseFade = state.chaseFade;
     window.chaseWait = state.chaseWait;
 
-    // Reconnect any UI/state helpers after replacing the show data.
+    // Reconnect UI/state helpers after replacing the show data.
     try { window.initFixtureStates?.(); } catch (error) { console.warn("[SHOW] Fixture state rebuild failed:", error); }
     try { window.fxRenderEffectTargetUI?.(); } catch (_) {}
     try { window.renderFixtures?.(); } catch (_) {}
     try { window.renderGroups?.(); } catch (_) {}
     try { window.renderCues?.(); } catch (_) {}
     try { window.renderChases?.(); } catch (_) {}
+    // FIX: effects were restored into State.savedEffects but the effects UI was
+    // never re-rendered, so the loaded effect library appeared to be missing.
+    try { window.renderEffectsList?.(); } catch (error) { console.warn("[SHOW] Effect list rebuild failed:", error); }
     try { window.buildControls?.(); } catch (_) {}
     try { window.render?.(); } catch (_) {}
     try { window.updateControlVisibility?.(); } catch (_) {}
     try { window.updateDMX?.(); } catch (_) {}
     try { window.sendToVisualizer?.(); } catch (_) {}
+
+    // Refresh the effect target picker after the fixture list has been rebuilt.
+    try { window.fxRenderEffectTargetUI?.(); } catch (_) {}
 
     document.dispatchEvent(new CustomEvent("lx-show-loaded", { detail: show }));
   }
@@ -117,7 +166,7 @@
   function normalisePath(raw) {
     return String(raw || "")
       .trim()
-      .replace(/^[\'"]+|[\'"]+$/g, "")
+      .replace(/^[\'\"]+|[\'\"]+$/g, "")
       .replace(/^\((.*)\)$/s, "$1")
       .trim();
   }

@@ -19,71 +19,23 @@
       <div class="brand-sub">CONTROL CONSOLE</div>
     </div>
   </div>
-
   <div class="sidebar-section-label">Workspace</div>
-
   <nav class="nav">
-    <button class="nav-link active" data-page="live">
-      <span class="nav-icon">✦</span>
-      <span class="nav-text">Live Control</span>
-      <b>01</b>
-    </button>
-
-    <button class="nav-link" data-page="patch">
-      <span class="nav-icon">▦</span>
-      <span class="nav-text">Patch</span>
-      <b>02</b>
-    </button>
-
-    <button class="nav-link" data-page="inspector">
-      <span class="nav-icon">◫</span>
-      <span class="nav-text">Cue Inspector</span>
-      <b>03</b>
-    </button>
-
-    <button class="nav-link" data-page="chases">
-      <span class="nav-icon">≋</span>
-      <span class="nav-text">Chases</span>
-      <b>04</b>
-    </button>
-
-    <button class="nav-link" data-page="effects">
-      <span class="nav-icon">✹</span>
-      <span class="nav-text">Effects</span>
-      <b>05</b>
-    </button>
-
-    <button class="nav-link" data-page="qlab">
-      <span class="nav-icon">♫</span>
-      <span class="nav-text">QLab</span>
-      <b>06</b>
-    </button>
-
-    <button class="nav-link" data-page="settings">
-      <span class="nav-icon">⚙</span>
-      <span class="nav-text">Settings</span>
-      <b>07</b>
-    </button>
+    <button class="nav-link active" data-page="live"><span class="nav-icon">✦</span><span class="nav-text">Live Control</span><b>01</b></button>
+    <button class="nav-link" data-page="patch"><span class="nav-icon">▦</span><span class="nav-text">Patch</span><b>02</b></button>
+    <button class="nav-link" data-page="inspector"><span class="nav-icon">◫</span><span class="nav-text">Cue Inspector</span><b>03</b></button>
+    <button class="nav-link" data-page="chases"><span class="nav-icon">≋</span><span class="nav-text">Chases</span><b>04</b></button>
+    <button class="nav-link" data-page="effects"><span class="nav-icon">✹</span><span class="nav-text">Effects</span><b>05</b></button>
+    <button class="nav-link" data-page="qlab"><span class="nav-icon">♫</span><span class="nav-text">QLab</span><b>06</b></button>
+    <button class="nav-link" data-page="settings"><span class="nav-icon">⚙</span><span class="nav-text">Settings</span><b>07</b></button>
   </nav>
-
   <div class="sidebar-spacer"></div>
-
-  <div class="sidebar-footer">
-    <div class="mini-status">
-      <span class="status-dot online"></span>
-      <span class="nav-text">Engine Ready</span>
-    </div>
-
-    <div class="version nav-text">LIGHTING CONSOLE · V2</div>
-  </div>
+  <div class="sidebar-footer"><div class="mini-status"><span class="status-dot online"></span><span class="nav-text">Engine Ready</span></div><div class="version nav-text">LIGHTING CONSOLE · V2</div></div>
 </aside>
 <header class="topbar">
   <div class="page-title"><span class="page-kicker">SHOW CONTROL</span><strong id="topPageTitle">LIVE CONTROL</strong></div>
   <div class="topbar-status">
-    <div class="console-mode-switch" aria-label="Console mode">
-      <button id="consoleModeLive" class="live active" type="button">LIVE</button>
-      <button id="consoleModeBlind" class="blind" type="button">BLIND</button>
-    </div>
+    <div class="console-mode-switch" aria-label="Console mode"><button id="consoleModeLive" class="live active" type="button">LIVE</button><button id="consoleModeBlind" class="blind" type="button">BLIND</button></div>
     <div class="status-pill"><span class="status-dot online"></span> ART-NET</div>
     <div class="status-pill" id="topQlabStatus"><span class="status-dot offline"></span><span class="status-label">QLAB</span></div>
     <div class="status-pill" id="topMidiStatus"><span class="status-dot offline"></span><span class="status-label">MIDI</span></div>
@@ -91,93 +43,33 @@
     <div class="top-master">MASTER <strong><span id="topMasterVal">100</span>%</strong></div>
   </div>
 </header>
-
 <main class="workspace">
-
-  
-
-<div class="page active" id="page-live">
-  <div class="live-grid">
-    <section class="panel groups-panel">
-      <div class="panel-header"><div><span class="eyebrow">01</span> Groups</div><span class="panel-meta">SELECT</span></div>
-      <div class="panel-body"><div id="groupList" class="item-list"></div><button class="btn-secondary full-width" id="btnNewGroup">＋ Create Group</button></div>
-    </section>
-    <section class="panel quick-panel">
-      <div class="panel-header"><div><span class="eyebrow">02</span> Quick Controls</div><span class="panel-meta">LIVE</span></div>
-      <div class="panel-body"><div class="presets">
-        <button class="preset preset-danger" data-action="blackout"><span>BLACKOUT</span><small>ALL OFF</small></button><button class="preset preset-bright" data-action="full"><span>FULL ON</span><small>100%</small></button><button class="preset preset-red" data-hue="0" data-sat="100"><span>RED</span></button><button class="preset preset-green" data-hue="120" data-sat="100"><span>GREEN</span></button><button class="preset preset-blue" data-hue="240" data-sat="100"><span>BLUE</span></button><button class="preset preset-white" data-hue="0" data-sat="0"><span>WHITE</span></button><button class="preset preset-yellow" data-hue="60" data-sat="100"><span>YELLOW</span></button><button class="preset preset-cyan" data-hue="180" data-sat="100"><span>CYAN</span></button><button class="preset preset-magenta" data-hue="300" data-sat="100"><span>MAGENTA</span></button><button class="preset preset-level" data-v="0"><span>0%</span></button><button class="preset preset-level" data-v="50"><span>50%</span></button><button class="preset preset-level" data-v="100"><span>100%</span></button>
-      </div></div>
-    </section>
-    <section class="panel fixtures-panel">
-      <div class="panel-header"><div><span class="eyebrow">03</span> Fixtures</div><span id="selCount" class="selection-badge">(0 selected)</span></div>
-      <div class="panel-body fixture-body"><div class="list-toolbar"><span class="toolbar-label">PATCHED DEVICES</span><span class="toolbar-hint">Click to select</span></div><div id="fixtureList" class="item-list fixture-list"></div></div>
-    </section>
-  </div>
-</div>
-
-<div class="page" id="page-patch">
-  <div class="page-grid two-col">
-    <section class="panel"><div class="panel-header"><div><span class="eyebrow">01</span> Fixture Library</div><span class="panel-meta">SHOWTEC · BETOPPER</span></div><div class="panel-body"><div class="search-box">⌕ <input id="fixtureSearch" placeholder="Search Phantom, Wipe, Helix, LPC120..."></div><div id="libList" class="item-list library-list"></div></div></section>
-    <section class="panel"><div class="panel-header"><div><span class="eyebrow">02</span> Patch Fixture</div><span class="panel-meta">DMX</span></div><div class="panel-body"><div class="form-grid">
-      <div class="form-row form-span"><label>Name / Fixture</label><input id="patchName" placeholder="Select a fixture from the library"></div><div class="form-row"><label>Type</label><select id="patchType"><option value="dimmer">Dimmer</option><option value="rgb">RGB</option><option value="rgbw">RGBW</option><option value="moving">Moving Head</option><option value="strobe">Strobe</option></select></div><div class="form-row"><label>Start Address</label><input type="number" id="patchAddr" value="1" min="1" max="512"></div><div class="form-row"><label>Universe</label><input type="number" id="patchUni" value="1" min="1"></div>
-    </div><div class="action-row"><button class="btn-primary" id="btnPatch">＋ Add Fixture</button><button class="btn-danger-soft btn-unpatch-single" id="btnUnpatchSingle">Unpatch Fixture</button></div></div></section>
-  </div>
-</div>
-
+<div class="page active" id="page-live"><div class="live-grid">
+<section class="panel groups-panel"><div class="panel-header"><div><span class="eyebrow">01</span> Groups</div><span class="panel-meta">SELECT</span></div><div class="panel-body"><div id="groupList" class="item-list"></div><button class="btn-secondary full-width" id="btnNewGroup">＋ Create Group</button></div></section>
+<section class="panel quick-panel"><div class="panel-header"><div><span class="eyebrow">02</span> Quick Controls</div><span class="panel-meta">LIVE</span></div><div class="panel-body"><div class="presets">
+<button class="preset preset-danger" data-action="blackout"><span>BLACKOUT</span><small>ALL OFF</small></button><button class="preset preset-bright" data-action="full"><span>FULL ON</span><small>100%</small></button><button class="preset preset-red" data-hue="0" data-sat="100"><span>RED</span></button><button class="preset preset-green" data-hue="120" data-sat="100"><span>GREEN</span></button><button class="preset preset-blue" data-hue="240" data-sat="100"><span>BLUE</span></button><button class="preset preset-white" data-hue="0" data-sat="0"><span>WHITE</span></button><button class="preset preset-yellow" data-hue="60" data-sat="100"><span>YELLOW</span></button><button class="preset preset-cyan" data-hue="180" data-sat="100"><span>CYAN</span></button><button class="preset preset-magenta" data-hue="300" data-sat="100"><span>MAGENTA</span></button><button class="preset preset-level" data-v="0"><span>0%</span></button><button class="preset preset-level" data-v="50"><span>50%</span></button><button class="preset preset-level" data-v="100"><span>100%</span></button>
+</div></div></section>
+<section class="panel fixtures-panel"><div class="panel-header"><div><span class="eyebrow">03</span> Fixtures</div><span id="selCount" class="selection-badge">(0 selected)</span></div><div class="panel-body fixture-body"><div class="list-toolbar"><span class="toolbar-label">PATCHED DEVICES</span><span class="toolbar-hint">Click to select</span></div><div id="fixtureList" class="item-list fixture-list"></div></div></section>
+</div></div>
+<div class="page" id="page-patch"><div class="page-grid two-col">
+<section class="panel"><div class="panel-header"><div><span class="eyebrow">01</span> Fixture Library</div><span class="panel-meta">SHOWTEC · BETOPPER</span></div><div class="panel-body"><div class="search-box">⌕ <input id="fixtureSearch" placeholder="Search Phantom, Wipe, Helix, LPC120..."></div><div id="libList" class="item-list library-list"></div></div></section>
+<section class="panel"><div class="panel-header"><div><span class="eyebrow">02</span> Patch Fixture</div><span class="panel-meta">DMX</span></div><div class="panel-body"><div class="form-grid"><div class="form-row form-span"><label>Name / Fixture</label><input id="patchName" placeholder="Select a fixture from the library"></div><div class="form-row"><label>Type</label><select id="patchType"><option value="dimmer">Dimmer</option><option value="rgb">RGB</option><option value="rgbw">RGBW</option><option value="moving">Moving Head</option><option value="strobe">Strobe</option></select></div><div class="form-row"><label>Start Address</label><input type="number" id="patchAddr" value="1" min="1" max="512"></div><div class="form-row"><label>Universe</label><input type="number" id="patchUni" value="1" min="1"></div></div><div class="action-row"><button class="btn-primary" id="btnPatch">＋ Add Fixture</button><button class="btn-danger-soft btn-unpatch-single" id="btnUnpatchSingle">Unpatch Fixture</button></div></div></section>
+</div></div>
 <div class="page" id="page-inspector"><section class="panel"><div class="panel-header"><div><span class="eyebrow">CUE</span> Cue Inspector</div><span class="panel-meta">EDIT</span></div><div class="panel-body"><div class="form-row"><label>Select Cue</label><select id="inspectCueSelect"><option value="">— Pick a cue to inspect —</option></select></div><div id="inspectorContent" class="inspector-content" style="display:none"><div class="section-divider"><span>IDENTITY</span></div><div class="form-grid"><div class="form-row form-span"><label>Cue Name</label><input id="inspectCueName"></div><div class="form-row"><label>Fade Time · ms</label><input type="number" id="inspectFade" value="800" min="0" max="60000"></div><div class="form-row"><label>Master · %</label><input type="number" id="inspectMaster" min="0" max="100"></div><div class="form-row"><label>Intensity · %</label><input type="number" id="inspectIntensity" min="0" max="100"></div><div class="form-row"><label>Hue · °</label><input type="number" id="inspectHue" min="0" max="360"></div><div class="form-row"><label>Saturation · %</label><input type="number" id="inspectSat" min="0" max="100"></div></div><div class="form-row"><label>Follow · seconds</label><input type="number" id="inspectFollow" value="0" min="0" step="0.1"></div><div class="form-row"><label>Auto Follow</label><input type="checkbox" id="inspectFollowEnabled"></div><div class="section-divider"><span>MOVEMENT & FX</span></div><div class="form-grid"><div class="form-row"><label>Pan · 0–255</label><input type="number" id="inspectPan" min="0" max="255"></div><div class="form-row"><label>Tilt · 0–255</label><input type="number" id="inspectTilt" min="0" max="255"></div><div class="form-row"><label>Strobe · 0–255</label><input type="number" id="inspectStrobe" min="0" max="255"></div><div class="form-row"><label>Gobo · 0–255</label><input type="number" id="inspectGobo" min="0" max="255"></div><div class="form-row"><label>Prism · 0–255</label><input type="number" id="inspectPrism" min="0" max="255"></div><div class="form-row"><label>Focus · 0–255</label><input type="number" id="inspectFocus" min="0" max="255"></div><div class="form-row"><label>Zoom · 0–255</label><input type="number" id="inspectZoom" min="0" max="255"></div></div><div class="action-row"><button class="btn-primary" id="btnUpdateCue">💾 Update Cue</button><button class="btn-secondary" id="btnApplyCue">◉ Preview Live</button></div></div></div></section></div>
-
 <div class="page" id="page-chases"><section class="panel"><div class="panel-header"><div><span class="eyebrow">SEQUENCE</span> Chases & Sequences</div><span class="panel-meta">LIVE ENGINE</span></div><div class="panel-body"><div class="toolbar-card"><div class="action-row"><button class="btn-primary" id="btnSaveChase">＋ New Chase</button><button class="btn-secondary" id="btnRunChase">▶ Run Chase</button><button class="btn-danger-soft" id="btnStopChase">■ Stop All</button></div><label class="range-control"><span>Speed</span><input type="range" id="chaseSpeed" min="10" max="100" value="50"><strong><span id="chaseSpeedVal">50</span>%</strong></label></div><div id="chaseList" class="item-list"></div></div></section></div>
-
 <div class="page" id="page-effects"><section class="panel"><div class="panel-header"><div><span class="eyebrow">FX</span> Lighting Effects</div><span class="panel-meta">LIVE ENGINE</span></div><div class="panel-body"><div class="toolbar-card"><div class="action-row"><button class="btn-primary" id="btnNewEffect">＋ New Effect</button><button class="btn-secondary" id="btnRunEffect">▶ Run Effect</button><button class="btn-danger-soft" id="btnStopEffect">■ Stop Effects</button></div></div><div id="effectsList" class="item-list"></div><div id="effectEditor" class="effect-editor" style="display:none"><div class="section-divider"><span>EFFECT EDITOR</span></div><div class="form-grid"><div class="form-row form-span"><label>Effect Name</label><input id="effectName" type="text" placeholder="Effect name"></div><div class="form-row"><label>Type</label><select id="effectType"><option value="rainbow">Rainbow</option><option value="strobe">Strobe</option><option value="pulse">Pulse</option><option value="chase">Chase</option><option value="wave">Wave</option></select></div><div class="form-row"><label>Speed</label><input id="effectSpeed" type="range" min="0.1" max="20" step="0.1" value="1"></div><div class="form-row"><label>Fixture Selection</label><select id="effectFixtureMode"><option value="selected">Selected Fixtures</option><option value="all">All Fixtures</option></select></div></div><div class="action-row"><button class="btn-primary" id="btnSaveEffect">💾 Save Effect</button><button class="btn-secondary" id="btnApplyEffect">◉ Apply Live</button><button class="btn-danger-soft" id="btnDeleteEffect">Delete Effect</button></div></div></div></section></div>
-
-<div class="page" id="page-qlab"><div class="qlab-grid"><section class="panel qlab-connection"><div class="panel-header"><div><span class="eyebrow">QLAB</span> Connection</div><div id="qlabStatus" class="qlab-status disconnected">Disconnected</div></div><div class="panel-body"><div class="action-row"><button class="btn-primary" id="qlabConnect" onclick="QLab.connect()">↻ Connect to QLab</button><button class="btn-secondary" id="qlabTest" onclick="QLab.send('/notification','Hello from Lighting!')">Test Message</button></div></div></section><section class="panel qlab-transport"><div class="panel-header"><div><span class="eyebrow">TRANSPORT</span> Playback</div><span class="panel-meta">QLAB</span></div><div class="panel-body"><div class="transport"><button class="transport-go btn-qlab-go" onclick="QLab.go()">▶ <span>GO</span></button><button class="transport-stop btn-qlab-stop" onclick="QLab.stop()">■ <span>STOP</span></button><button class="transport-small btn-secondary" onclick="QLab.pause()">Ⅱ PAUSE</button><button class="transport-small btn-secondary" onclick="QLab.resume()">▶ RESUME</button></div></div></section><section class="panel qlab-main"><div class="panel-header"><div><span class="eyebrow">CUES</span> Direct Cue Control</div><span class="panel-meta">LIVE</span></div><div class="panel-body"><div class="cue-button-grid"><button class="btn-secondary" onclick="QLab.cue(1)">Cue 1</button><button class="btn-secondary" onclick="QLab.cue(2)">Cue 2</button><button class="btn-secondary" onclick="QLab.cue(3)">Cue 3</button><button class="btn-secondary" onclick="QLab.cue(4)">Cue 4</button><button class="btn-secondary" onclick="QLab.cue(5)">Cue 5</button></div><div class="cue-button-grid stop-grid"><button class="btn-secondary" onclick="QLab.cueStop(1)">Stop 1</button><button class="btn-secondary" onclick="QLab.cueStop(2)">Stop 2</button><button class="btn-secondary" onclick="QLab.cueStop(3)">Stop 3</button><button class="btn-secondary" onclick="QLab.cueStop(4)">Stop 4</button><button class="btn-secondary" onclick="QLab.cueStop(5)">Stop 5</button></div></div></section><section class="panel qlab-sync"><div class="panel-header"><div><span class="eyebrow">SYNC</span> QLab Cues & Links</div><span id="qlabLastSync" class="panel-meta">NOT SYNCED</span></div><div class="panel-body"><div class="action-row"><button class="btn-primary" onclick="QLab.syncCues()">↻ Sync Cues</button><button class="btn-secondary" onclick="QLab.fetchPlayhead()">▶ Check Playhead</button></div><div id="qlabSyncList" class="qlab-sync-list"><div class="empty-state">Sync QLab to load the cue list.</div></div></div></section><section class="panel qlab-links"><div class="panel-header"><div><span class="eyebrow">LINK</span> QLab → Lighting</div><span class="panel-meta">AUTOMATION</span></div><div class="panel-body"><p class="helper">Link QLab cue numbers to lighting cues. Multiple lighting cues can be entered with commas.</p><div id="linkEditorList" class="link-editor-list"></div><div class="action-row"><button class="btn-primary" onclick="QLab.saveAllLinks()">💾 Save Links</button><button class="btn-secondary" onclick="QLab.addNewLinkRow()">＋ Add Link</button><button class="btn-danger-soft" onclick="QLab.clearAllLinks()">Clear All</button></div></div></section><section class="panic-card"><div><span class="panic-label">EMERGENCY</span><strong>Stop all QLab playback immediately</strong></div><button class="btn-qlab-panic" onclick="QLab.panic()">⚠ PANIC / ALL STOP</button></section></div></div>
-
+<div class="page" id="page-qlab"><div class="qlab-grid"><section class="panel qlab-connection"><div class="panel-header"><div><span class="eyebrow">QLAB</span> Connection</div><div id="qlabStatus" class="qlab-status disconnected">Disconnected</div></div><div class="panel-body"><div class="action-row"><button class="btn-primary" id="qlabConnect" onclick="QLab.connect()">↻ Connect to QLab</button><button class="btn-secondary" id="qlabTest" onclick="QLab.send('/notification','Hello from Lighting!')">Test Message</button></div></div></section><section class="panel qlab-transport"><div class="panel-header"><div><span class="eyebrow">TRANSPORT</span> Playback</div><span class="panel-meta">QLAB</span></div><div class="panel-body"><div class="transport"><button class="transport-go btn-qlab-go" onclick="QLab.go()">▶ <span>GO</span></button><button class="transport-stop btn-qlab-stop" onclick="QLab.stop()">■ <span>STOP</span></button><button class="transport-small btn-secondary" onclick="QLab.pause()">Ⅱ PAUSE</button><button class="transport-small btn-secondary" onclick="QLab.resume()">▶ RESUME</button></div></div></section><section class="panel qlab-main"><div class="panel-header"><div><span class="eyebrow">CUES</span> Direct Cue Control</div><span class="panel-meta">LIVE</span></div><div class="panel-body"><div class="cue-button-grid"><button class="btn-secondary" onclick="QLab.cue(1)">Cue 1</button><button class="btn-secondary" onclick="QLab.cue(2)">Cue 2</button><button class="btn-secondary" onclick="QLab.cue(3)">Cue 3</button><button class="btn-secondary" onclick="QLab.cue(4)">Cue 4</button><button class="btn-secondary" onclick="QLab.cue(5)">Cue 5</button></div><div class="cue-button-grid stop-grid"><button class="btn-secondary" onclick="QLab.cueStop(1)">Stop 1</button><button class="btn-secondary" onclick="QLab.cueStop(2)">Stop 2</button><button class="btn-secondary" onclick="QLab.cueStop(3)">Stop 3</button><button class="btn-secondary" onclick="QLab.cueStop(4)">Stop 4</button><button class="btn-secondary" onclick="QLab.cueStop(5)">Stop 5</button></div></div></section><section class="panel qlab-sync"><div class="panel-header"><div><span class="eyebrow">SYNC</span> QLab Cues & Links</div><span id="qlabLastSync" class="panel-meta">NOT SYNCED</span></div><div class="panel-body"><div class="action-row"><button class="btn-primary" onclick="QLab.syncCues()">↻ Sync Cues</button><button class="btn-secondary" onclick="QLab.fetchPlayhead()">▶ Check Playhead</button></div><div id="qlabSyncList" class="qlab-sync-list"><div class="empty-state">Sync QLab to load the cue list.</div></div></div></section><section class="panel qlab-links"><div class="panel-header"><div><span class="eyebrow">LINK</span> QLab → Lighting</div><span class="panel-meta">AUTOMATION</span></div><div class="panel-body"><p class="helper">Link QLab cue numbers to lighting cues. Multiple lighting cues can be entered with commas.</p><div id="linkEditorList" class="link-editor-list"></div><div class="action-row"><button class="btn-primary" onclick="QLab.saveAllLinks()">💾 Save Links</button><button class="btn-secondary" onclick="QLab.addNewLinkRow()">＋ Add Link</button><button class="btn-danger-soft" onclick="QLab.clearAllLinks()">Clear All</button></div></div></section><section class="panic-card"><div><span class="panic-label">EMERGENCY</span><strong>Stop all QLab playback immediately</strong></div><button class="btn-qlab-panic" onclick="QLab.panic()">⚠ PANIC / ALL STOP</button></div></div>
 <div class="page" id="page-settings"><div class="page-grid two-col"><section class="panel"><div class="panel-header"><div><span class="eyebrow">OUTPUT</span> Art-Net / sACN</div><span class="panel-meta">NETWORK</span></div><div class="panel-body"><div class="form-grid"><div class="form-row form-span"><label>Target IP</label><input id="artnetIp" value="192.168.1.1"></div><div class="form-row"><label>Port</label><input type="number" id="artnetPort" value="6454"></div><div class="form-row"><label>Universe</label><input type="number" id="artnetUni" value="0"></div><div class="form-row form-span"><label>Output Mode</label><select id="outMode"><option>Art-Net</option><option>sACN</option></select></div></div><div class="action-row"><button class="btn-primary" id="artnetStart">Enable Output</button><button class="btn-secondary" id="artnetStop">Stop Output</button></div><div class="section-divider"><span>SHOW FILE</span></div><div class="action-row"><button class="btn-secondary" id="btnSaveShow">💾 Save Show</button><button class="btn-secondary" id="btnLoadShow">📂 Load Show</button><input type="file" id="showFileInput" accept=".json" hidden></div></div></section><section class="panel"><div class="panel-header"><div><span class="eyebrow">MIDI</span> Controller</div><span class="panel-meta">INPUT</span></div><div class="panel-body"><div class="form-row"><label>Device</label><select id="midiDevice"><option value="">No MIDI device selected</option></select></div><div class="action-row"><button class="btn-primary" id="midiConnect">Connect MIDI</button><button class="btn-secondary" id="midiDisconnect">Disconnect</button><button class="btn-secondary" id="midiRefresh">Refresh</button></div><div id="midiStatus" class="inline-status">MIDI: Not connected</div><div class="section-divider"><span>MAPPING</span></div><div class="form-grid"><div class="form-row"><label>Control</label><select id="midiMappingControl"><option value="knob1">KNOB 1</option><option value="knob2">KNOB 2</option><option value="knob3">KNOB 3</option><option value="knob4">KNOB 4</option><option value="knob5">KNOB 5</option><option value="knob6">KNOB 6</option><option value="knob7">KNOB 7</option><option value="knob8">KNOB 8</option><option value="pad1">PAD 1</option><option value="pad2">PAD 2</option><option value="pad3">PAD 3</option><option value="pad4">PAD 4</option><option value="pad5">PAD 5</option><option value="pad6">PAD 6</option><option value="pad7">PAD 7</option><option value="pad8">PAD 8</option><option value="button1">BUTTON 1</option><option value="button2">BUTTON 2</option></select></div><div class="form-row"><label>Action</label><select id="midiMappingAction"><option value="intensity">Intensity</option><option value="master">Master</option><option value="hue">Hue</option><option value="saturation">Saturation</option><option value="pan">Pan</option><option value="tilt">Tilt</option><option value="zoom">Zoom</option><option value="focus">Focus</option><option value="speed">Speed</option><option value="go">GO</option><option value="blackout">Blackout</option><option value="cue1">Cue 1</option><option value="cue2">Cue 2</option><option value="cue3">Cue 3</option><option value="cue4">Cue 4</option><option value="cueBack">Cue Back</option><option value="cueGo">Cue Go</option><option value="none">Unassigned</option></select></div><div class="form-row form-span"><label>MIDI Channel</label><select id="midiChannel"><option value="0">Omni</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option></select></div></div><div class="action-row"><button class="btn-primary" id="midiLearn">🎛 Learn Control</button><button class="btn-secondary" id="midiSaveMapping">Save Mapping</button><button class="btn-secondary" id="midiClearMapping">Clear Mapping</button></div><div id="midiLearnStatus" class="inline-status">Select a control and action, then press Learn Control.</div><div class="section-divider"><span>CURRENT MAPPING</span></div><div id="midiMappingList" class="item-list"></div><div class="action-row"><button class="btn-secondary" id="midiResetMappings">Reset Mappings</button><button class="btn-secondary" id="midiSaveSettings">Save MIDI Settings</button></div></div></section></div></div>
 </main>
-
-<aside class="controls" id="controlPanel"><div class="control-deck-header"><div><span class="eyebrow">CONTROL DECK</span><strong>LIVE PARAMETERS</strong></div><span class="deck-led"></span></div><div class="master-card control-group"><div class="control-heading"><div><span class="control-label">Master Level</span><small>OUTPUT</small></div><strong class="big-value"><span id="masterVal">100</span><em>%</em></strong></div><div class="fader master-fader"><input type="range" id="master" min="0" max="100" value="100"></div></div><div id="dynamicControls" class="dynamic-controls"><div class="selection-empty"><div class="empty-icon">◇</div><strong>Select a fixture</strong><p>Choose a patched fixture to expose its parameters.</p></div></div><div class="control-group parameter-card"><div class="control-heading"><div><span class="control-label">Intensity</span><small>DIMMER</small></div><strong class="fader-val"><span id="intVal">100</span>%</strong></div><div class="fader"><input type="range" id="intensity" min="0" max="100" value="100"></div><!-- Intensity control -->
-
-
-<!-- Strobe control -->
-<div class="control-group parameter-card" id="strobeGroup">
-  <div class="control-heading">
-    <div>
-      <span class="control-label">Strobe</span>
-      <small>SHUTTER</small>
-    </div>
-    <strong class="fader-val"><span id="strobeVal">0</span></strong>
-  </div>
-  <div class="fader">
-    <input type="range" id="strobe" min="0" max="255" step="1" value="0">
-  </div>
-</div>
-
-
+<aside class="controls" id="controlPanel"><div class="control-deck-header"><div><span class="eyebrow">CONTROL DECK</span><strong>LIVE PARAMETERS</strong></div><span class="deck-led"></span></div><div class="master-card control-group"><div class="control-heading"><div><span class="control-label">Master Level</span><small>OUTPUT</small></div><strong class="big-value"><span id="masterVal">100</span><em>%</em></strong></div><div class="fader master-fader"><input type="range" id="master" min="0" max="100" value="100"></div></div><div id="dynamicControls" class="dynamic-controls"><div class="selection-empty"><div class="empty-icon">◇</div><strong>Select a fixture</strong><p>Choose a patched fixture to expose its parameters.</p></div></div><div class="control-group parameter-card"><div class="control-heading"><div><span class="control-label">Intensity</span><small>DIMMER</small></div><strong class="fader-val"><span id="intVal">100</span>%</strong></div><div class="fader"><input type="range" id="intensity" min="0" max="100" value="100"></div>
+<div class="control-group parameter-card" id="strobeGroup"><div class="control-heading"><div><span class="control-label">Strobe</span><small>SHUTTER</small></div><strong class="fader-val"><span id="strobeVal">0</span></strong></div><div class="fader"><input type="range" id="strobe" min="0" max="255" step="1" value="0"></div></div>
 </div><div class="control-group parameter-card" id="zoomGroup"><div class="control-heading"><div><span class="control-label">Zoom</span><small>LENS</small></div><strong class="fader-val"><span id="zoomVal">0</span></strong></div><div class="fader"><input type="range" id="zoom" min="0" max="255" value="0"></div></div><div class="control-group parameter-card colour-card" id="colourGroup"><div class="control-heading"><div><span class="control-label">Colour</span><small>HUE / SATURATION</small></div></div><div class="colour-wheel"><canvas id="colourWheel" width="220" height="220"></canvas><div class="wheel-indicator" id="colourIndicator"></div></div><div class="colour-swatch" id="colourPreview"></div></div><div class="control-group parameter-card" id="xyGroup"><div class="control-heading"><div><span class="control-label">Pan / Tilt</span><small>POSITION</small></div></div><div class="xy-pad"><div class="xy-crosshair x"></div><div class="xy-crosshair y"></div><div class="xy-dot" id="xy"></div></div></div></aside>
-
 <div class="bottom-row"><div class="panel terminal"><div class="panel-header"><div><span class="eyebrow">SYSTEM</span> Console Log</div><span class="panel-meta">LIVE</span></div><div class="panel-body" id="termLog"></div></div><div class="panel cues"><div class="panel-header"><div><span class="eyebrow">CUE STACK</span> Cues</div><div class="cue-actions"><button id="btnCueBack" class="btn-icon">◀ Back</button><button id="btnCueGo" class="btn-icon cue-go">GO ▶</button><button id="btnRecordCue" class="btn-icon">＋ Save</button><button id="btnDelCue" class="btn-icon btn-icon-danger">Delete</button></div></div><div class="panel-body" id="cueList"></div></div></div>
 <div class="cmd-line"><span class="prompt">▶</span><input id="cmdInput" placeholder="Enter command..."><span class="cmd-hint">COMMAND</span></div>
 <div id="unpatchModal" class="unpatch-modal"><div class="unpatch-modal-content"><button class="unpatch-close" aria-label="Close">×</button><div class="modal-kicker">PATCH MANAGEMENT</div><h3>Select Fixture to Unpatch</h3><p class="modal-help">Choose a fixture below to remove it from the current show.</p><div id="unpatchFixtureList" class="unpatch-fixture-list"></div></div></div>
-
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
 <script type="module">import*as THREE from"three";import{OrbitControls}from"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";window.THREE=THREE;window.OrbitControls=OrbitControls;</script>
-<script src="js/fixtures.js"></script>
-<script src="js/groups.js"></script>
-<script src="js/dmx.js"></script>
-<script src="js/cues.js"></script>
-<script src="js/chases.js"></script>
-<script src="js/commands.js"></script>
-<script src="js/controls.js"></script>
-<script src="js/effects.js"></script>
-<script src="js/midi.js"></script>
-<script src="js/show.js"></script>
-<script src="js/qlab.js"></script>
-<script src="js/app.js"></script>
-<script src="js/modes.js"></script>
-<script src="js/license.js"></script>
-<script src="js/palette.js"></script>
-<script src="js/target.js"></script>
-<script src="js/showfile.js"></script>
+<script src="js/fixtures.js"></script><script src="js/groups.js"></script><script src="js/dmx.js"></script><script src="js/cues.js"></script><script src="js/chases.js"></script><script src="js/commands.js"></script><script src="js/controls.js"></script><script src="js/effects.js"></script><script src="js/midi.js"></script><script src="js/show.js"></script><script src="js/qlab.js"></script><script src="js/app.js"></script><script src="js/fresnel-controls.js"></script><script src="js/modes.js"></script><script src="js/license.js"></script><script src="js/palette.js"></script><script src="js/target.js"></script><script src="js/showfile.js"></script>
 <script>
 window.updateQLabStatus=(message,connected)=>{const el=document.getElementById("qlabStatus"),top=document.getElementById("topQlabStatus");if(el){el.className="qlab-status "+(connected?"connected":"disconnected");el.textContent=(connected?"✅ ":"❌ ")+message;}if(top){top.classList.toggle("is-online",!!connected);const d=top.querySelector(".status-dot");if(d)d.className="status-dot "+(connected?"online":"offline");}};
 window.updateTopMidiStatus=connected=>{const top=document.getElementById("topMidiStatus");if(!top)return;top.classList.toggle("is-online",!!connected);const d=top.querySelector(".status-dot");if(d)d.className="status-dot "+(connected?"online":"offline");};

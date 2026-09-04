@@ -222,6 +222,11 @@ write(base,map.g,rgb[1]*level);
 write(base,map.b,rgb[2]*level);
 if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)*level);
 if(typeof map.amber==="number")write(base,map.amber,blackout?0:clamp255(saved.amber??0));
+if(typeof map.lime==="number")
+    write(base,map.lime,blackout?0:clamp255(saved.lime??0));
+
+if(typeof map.cyan==="number")
+    write(base,map.cyan,blackout?0:clamp255(saved.cyan??0));
 if(typeof map.uv==="number")write(base,map.uv,blackout?0:clamp255(saved.uv??0));
 }else if(typeof map.colour==="number"){
 const wVal=blackout?0:colourWheelDMX(def,hue,sat);

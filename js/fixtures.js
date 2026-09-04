@@ -302,17 +302,22 @@ const FixtureLibrary = {
     "Showtec Performer 1500 Fresnel Tungsten (8ch STD.P)": {
         type: "tungsten",
         channels: 8,
-        map: {
-            dimmer: 0,
-            intensity: 0,
-            dimmerFine: 1,
-            warmWhite: 2,
-            warmWhiteFine: 3,
-            coolWhite: 4,
-            coolWhiteFine: 5,
-            cct: 6,
-            strobe: 7
-        },
+       map: {
+    dimmer: 0,
+    intensity: 0,
+
+    dimmerFine: 1,
+
+    warmWhite: 2,
+    warmWhiteFine: 3,
+
+    naturalWhite: 4,
+    naturalWhiteFine: 5,
+
+    cct: 6,
+
+    strobe: 7
+},
 
         photometrics: {
             verified: true,
@@ -327,6 +332,151 @@ const FixtureLibrary = {
             sourcePowerWatts: 100
         }
     },
+
+    "Showtec Performer Profile 650 Q5 (8ch SIMPLE)": {
+    type: "rgbal",
+    channels: 8,
+
+    map: {
+        dimmer: 0,
+        intensity: 0,
+
+        r: 1,
+        g: 2,
+        b: 3,
+        a: 4,
+        l: 5,
+
+        strobe: 6,
+        performance: 7
+    },
+
+    photometrics: {
+        verified: true,
+        sourceType: "LED",
+
+        /*
+         * 240 W 5-in-1 RGBAL LED array.
+         * Beam angle depends on the fitted lens.
+         */
+        ratedLumens: null,
+        beamAngle: null,
+        beamAngleMin: 15,
+        beamAngleMax: 50,
+
+        outputScale: 1.00,
+
+        sourcePowerWatts: 240,
+
+        manufacturer: "Showtec",
+        model: "Performer Profile 650 Q5",
+
+        sourceNote:
+            "Showtec Performer Profile 650 Q5, order code 33064. " +
+            "8-channel SIMPLE DMX personality. Beam angle depends on fitted lens."
+    }
+},
+
+"Showtec Performer 1500 Fresnel Q6 (8ch SSP)": {
+    type: "rgbalc",
+    channels: 8,
+
+    map: {
+        dimmer: 0,
+        intensity: 0,
+
+        r: 1,
+        g: 2,
+        b: 3,
+        a: 4,
+        l: 5,
+        c: 6,
+
+        colorPreset: 7
+    },
+
+    photometrics: {
+        verified: true,
+        sourceType: "LED",
+
+        ratedLumens: 3111,
+        beamAngle: 10,
+        beamAngleMin: 10,
+        beamAngleMax: 50,
+
+        outputScale: 1.00,
+
+        colourTemperature: {
+            min: 1800,
+            max: 8000
+        },
+
+        sourcePowerWatts: 100,
+
+        manufacturer: "Showtec",
+        model: "Performer 1500 Fresnel Q6",
+
+        sourceNote:
+            "Showtec Performer 1500 Fresnel Q6, order code 33130. " +
+            "8-channel SSP DMX personality. RGBALC LED engine."
+    }
+},
+
+"Showtec Performer Profile 650 Q5 (17ch COLOR 16BIT)": {
+    type: "rgbal",
+    channels: 17,
+
+    map: {
+        dimmer: 0,
+        intensity: 0,
+        dimmerFine: 1,
+
+        r: 2,
+        rFine: 3,
+
+        g: 4,
+        gFine: 5,
+
+        b: 6,
+        bFine: 7,
+
+        a: 8,
+        aFine: 9,
+
+        l: 10,
+        lFine: 11,
+
+        presetColors: 12,
+        colorMacros: 13,
+
+        strobe: 14,
+        dimmerSpeed: 15,
+        performance: 16
+    },
+
+    photometrics: {
+        verified: true,
+        sourceType: "LED",
+
+        ratedLumens: null,
+
+        beamAngle: null,
+        beamAngleMin: 15,
+        beamAngleMax: 50,
+
+        outputScale: 1.00,
+
+        sourcePowerWatts: 240,
+
+        manufacturer: "Showtec",
+        model: "Performer Profile 650 Q5",
+
+        sourceNote:
+            "Showtec Performer Profile 650 Q5, order code 33064. " +
+            "17-channel COLOR 16BIT DMX personality. " +
+            "Channels 3-12 provide 16-bit RGBAL colour control."
+    }
+},
 
 
     "Showtec Performer 2000 RGBAL (19ch TR16)": {

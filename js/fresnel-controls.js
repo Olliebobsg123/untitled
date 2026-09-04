@@ -94,18 +94,6 @@
         background:rgba(255,255,255,.018);
       }
       .fresnel-control .control-heading { margin-bottom:7px; }
-      .fresnel-control .fader { position:relative; z-index:2; }
-      .fresnel-control input[type="range"] {
-        display:block;
-        width:100%;
-        min-width:0;
-        position:relative;
-        z-index:3;
-        pointer-events:auto;
-        cursor:grab;
-        touch-action:pan-x;
-      }
-      .fresnel-control input[type="range"]:active { cursor:grabbing; }
       .fresnel-note {
         color:var(--text-muted);
         font-size:10px;
@@ -287,17 +275,18 @@
     bindRangeDrag($("fresnelCct"));
   }
 
-  // Use a simple document-level mouse drag as a fallback for Electron/webviews
-  // where native range dragging can be swallowed by the surrounding console UI.
-  // The existing range styling is deliberately left untouched.
+  // Keep the existing .fader presentation from styles.css. The drag handler
+  // is attached to the .fader track rather than replacing its styling.
   function bindRangeDrag(input) {
     if (!input || input.dataset.fresnelDragBound === "1") return;
     input.dataset.fresnelDragBound = "1";
 
+    const track = input.closest(".fader") || input;
     let dragging = false;
+    let pointerId = null;
 
-    const setFromMouse = event => {
-      const rect = input.getBoundingClientRect();
+    const setFromPointer = event => {
+      const rect = track.getBoundingClientRect();
       if (!rect.width) return;
 
       const min = Number(input.min || 0);
@@ -312,24 +301,42 @@
       input.dispatchEvent(new Event("input", { bubbles: true }));
     };
 
-    input.addEventListener("mousedown", event => {
-      if (event.button !== 0) return;
+    const start = event => {
+      if (event.button !== undefined && event.button !== 0) return;
       dragging = true;
-      setFromMouse(event);
-    });
+      pointerId = event.pointerId ?? null;
+      event.preventDefault();
+      setFromPointer(event);
+
+      if (event.pointerId !== undefined && track.setPointerCapture) {
+        try { track.setPointerCapture(event.pointerId); } catch {}
+      }
+    };
 
     const move = event => {
       if (!dragging) return;
+      if (pointerId !== null && event.pointerId !== undefined && event.pointerId !== pointerId) return;
       event.preventDefault();
-      setFromMouse(event);
+      setFromPointer(event);
     };
 
-    const stop = () => {
+    const stop = event => {
+      if (pointerId !== null && event.pointerId !== undefined && event.pointerId !== pointerId) return;
       dragging = false;
+      pointerId = null;
     };
 
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", stop);
+    if (window.PointerEvent) {
+      track.addEventListener("pointerdown", start);
+      track.addEventListener("pointermove", move);
+      track.addEventListener("pointerup", stop);
+      track.addEventListener("pointercancel", stop);
+      track.addEventListener("lostpointercapture", stop);
+    } else {
+      track.addEventListener("mousedown", start);
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", stop);
+    }
   }
 
   function refreshUI() {

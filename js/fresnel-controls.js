@@ -7,10 +7,21 @@
   const getSelectedFixtures = () => {
     const state = window.State;
     if (!state || !Array.isArray(state.fixtures)) return [];
+
     const ids = new Set();
-    if (state.selected instanceof Set) state.selected.forEach(id => ids.add(String(id)));
-    document.querySelectorAll("#fixtureList .sel[data-fixture-id]").forEach(el => ids.add(String(el.dataset.fixtureId)));
-    if (!ids.size && state.selectedFixtureId != null) ids.add(String(state.selectedFixtureId));
+
+    if (state.selected instanceof Set) {
+      state.selected.forEach(id => ids.add(String(id)));
+    }
+
+    document.querySelectorAll("#fixtureList .sel[data-fixture-id]").forEach(el => {
+      ids.add(String(el.dataset.fixtureId));
+    });
+
+    if (!ids.size && state.selectedFixtureId != null) {
+      ids.add(String(state.selectedFixtureId));
+    }
+
     return state.fixtures.filter(f => ids.has(String(f?.id)));
   };
 
@@ -62,9 +73,6 @@
     host = document.createElement("div");
     host.id = "dynamicControls";
     host.className = "dynamic-controls";
-
-    // Never use controlPanel itself as innerHTML: it contains the existing
-    // console controls and replacing it would destroy the UI.
     panel.appendChild(host);
     return host;
   }
@@ -183,18 +191,20 @@
 
   function refreshUI() {
     const fixtures = getSelectedFixtures();
-    const fresnel = fixtures.find(isFresnel);
     const host = getHost();
     if (!host) return;
 
-    if (!fresnel) {
+    // Fresnel-specific controls only make sense for a single selected Fresnel.
+    // When ALL/multiple fixtures are selected, keep the normal console controls
+    // visible instead of switching the whole control panel to Fresnel mode.
+    if (fixtures.length !== 1 || !isFresnel(fixtures[0])) {
       $("fresnelControls")?.remove();
       hideGenericColourControls(false);
       return;
     }
 
     hideGenericColourControls(true);
-    renderFresnelControls(fresnel);
+    renderFresnelControls(fixtures[0]);
   }
 
   function install() {
@@ -214,8 +224,6 @@
       }
     }
 
-    // Selection state can also change without a DOM mutation, so check it
-    // lightly while the Live Control page is open.
     if (!window.__fresnelSelectionTimer) {
       window.__fresnelSelectionTimer = setInterval(refreshUI, 250);
     }

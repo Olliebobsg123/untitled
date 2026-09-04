@@ -268,75 +268,6 @@
       cct.addEventListener("input", applyCct);
       cct.addEventListener("change", applyCct);
     }
-
-    bindRangeDrag($("fresnelWarmWhite"));
-    bindRangeDrag($("fresnelNaturalWhite"));
-    bindRangeDrag($("fresnelCoolWhite"));
-    bindRangeDrag($("fresnelCct"));
-  }
-
-  // Keep the existing .fader presentation from styles.css. The drag handler
-  // is attached to the .fader track rather than replacing its styling.
-  function bindRangeDrag(input) {
-    if (!input || input.dataset.fresnelDragBound === "1") return;
-    input.dataset.fresnelDragBound = "1";
-
-    const track = input.closest(".fader") || input;
-    let dragging = false;
-    let pointerId = null;
-
-    const setFromPointer = event => {
-      const rect = track.getBoundingClientRect();
-      if (!rect.width) return;
-
-      const min = Number(input.min || 0);
-      const max = Number(input.max || 100);
-      const step = Number(input.step || 1);
-      let value = min + Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * (max - min);
-
-      if (step > 0) value = min + Math.round((value - min) / step) * step;
-      value = Math.max(min, Math.min(max, value));
-
-      input.value = String(value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    };
-
-    const start = event => {
-      if (event.button !== undefined && event.button !== 0) return;
-      dragging = true;
-      pointerId = event.pointerId ?? null;
-      event.preventDefault();
-      setFromPointer(event);
-
-      if (event.pointerId !== undefined && track.setPointerCapture) {
-        try { track.setPointerCapture(event.pointerId); } catch {}
-      }
-    };
-
-    const move = event => {
-      if (!dragging) return;
-      if (pointerId !== null && event.pointerId !== undefined && event.pointerId !== pointerId) return;
-      event.preventDefault();
-      setFromPointer(event);
-    };
-
-    const stop = event => {
-      if (pointerId !== null && event.pointerId !== undefined && event.pointerId !== pointerId) return;
-      dragging = false;
-      pointerId = null;
-    };
-
-    if (window.PointerEvent) {
-      track.addEventListener("pointerdown", start);
-      track.addEventListener("pointermove", move);
-      track.addEventListener("pointerup", stop);
-      track.addEventListener("pointercancel", stop);
-      track.addEventListener("lostpointercapture", stop);
-    } else {
-      track.addEventListener("mousedown", start);
-      window.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", stop);
-    }
   }
 
   function refreshUI() {
@@ -344,9 +275,6 @@
     const host = getHost();
     if (!host) return;
 
-    // Keep the normal console controls visible even when ALL/mixed fixtures
-    // are selected. Add Fresnel controls alongside them when at least one
-    // selected fixture is a Fresnel. Only Fresnels receive these values.
     const fresnels = fixtures.filter(isFresnel);
 
     if (!fresnels.length) {
@@ -355,7 +283,16 @@
     }
 
     const representative = fresnels[fresnels.length - 1];
+    const existing = $("fresnelControls");
+
+    // Do not rebuild the sliders if the same Fresnel selection is already
+    // displayed. Rebuilding them during a drag resets the native range input
+    // and was the reason the faders appeared impossible to drag.
+    const selectionKey = fresnels.map(f => String(f.id)).join(",");
+    if (existing?.dataset.selectionKey === selectionKey) return;
+
     renderFresnelControls(representative);
+    $("fresnelControls")?.setAttribute("data-selection-key", selectionKey);
   }
 
   function install() {
@@ -373,10 +310,6 @@
           attributeFilter: ["class"]
         });
       }
-    }
-
-    if (!window.__fresnelSelectionTimer) {
-      window.__fresnelSelectionTimer = setInterval(refreshUI, 250);
     }
   }
 

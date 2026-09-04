@@ -13,8 +13,6 @@ try {
   console.error('[SHOW DEBUG] FAILED to expose LXShowFiles bridge:', error);
 }
 
-// Expose a read-only diagnostic helper so the renderer can report whether the
-// Electron IPC bridge actually made it into the page.
 try {
   contextBridge.exposeInMainWorld('LXShowDebug', {
     bridgeReady: () => true,
@@ -24,22 +22,32 @@ try {
   console.error('[SHOW DEBUG] FAILED to expose LXShowDebug:', error);
 }
 
-// Ensure the renderer-side SAVE / LOAD command handler is always loaded.
-const injectShowFileCommands = () => {
+const injectRendererScript = (id, src, label) => {
   try {
-    if (document.getElementById('lxShowFileCommandsScript')) return;
+    if (document.getElementById(id)) return;
     const script = document.createElement('script');
-    script.id = 'lxShowFileCommandsScript';
-    script.src = new URL('./js/showfile.js', window.location.href).href;
+    script.id = id;
+    script.src = new URL(src, window.location.href).href;
+    script.onload = () => console.log(`[SHOW DEBUG] ${label} loaded`);
+    script.onerror = error => console.error(`[SHOW DEBUG] Failed to load ${label}:`, error);
     (document.head || document.documentElement).appendChild(script);
-    console.log('[SHOW DEBUG] Requested showfile.js injection');
   } catch (error) {
-    console.error('[SHOW DEBUG] Failed to load showfile.js:', error);
+    console.error(`[SHOW DEBUG] Failed to inject ${label}:`, error);
   }
+};
+
+const injectShowFileCommands = () => {
+  injectRendererScript('lxShowFileCommandsScript', './js/showfile.js', 'showfile.js');
+};
+
+const injectFresnelControls = () => {
+  injectRendererScript('lxFresnelControlsScript', './js/fresnel-controls.js', 'fresnel-controls.js');
 };
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', injectShowFileCommands, { once: true });
+  document.addEventListener('DOMContentLoaded', injectFresnelControls, { once: true });
 } else {
   injectShowFileCommands();
+  injectFresnelControls();
 }

@@ -1,7 +1,5 @@
 "use strict";
 
-
-
 // UI-only control helpers. Multi-fixture Pan/Tilt and Home live here.
 (function initialiseControls() {
   const getSelectedFixtures = () => {
@@ -37,8 +35,6 @@
     document.head?.appendChild(link);
   }
 
-  // Keep the controls.js UI confined to the Live Control workspace.
-  // Blind mode uses the same page, so its controls remain available there too.
   let controlPageObserver = null;
   function refreshControlPanelPageVisibility() {
     const panel = document.getElementById("controlPanel");
@@ -54,16 +50,9 @@
     refreshControlPanelPageVisibility();
     if (controlPageObserver || !document.body) return;
     controlPageObserver = new MutationObserver(mutations => {
-      if (mutations.some(m => m.type === "attributes" && m.attributeName === "class")) {
-        refreshControlPanelPageVisibility();
-      }
+      if (mutations.some(m => m.type === "attributes" && m.attributeName === "class")) refreshControlPanelPageVisibility();
     });
-    controlPageObserver.observe(document.body, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["class"]
-    });
-
+    controlPageObserver.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["class"] });
     if (!document.getElementById("controlPanelWorkspaceStyle")) {
       const style = document.createElement("style");
       style.id = "controlPanelWorkspaceStyle";
@@ -77,9 +66,7 @@
               "sidebar bottom-row"
               "sidebar cmd-line";
           }
-          body.control-panel-hidden:has(.sidebar:hover) {
-            grid-template-columns: 214px minmax(0, 1fr);
-          }
+          body.control-panel-hidden:has(.sidebar:hover) { grid-template-columns: 214px minmax(0, 1fr); }
         }
       `;
       document.head?.appendChild(style);
@@ -105,8 +92,6 @@
   }
   window.updateControlVisibility = refreshVisibility;
 
-  // Capture the XY pointer events before app.js. app.js's original handler
-  // uses activeFixture(), which is only the last selected fixture.
   if (!window.__multiFixtureXYFix) {
     window.__multiFixtureXYFix = true;
     const attach = () => {
@@ -117,7 +102,6 @@
       pad.style.userSelect = "none";
       let dragging = false;
       let pointerId = null;
-
       const positionFromEvent = e => {
         const rect = pad.getBoundingClientRect();
         const touch = e.touches?.[0] || e.changedTouches?.[0];
@@ -129,15 +113,11 @@
           tilt: Math.round((1 - Math.max(0, Math.min(1, (y - rect.top) / rect.height))) * 255)
         };
       };
-
       const apply = e => {
         const values = positionFromEvent(e);
         if (!values) return;
         const fixtures = getSelectedFixtures();
-        if (!fixtures.length) {
-          window.log?.("Select a fixture first", "warn");
-          return;
-        }
+        if (!fixtures.length) { window.log?.("Select a fixture first", "warn"); return; }
         let changed = false;
         for (const fixture of fixtures) {
           const map = getDefinition(fixture)?.map || {};
@@ -154,48 +134,30 @@
         window.State.current.pan = values.pan;
         window.State.current.tilt = values.tilt;
         const dot = document.getElementById("xy");
-        if (dot) {
-          dot.style.left = `${(values.pan / 255) * 100}%`;
-          dot.style.top = `${(1 - values.tilt / 255) * 100}%`;
-        }
+        if (dot) { dot.style.left = `${(values.pan / 255) * 100}%`; dot.style.top = `${(1 - values.tilt / 255) * 100}%`; }
         window.updateDMX?.();
         window.sendToVisualizer?.();
       };
-
-      // Handle the whole pad, not just the existing dot. stopImmediatePropagation
-      // prevents app.js's single-fixture handler from running afterwards.
       pad.addEventListener("pointerdown", e => {
         if (e.button !== undefined && e.button !== 0) return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        dragging = true;
-        pointerId = e.pointerId;
+        e.preventDefault(); e.stopImmediatePropagation(); dragging = true; pointerId = e.pointerId;
         try { pad.setPointerCapture(e.pointerId); } catch {}
         apply(e);
       }, true);
       pad.addEventListener("pointermove", e => {
         if (!dragging || e.pointerId !== pointerId) return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        apply(e);
+        e.preventDefault(); e.stopImmediatePropagation(); apply(e);
       }, true);
       const stop = e => {
         if (pointerId !== null && e.pointerId !== pointerId) return;
         e.stopImmediatePropagation?.();
         try { if (pointerId !== null) pad.releasePointerCapture(pointerId); } catch {}
-        dragging = false;
-        pointerId = null;
+        dragging = false; pointerId = null;
       };
       pad.addEventListener("pointerup", stop, true);
       pad.addEventListener("pointercancel", stop, true);
       pad.addEventListener("lostpointercapture", () => { dragging = false; pointerId = null; }, true);
-
-      pad.addEventListener("mousedown", e => {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        dragging = true;
-        apply(e);
-      }, true);
+      pad.addEventListener("mousedown", e => { e.preventDefault(); e.stopImmediatePropagation(); dragging = true; apply(e); }, true);
       window.addEventListener("mousemove", e => { if (dragging) apply(e); }, true);
       window.addEventListener("mouseup", () => { dragging = false; }, true);
       return true;
@@ -210,10 +172,7 @@
     window.__homePanTiltControl = true;
     const homeSelectedPanTilt = () => {
       const fixtures = getSelectedFixtures();
-      if (!fixtures.length) {
-        window.log?.("Select a fixture first", "warn");
-        return;
-      }
+      if (!fixtures.length) { window.log?.("Select a fixture first", "warn"); return; }
       let homed = 0;
       for (const fixture of fixtures) {
         const map = getDefinition(fixture)?.map || {};
@@ -222,44 +181,25 @@
         if (!state) continue;
         if (typeof map.pan === "number") state.pan = 128;
         if (typeof map.tilt === "number") state.tilt = 128;
-        window.State.fixtureStates.set(fixture.id, state);
-        homed++;
+        window.State.fixtureStates.set(fixture.id, state); homed++;
       }
-      if (!homed) {
-        window.log?.("Selected fixtures have no Pan/Tilt controls", "warn");
-        return;
-      }
+      if (!homed) { window.log?.("Selected fixtures have no Pan/Tilt controls", "warn"); return; }
       window.State.current ||= {};
-      window.State.current.pan = 128;
-      window.State.current.tilt = 128;
-      window.updateDMX?.();
-      window.sendToVisualizer?.();
+      window.State.current.pan = 128; window.State.current.tilt = 128;
+      window.updateDMX?.(); window.sendToVisualizer?.();
       const dot = document.getElementById("xy");
       if (dot) { dot.style.left = "50%"; dot.style.top = "50%"; }
       window.log?.(`Homed Pan/Tilt for ${homed} selected fixture${homed === 1 ? "" : "s"}`, "ok");
     };
-
     const installHomeButton = () => {
       const existing = document.getElementById("btnHome");
-      if (existing) {
-        existing.onclick = e => { e.preventDefault(); homeSelectedPanTilt(); };
-        return true;
-      }
+      if (existing) { existing.onclick = e => { e.preventDefault(); homeSelectedPanTilt(); }; return true; }
       const xy = document.querySelector(".xy-pad");
       if (!xy) return false;
-      const wrapper = document.createElement("div");
-      wrapper.className = "xy-home-control";
-      const button = document.createElement("button");
-      button.id = "btnHome";
-      button.type = "button";
-      button.className = "btn-secondary";
-      button.textContent = "⌂ HOME";
-      button.title = "Centre Pan/Tilt for selected fixtures";
-      button.setAttribute("aria-label", "Home selected fixtures Pan/Tilt");
-      button.addEventListener("click", homeSelectedPanTilt);
-      wrapper.appendChild(button);
-      xy.insertAdjacentElement("afterend", wrapper);
-      return true;
+      const wrapper = document.createElement("div"); wrapper.className = "xy-home-control";
+      const button = document.createElement("button"); button.id = "btnHome"; button.type = "button"; button.className = "btn-secondary";
+      button.textContent = "⌂ HOME"; button.title = "Centre Pan/Tilt for selected fixtures"; button.setAttribute("aria-label", "Home selected fixtures Pan/Tilt");
+      button.addEventListener("click", homeSelectedPanTilt); wrapper.appendChild(button); xy.insertAdjacentElement("afterend", wrapper); return true;
     };
     let attempts = 0;
     const waitForHomeButton = () => { if (installHomeButton()) return; if (++attempts < 150) setTimeout(waitForHomeButton, 100); };
@@ -272,26 +212,17 @@
     const $ = id => document.getElementById(id);
     const applyStrobe = value => {
       const strobe = Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
-      const fixtures = getSelectedFixtures();
-      if (!fixtures.length) return;
+      const fixtures = getSelectedFixtures(); if (!fixtures.length) return;
       for (const fixture of fixtures) {
-        const state = getState(fixture);
-        if (!state) continue;
-        state.strobe = strobe;
-        window.State.fixtureStates.set(fixture.id, state);
+        const state = getState(fixture); if (!state) continue;
+        state.strobe = strobe; window.State.fixtureStates.set(fixture.id, state);
       }
-      window.State.current ||= {};
-      window.State.current.strobe = strobe;
-      $("strobeVal")?.replaceChildren(String(strobe));
-      window.updateDMX?.();
-      window.sendToVisualizer?.();
+      window.State.current ||= {}; window.State.current.strobe = strobe;
+      $("strobeVal")?.replaceChildren(String(strobe)); window.updateDMX?.(); window.sendToVisualizer?.();
     };
     const installStrobe = () => {
-      const slider = $("strobe");
-      if (!slider) return false;
-      slider.min = "0";
-      slider.max = "255";
-      slider.step = "1";
+      const slider = $("strobe"); if (!slider) return false;
+      slider.min = "0"; slider.max = "255"; slider.step = "1";
       if (!slider.dataset.controlsStrobeBound) {
         slider.dataset.controlsStrobeBound = "1";
         slider.addEventListener("input", () => applyStrobe(slider.value));
@@ -305,18 +236,10 @@
     else waitForStrobe();
   }
 
-  const initialiseControlUI = () => {
-    watchControlPanelPageVisibility();
-    refreshVisibility();
-  };
-
+  const initialiseControlUI = () => { watchControlPanelPageVisibility(); refreshVisibility(); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialiseControlUI, { once: true });
   else initialiseControlUI();
 
-  // Target command syntax: TARGET <ACTION> <NAME> <FIXTURES>
-  // Fixtures may be a single number, comma list, or range (e.g. 1,2,4 or 1 thru 5).
-  // We install after target.js's own wrapper so the fixture selection is applied
-  // before its create/aim/capture/release logic runs.
   if (!window.__targetFixtureCommandInstaller) {
     window.__targetFixtureCommandInstaller = true;
     const parseFixtureSelection = value => {
@@ -325,72 +248,41 @@
       for (const token of input.split(/\s*,\s*/).filter(Boolean)) {
         const range = token.match(/^(\d+)\s*(?:thru|through|-)\s*(\d+)$/);
         if (range) {
-          const a = Number(range[1]);
-          const b = Number(range[2]);
-          const step = a <= b ? 1 : -1;
-          for (let n = a; ; n += step) {
-            numbers.add(n);
-            if (n === b) break;
-          }
+          const a = Number(range[1]), b = Number(range[2]), step = a <= b ? 1 : -1;
+          for (let n = a; ; n += step) { numbers.add(n); if (n === b) break; }
           continue;
         }
-        const n = Number(token);
-        if (Number.isInteger(n) && n > 0) numbers.add(n);
+        const n = Number(token); if (Number.isInteger(n) && n > 0) numbers.add(n);
       }
       return [...numbers].sort((a, b) => a - b);
     };
-
     const getFixtureForTargetCommand = number => {
-      const fixtures = window.State?.fixtures || [];
-      const n = Number(number);
+      const fixtures = window.State?.fixtures || []; const n = Number(number);
       if (!Number.isInteger(n) || n < 1) return null;
       return fixtures.find(f => Number(f?.fixtureNumber) === n) || fixtures[n - 1] || null;
     };
-
     const installTargetFixtureSyntax = () => {
       const current = window.parseCommand;
-      if (typeof current !== "function") return;
-      if (current.__lxTargetFixtureSyntax) return;
-
+      if (typeof current !== "function" || current.__lxTargetFixtureSyntax) return;
       const wrapped = function(raw) {
         const command = String(raw ?? "").trim();
         const match = command.match(/^target\s+(create|aim|capture|release|delete)\s+(.+?)\s+((?:\d+\s*(?:thru|through|[-–])\s*\d+|\d+(?:\s*,\s*\d+)+|\d+))$/i);
         if (!match) return current.apply(this, arguments);
-
-        const action = match[1].toLowerCase();
-        const name = match[2].trim();
-        const numbers = parseFixtureSelection(match[3]);
+        const action = match[1].toLowerCase(), name = match[2].trim(), numbers = parseFixtureSelection(match[3]);
         if (!numbers.length) return current.apply(this, arguments);
-
         const selected = new Set();
-        for (const number of numbers) {
-          const fixture = getFixtureForTargetCommand(number);
-          if (fixture) selected.add(fixture.id);
-        }
-        if (!selected.size) {
-          window.log?.("No matching fixtures found", "warn");
-          return;
-        }
-
-        const previousSelection = window.State.selected instanceof Set
-          ? new Set(window.State.selected)
-          : new Set();
+        for (const number of numbers) { const fixture = getFixtureForTargetCommand(number); if (fixture) selected.add(fixture.id); }
+        if (!selected.size) { window.log?.("No matching fixtures found", "warn"); return; }
+        const previousSelection = window.State.selected instanceof Set ? new Set(window.State.selected) : new Set();
         window.State.selected = selected;
-
-        // Pass the command without the fixture selector to target.js.
-        // This lets target names contain spaces while keeping fixture syntax last.
         const targetCommand = `target ${action} ${name}`;
         const result = current.call(this, targetCommand);
-
-        // Keep the selected fixtures as the user's explicit target selection.
-        // Do not restore the old selection: the command itself is a fixture selection.
         void previousSelection;
         return result;
       };
       wrapped.__lxTargetFixtureSyntax = true;
       window.parseCommand = wrapped;
     };
-
     let targetSyntaxAttempts = 0;
     const waitForTargetSyntax = () => {
       installTargetFixtureSyntax();
@@ -399,5 +291,15 @@
     };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", waitForTargetSyntax, { once: true });
     else waitForTargetSyntax();
+  }
+
+  // Load the dedicated tunable-white Fresnel UI after the shared control helpers.
+  if (!window.__fresnelControlsLoader) {
+    window.__fresnelControlsLoader = true;
+    const script = document.createElement("script");
+    script.src = "js/fresnel-controls.js";
+    script.onload = () => console.log("Performer 1500 Fresnel controls loaded");
+    script.onerror = err => console.error("Performer 1500 Fresnel controls failed to load:", err);
+    document.head?.appendChild(script);
   }
 })();

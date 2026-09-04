@@ -94,25 +94,16 @@
         background:rgba(255,255,255,.018);
       }
       .fresnel-control .control-heading { margin-bottom:7px; }
-      .fresnel-control .fader {
-        position:relative;
-        z-index:2;
-        width:100%;
-        pointer-events:auto;
-        touch-action:none;
-      }
+      .fresnel-control .fader { position:relative; z-index:2; }
       .fresnel-control input[type="range"] {
         display:block;
         width:100%;
         min-width:0;
-        height:24px;
         position:relative;
         z-index:3;
         pointer-events:auto;
         cursor:grab;
-        touch-action:none;
-        -webkit-user-select:none;
-        user-select:none;
+        touch-action:pan-x;
       }
       .fresnel-control input[type="range"]:active { cursor:grabbing; }
       .fresnel-note {
@@ -250,7 +241,6 @@
 
       input.addEventListener("input", apply);
       input.addEventListener("change", apply);
-      makeRangeDraggable(input);
     };
 
     bind("fresnelWarmWhite", "warmWhite", value => clamp(value, 0, 255));
@@ -289,80 +279,57 @@
 
       cct.addEventListener("input", applyCct);
       cct.addEventListener("change", applyCct);
-      makeRangeDraggable(cct);
     }
+
+    bindRangeDrag($("fresnelWarmWhite"));
+    bindRangeDrag($("fresnelNaturalWhite"));
+    bindRangeDrag($("fresnelCoolWhite"));
+    bindRangeDrag($("fresnelCct"));
   }
 
-  // Some browsers/webviews can render a range input correctly but fail to
-  // start its native drag when it is inside the console's custom fader UI.
-  // Handle pointer dragging ourselves so the Performer 1500 faders are always
-  // draggable while still using the normal range input/value events.
-  function makeRangeDraggable(input) {
-    if (!input || input.dataset.fresnelPointerBound === "1") return;
-    input.dataset.fresnelPointerBound = "1";
+  // Use a simple document-level mouse drag as a fallback for Electron/webviews
+  // where native range dragging can be swallowed by the surrounding console UI.
+  // The existing range styling is deliberately left untouched.
+  function bindRangeDrag(input) {
+    if (!input || input.dataset.fresnelDragBound === "1") return;
+    input.dataset.fresnelDragBound = "1";
 
     let dragging = false;
-    let pointerId = null;
 
-    const setFromPointer = event => {
+    const setFromMouse = event => {
       const rect = input.getBoundingClientRect();
       if (!rect.width) return;
 
       const min = Number(input.min || 0);
       const max = Number(input.max || 100);
       const step = Number(input.step || 1);
-      const clientX = Number(event.clientX);
-      if (!Number.isFinite(clientX)) return;
+      let value = min + Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * (max - min);
 
-      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      let value = min + ratio * (max - min);
-
-      if (step > 0) {
-        value = min + Math.round((value - min) / step) * step;
-      }
-
+      if (step > 0) value = min + Math.round((value - min) / step) * step;
       value = Math.max(min, Math.min(max, value));
+
       input.value = String(value);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     };
 
-    input.addEventListener("pointerdown", event => {
-      if (event.button !== undefined && event.button !== 0) return;
-
-      event.preventDefault();
+    input.addEventListener("mousedown", event => {
+      if (event.button !== 0) return;
       dragging = true;
-      pointerId = event.pointerId;
-
-      try {
-        input.setPointerCapture(event.pointerId);
-      } catch {}
-
-      setFromPointer(event);
+      setFromMouse(event);
     });
 
-    input.addEventListener("pointermove", event => {
-      if (!dragging || event.pointerId !== pointerId) return;
+    const move = event => {
+      if (!dragging) return;
       event.preventDefault();
-      setFromPointer(event);
-    });
-
-    const stop = event => {
-      if (pointerId !== null && event.pointerId !== pointerId) return;
-      dragging = false;
-
-      try {
-        if (pointerId !== null) input.releasePointerCapture(pointerId);
-      } catch {}
-
-      pointerId = null;
+      setFromMouse(event);
     };
 
-    input.addEventListener("pointerup", stop);
-    input.addEventListener("pointercancel", stop);
-    input.addEventListener("lostpointercapture", () => {
+    const stop = () => {
       dragging = false;
-      pointerId = null;
-    });
+    };
+
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", stop);
   }
 
   function refreshUI() {

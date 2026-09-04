@@ -96,7 +96,7 @@ if(h<1)[r,g]=[c,x];
 else if(h<2)[r,g]=[x,c];
 else if(h<3)[g,b]=[c,x];
 else if(h<4)[g,b]=[x,c];
-else if(h<5)[r,b]=[x,c];
+else if(h<5)[r,b]=[c,x];
 else[r,b]=[c,x];
 return[Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
 }
@@ -214,6 +214,18 @@ const hue=normaliseHue(saved.hue??0),sat=clamp100(saved.sat??100),light=clamp100
 
 if(typeof map.dimmer==="number")write(base,map.dimmer,255*level);
 
+// Tunable-white fixtures such as the Showtec Performer 1500 Fresnel Tungsten 8ch.
+// These channels are the actual LED engine; the dimmer alone is not enough.
+const hasWhite=typeof map.warmWhite==="number"||typeof map.naturalWhite==="number";
+if(hasWhite){
+const whiteLevel=blackout?0:255*level;
+if(typeof map.warmWhite==="number")write(base,map.warmWhite,whiteLevel);
+if(typeof map.warmWhiteFine==="number")write(base,map.warmWhiteFine,0);
+if(typeof map.naturalWhite==="number")write(base,map.naturalWhite,whiteLevel);
+if(typeof map.naturalWhiteFine==="number")write(base,map.naturalWhiteFine,0);
+if(typeof map.cct==="number")write(base,map.cct,blackout?0:clamp255(saved.cct??State.current?.cct??0));
+}
+
 const hasRGB=typeof map.r==="number"&&typeof map.g==="number"&&typeof map.b==="number";
 if(hasRGB){
 const rgb=blackout?[0,0,0]:colourHSL(hue,sat,light);
@@ -222,11 +234,8 @@ write(base,map.g,rgb[1]*level);
 write(base,map.b,rgb[2]*level);
 if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)*level);
 if(typeof map.amber==="number")write(base,map.amber,blackout?0:clamp255(saved.amber??0));
-if(typeof map.lime==="number")
-    write(base,map.lime,blackout?0:clamp255(saved.lime??0));
-
-if(typeof map.cyan==="number")
-    write(base,map.cyan,blackout?0:clamp255(saved.cyan??0));
+if(typeof map.lime==="number")write(base,map.lime,blackout?0:clamp255(saved.lime??0));
+if(typeof map.cyan==="number")write(base,map.cyan,blackout?0:clamp255(saved.cyan??0));
 if(typeof map.uv==="number")write(base,map.uv,blackout?0:clamp255(saved.uv??0));
 }else if(typeof map.colour==="number"){
 const wVal=blackout?0:colourWheelDMX(def,hue,sat);

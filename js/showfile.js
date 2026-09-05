@@ -25,7 +25,51 @@
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
   }
 
-  function snapshotExternalSettings() {
+  function isTapoFixture(fixture) {
+    const def = fixture && (window.FixtureLibrary?.[fixture.name] || fixture.definition);
+    return def?.transport === "tapo" || fixture?.transport === "tapo" || !!fixture?.tapo;
+  }
+
+  function snapshotTapoSettings(fixtures) {
+    return (Array.isArray(fixtures) ? fixtures : [])
+      .filter(isTapoFixture)
+      .map(fixture => {
+        const config = fixture.tapo || {};
+        return {
+          fixtureId: String(fixture.id),
+          ip: String(config.ip || "").trim(),
+          email: String(config.email || "").trim(),
+          password: String(config.password || "")
+        };
+      })
+      .filter(config => config.ip || config.email || config.password);
+  }
+
+  function restoreTapoSettings(fixtures, tapoSettings) {
+    if (!Array.isArray(fixtures) || !Array.isArray(tapoSettings)) return;
+
+    const byId = new Map(
+      tapoSettings
+        .filter(item => item && item.fixtureId != null)
+        .map(item => [String(item.fixtureId), item])
+    );
+
+    fixtures.forEach(fixture => {
+      const config = byId.get(String(fixture?.id));
+      if (!config) return;
+
+      fixture.transport = "tapo";
+      fixture.tapo = {
+        ip: String(config.ip || "").trim(),
+        email: String(config.email || "").trim(),
+        password: String(config.password || "")
+      };
+      fixture.addr = null;
+      fixture.uni = null;
+    });
+  }
+
+  function snapshotExternalSettings(fixtures) {
     // QLab keeps the editable lighting links in the live QLab object. Reading
     // localStorage here can save an older copy when the user has changed links
     // without a browser-storage write happening first.
@@ -49,6 +93,7 @@
         cueLinks: liveCueLinks || readStoredJSON("qlabCueLinks", {}),
         timeTriggers: liveTimeTriggers || readStoredJSON("qlabTimeTriggers", {})
       },
+      tapo: snapshotTapoSettings(fixtures),
       multiOutputs: readStoredJSON("lighting-multi-outputs", []),
       networkTarget: (() => {
         try { return localStorage.getItem("lighting-network-target") || ""; } catch (_) { return ""; }
@@ -115,11 +160,12 @@
 
   function snapshotShow() {
     const state = window.State || {};
+    const fixtures = Array.isArray(state.fixtures) ? state.fixtures : [];
     return {
       format: "lx-console-show",
-      version: 5,
+      version: 6,
       savedAt: new Date().toISOString(),
-      fixtures: cloneValue(state.fixtures || []),
+      fixtures: cloneValue(fixtures),
       groups: cloneValue(state.groups || []),
       cues: cloneValue(state.cues || []),
       chases: cloneValue(state.chases || []),
@@ -137,7 +183,7 @@
       chaseWait: Number.isFinite(state.chaseWait) ? state.chaseWait : 500,
       selectedEffectName: snapshotSelectedEffect(),
       selectedChaseIndex: snapshotSelectedChase(),
-      externalSettings: snapshotExternalSettings()
+      externalSettings: snapshotExternalSettings(fixtures)
     };
   }
 
@@ -229,6 +275,7 @@
     stopLivePlayback();
     const state = window.State || (window.State = {});
     state.fixtures = Array.isArray(show.fixtures) ? show.fixtures : [];
+    restoreTapoSettings(state.fixtures, show?.externalSettings?.tapo || show?.tapoSettings || []);
     state.groups = Array.isArray(show.groups) ? show.groups : [];
     state.cues = Array.isArray(show.cues) ? show.cues : [];
     state.chases = normaliseChases(show.chases, state.cues.length);

@@ -23,8 +23,6 @@ try {
  * delegated to iobroker.tapo.
  * ------------------------------------------------------------ */
 try {
-  // Must be loaded before iobroker.tapo so its shared crypto module
-  // sees the AES-CCM compatibility implementation.
   require('./js/tapo-ccm.js');
 
   const P100Module = require('iobroker.tapo/build/lib/utils/p100.js');
@@ -60,8 +58,6 @@ try {
       false
     );
 
-    // Explicitly select the TPAP/SPAKE2+ path. This performs the
-    // device discovery needed to determine the negotiated PAKE settings.
     if (typeof device.handshake_tpap !== 'function') {
       throw new Error('TPAP transport is not available in the installed Tapo library');
     }
@@ -93,8 +89,6 @@ try {
     try {
       return await device.sendCommand(method, params);
     } catch (error) {
-      // Let the next command create a fresh TPAP session after a
-      // session expiry/transport failure.
       sessions.delete(keyFor(config));
       throw error;
     }
@@ -150,7 +144,8 @@ try {
 
       if (!on) {
         await sendCommand(config, 'set_device_info', {
-          device_on: false
+          device_on: false,
+          transition_period: 0
         });
         return { ok: true, on: false };
       }
@@ -163,12 +158,14 @@ try {
           brightness,
           hue: colour.hue,
           saturation: colour.saturation,
-          color_temp: 0
+          color_temp: 0,
+          transition_period: 0
         });
       } else {
         await sendCommand(config, 'set_device_info', {
           device_on: true,
-          brightness
+          brightness,
+          transition_period: 0
         });
       }
 

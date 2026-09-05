@@ -17,11 +17,16 @@ try {
  * Tapo L900-10 local Wi-Fi bridge
  *
  * Newer L900 firmware can reject KLAP with HTTP 403 and require
- * TPAP/SPAKE2+.  The application now delegates that protocol to
- * the TPAP implementation in iobroker.tapo rather than keeping a
- * second, incomplete crypto implementation in this preload.
+ * TPAP/SPAKE2+. Electron does not expose AES-CCM through its
+ * crypto implementation, so install the local CCM adapter before
+ * loading iobroker.tapo. The rest of the Tapo protocol remains
+ * delegated to iobroker.tapo.
  * ------------------------------------------------------------ */
 try {
+  // Must be loaded before iobroker.tapo so its shared crypto module
+  // sees the AES-CCM compatibility implementation.
+  require('./js/tapo-ccm.js');
+
   const P100Module = require('iobroker.tapo/build/lib/utils/p100.js');
   const P100 = P100Module.default || P100Module;
   const sessions = new Map();
@@ -55,7 +60,7 @@ try {
       false
     );
 
-    // Explicitly select the TPAP/SPAKE2+ path.  This performs the
+    // Explicitly select the TPAP/SPAKE2+ path. This performs the
     // device discovery needed to determine the negotiated PAKE settings.
     if (typeof device.handshake_tpap !== 'function') {
       throw new Error('TPAP transport is not available in the installed Tapo library');

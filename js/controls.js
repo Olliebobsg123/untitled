@@ -76,10 +76,10 @@
   // ------------------------------------------------------------
   // Fixture capability visibility
   // ------------------------------------------------------------
-  // The HTML contains the shared control cards. We only hide cards whose
-  // underlying DMX capability is absent. When multiple fixtures are selected,
-  // capabilities are combined (union), so ALL never removes controls just
-  // because one fixture does not have a particular parameter.
+  // Shared cards are hidden when none of the selected fixtures has the
+  // corresponding mapped channel. For multiple/all selections we use a UNION
+  // of capabilities, so a fixture without a parameter cannot remove that
+  // parameter from the other selected fixtures.
   const CONTROL_CAPABILITIES = {
     intensity: ["intensity", "dimmer", "dim"],
     strobe: ["strobe", "shutter"],
@@ -87,6 +87,18 @@
     colour: ["hue", "sat", "saturation", "red", "green", "blue", "white", "amber", "uv", "cyan", "magenta"],
     xy: ["pan", "tilt"]
   };
+
+  const DYNAMIC_CONTROLS = [
+    { key: "gobo", label: "Gobo", sub: "GOBO", min: 0, max: 255, step: 1 },
+    { key: "gobo2", label: "Gobo 2", sub: "GOBO 2", min: 0, max: 255, step: 1 },
+    { key: "gobor", label: "Gobo Rotation", sub: "GOBO ROTATION", min: 0, max: 255, step: 1 },
+    { key: "gobo2r", label: "Gobo 2 Rotation", sub: "GOBO 2 ROTATION", min: 0, max: 255, step: 1 },
+    { key: "prism", label: "Prism", sub: "PRISM", min: 0, max: 255, step: 1 },
+    { key: "prismr", label: "Prism Rotation", sub: "PRISM ROTATION", min: 0, max: 255, step: 1 },
+    { key: "focus", label: "Focus", sub: "FOCUS", min: 0, max: 255, step: 1 },
+    { key: "frost", label: "Frost", sub: "FROST", min: 0, max: 255, step: 1 },
+    { key: "iris", label: "Iris", sub: "IRIS", min: 0, max: 255, step: 1 }
+  ];
 
   const mapHasCapability = (map, names) => names.some(name => typeof map?.[name] === "number");
 
@@ -109,20 +121,123 @@
     if (group) group.style.display = visible ? "" : "none";
   }
 
+  function setDynamicValue(key, value) {
+    const input = document.getElementById(`dynamic-${key}`);
+    const output = document.getElementById(`dynamic-${key}-val`);
+    if (input) input.value = value;
+    if (output) output.textContent = String(value);
+  }
+
+  function applyDynamicParameter(key, value) {
+    const number = Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+    const fixtures = getSelectedFixtures();
+    if (!fixtures.length) return;
+
+    let changed = false;
+    for (const fixture of fixtures) {
+      const map = getDefinition(fixture)?.map || {};
+      if (typeof map[key] !== "number") continue;
+      const state = getState(fixture);
+      if (!state) continue;
+      state[key] = number;
+      window.State.fixtureStates.set(fixture.id, state);
+      changed = true;
+    }
+
+    if (!changed) return;
+    window.State.current ||= {};
+    window.State.current[key] = number;
+    setDynamicValue(key, number);
+    window.updateDMX?.();
+    window.sendToVisualizer?.();
+  }
+
+  function renderDynamicControls() {
+    const container = document.getElementById("dynamicControls");
+    if (!container) return;
+
+    const fixtures = getSelectedFixtures();
+    if (!fixtures.length) {
+      container.innerHTML = '<div class="selection-empty"><div class="empty-icon">◇</div><strong>Select a fixture</strong><p>Choose a patched fixture to expose its parameters.</p></div>';
+      return;
+    }
+
+    const supported = DYNAMIC_CONTROLS.filter(control =>
+      fixtures.some(fixture => typeof getDefinition(fixture)?.map?.[control.key] === "number")
+    );
+
+    if (!supported.length) {
+      container.replaceChildren();
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    for (const control of supported) {
+      const group = document.createElement("div");
+      group.className = "control-group parameter-card dynamic-parameter-card";
+      group.dataset.dynamicParameter = control.key;
+
+      const heading = document.createElement("div");
+      heading.className = "control-heading";
+
+      const title = document.createElement("div");
+      const label = document.createElement("span");
+      label.className = "control-label";
+      label.textContent = control.label;
+      const sub = document.createElement("small");
+      sub.textContent = control.sub;
+      title.append(label, sub);
+
+      const value = document.createElement("strong");
+      value.className = "fader-val";
+      value.id = `dynamic-${control.key}-val`;
+      value.textContent = "0";
+
+      heading.append(title, value);
+
+      const fader = document.createElement("div");
+      fader.className = "fader";
+      const input = document.createElement("input");
+      input.type = "range";
+      input.id = `dynamic-${control.key}`;
+      input.min = String(control.min);
+      input.max = String(control.max);
+      input.step = String(control.step);
+      input.value = "0";
+      input.dataset.dynamicControl = control.key;
+      fader.appendChild(input);
+
+      input.addEventListener("input", () => applyDynamicParameter(control.key, input.value));
+      input.addEventListener("change", () => applyDynamicParameter(control.key, input.value));
+
+      group.append(heading, fader);
+      fragment.appendChild(group);
+    }
+
+    container.replaceChildren(fragment);
+
+    for (const control of supported) {
+      const fixture = fixtures.find(f => typeof getDefinition(f)?.map?.[control.key] === "number");
+      const state = fixture ? getState(fixture) : null;
+      setDynamicValue(control.key, state?.[control.key] ?? window.State.current?.[control.key] ?? 0);
+    }
+  }
+
   function refreshParameterVisibility() {
     const fixtures = getSelectedFixtures();
     const hasSelection = fixtures.length > 0;
 
-    // Keep Master as a global output control.
+    // Master is global and is never tied to fixture capabilities.
     setInputGroupVisibility("master", true);
 
-    // No fixture selected: show the empty-state and keep parameter cards hidden.
     if (!hasSelection) {
       setInputGroupVisibility("intensity", false);
       setGroupVisibility("strobeGroup", false);
       setGroupVisibility("zoomGroup", false);
       setGroupVisibility("colourGroup", false);
       setGroupVisibility("xyGroup", false);
+      renderDynamicControls();
       return;
     }
 
@@ -131,9 +246,9 @@
     setGroupVisibility("zoomGroup", selectedCapability("zoom"));
     setGroupVisibility("colourGroup", selectedCapability("colour"));
     setGroupVisibility("xyGroup", selectedCapability("xy"));
+    renderDynamicControls();
   }
 
-  // Selection/rendering code elsewhere can call this after changing State.
   window.updateParameterVisibility = refreshParameterVisibility;
 
   let refreshQueued = false;

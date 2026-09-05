@@ -29,6 +29,7 @@
     const rotations = Array.isArray(viz?.fixtureManualRot) ? viz.fixtureManualRot : [];
 
     return {
+      fixtures,
       positions: positions.map(saved => ({
         ...clone(saved),
         fixtureIndex: saved?.fixtureId != null && byId.has(String(saved.fixtureId))
@@ -50,7 +51,18 @@
     if (!Viz) return false;
 
     try {
-      const { positions, rotations } = normalise(viz);
+      const { fixtures, positions, rotations } = normalise(viz);
+
+      // The visualizer keeps its own fixture array. After a show load the
+      // console's State.fixtures has been replaced, so make the visualizer use
+      // that exact loaded fixture list before rebuilding its scene objects.
+      if (fixtures.length) {
+        Viz.fixtures = fixtures;
+        if (window.FixtureLibrary && typeof window.FixtureLibrary === "object") {
+          Viz.library = window.FixtureLibrary;
+          Viz.fixtureCache?.clear?.();
+        }
+      }
 
       if (typeof Viz.applyLoadedPositions === "function") {
         // The visualizer's native loader uses fixtureIndex. Convert saved

@@ -1,35 +1,15 @@
 "use strict";
 
-/*
- * Tapo L900-10 integration.
- *
- * The L900-10 is a Wi-Fi RGB strip, so it deliberately bypasses the DMX
- * channel writer. The renderer still uses the normal fixture/state model and
- * the colour wheel; this file only supplies the network output bridge.
- */
+/* Tapo L900-10 Wi-Fi fixture integration. */
 (function initialiseTapoIntegration() {
   const TAPO_NAME = "Tapo L900-10 (Wi-Fi RGB)";
   const TAPO_FIXTURE = {
     type: "wifi-rgb",
     transport: "tapo",
     channels: 0,
-    map: {
-      intensity: 0,
-      dimmer: 0,
-      hue: 0,
-      sat: 0,
-      r: 0,
-      g: 0,
-      b: 0
-    },
+    map: { intensity: 0, dimmer: 0, hue: 0, sat: 0, r: 0, g: 0, b: 0 },
     capabilities: ["power", "intensity", "colour"],
-    photometrics: {
-      verified: true,
-      sourceType: "LED",
-      ratedLumens: null,
-      manufacturer: "TP-Link Tapo",
-      model: "L900-10"
-    }
+    photometrics: { verified: true, sourceType: "LED", ratedLumens: null, manufacturer: "TP-Link Tapo", model: "L900-10" }
   };
 
   const waitFor = (test, done, attempts = 120) => {
@@ -40,9 +20,7 @@
 
   const ensureFixtureDefinition = () => {
     if (!window.FixtureLibrary) return false;
-    if (!window.FixtureLibrary[TAPO_NAME]) {
-      window.FixtureLibrary[TAPO_NAME] = TAPO_FIXTURE;
-    }
+    if (!window.FixtureLibrary[TAPO_NAME]) window.FixtureLibrary[TAPO_NAME] = TAPO_FIXTURE;
     return true;
   };
 
@@ -111,11 +89,7 @@
     while (queue.length) {
       const item = queue.shift();
       try {
-        await window.Tapo.setState(item.config, {
-          on: item.on,
-          brightness: item.intensity,
-          colour: item.colour
-        });
+        await window.Tapo.setState(item.config, { on: item.on, brightness: item.intensity, colour: item.colour });
       } catch (error) {
         lastSent.delete(item.fixture.id);
         window.log?.(`Tapo ${item.fixture.name}: ${error.message}`, "error");
@@ -124,14 +98,29 @@
     sending = false;
   };
 
-  window.sendTapoState = () => {
-    getSelected().filter(isTapo).forEach(sendState);
+  window.sendTapoState = () => getSelected().filter(isTapo).forEach(sendState);
+
+  const installDmxGuard = () => {
+    if (typeof window.updateDMX !== "function" || window.updateDMX.__tapoGuard) return false;
+    const original = window.updateDMX;
+    const guarded = function tapoSafeUpdateDMX(...args) {
+      const state = window.State;
+      if (!state?.fixtures?.length) return original.apply(this, args);
+      const all = state.fixtures;
+      const dmxFixtures = all.filter(f => !isTapo(f));
+      if (dmxFixtures.length === all.length) return original.apply(this, args);
+      state.fixtures = dmxFixtures;
+      try { return original.apply(this, args); }
+      finally { state.fixtures = all; }
+    };
+    guarded.__tapoGuard = true;
+    window.updateDMX = guarded;
+    return true;
   };
 
   const injectSetup = () => {
     const patchPanel = document.querySelector("#page-patch .page-grid .panel:nth-child(2) .panel-body");
     if (!patchPanel || document.getElementById("tapoSetup")) return;
-
     const setup = document.createElement("div");
     setup.id = "tapoSetup";
     setup.className = "toolbar-card";
@@ -144,13 +133,8 @@
         <div class="form-row"><label>Tapo Password</label><input id="tapoPassword" type="password" placeholder="Tapo account password" autocomplete="off"></div>
       </div>
       <div class="action-row"><button class="btn-secondary" id="tapoTest">Test Tapo Connection</button></div>
-      <small style="display:block;margin-top:8px;opacity:.65">The L900-10 must be on the same local network as this computer. Credentials are kept in the current app session.</small>
-    `;
+      <small style="display:block;margin-top:8px;opacity:.65">The L900-10 must be on the same local network as this computer. Credentials are kept in the current app session.</small>`;
     patchPanel.appendChild(setup);
-
-    const saved = window.__tapoSessionConfig || {};
-    if (saved.ip) document.getElementById("tapoIp").value = saved.ip;
-    if (saved.email) document.getElementById("tapoEmail").value = saved.email;
 
     document.getElementById("tapoTest")?.addEventListener("click", async () => {
       const config = {
@@ -158,13 +142,11 @@
         email: document.getElementById("tapoEmail")?.value.trim(),
         password: document.getElementById("tapoPassword")?.value
       };
-      if (!config.ip || !config.email || !config.password) {
-        return window.log?.("Enter Tapo IP, email and password first", "warn");
-      }
+      if (!config.ip || !config.email || !config.password) return window.log?.("Enter Tapo IP, email and password first", "warn");
       window.__tapoSessionConfig = config;
       try {
-        const info = await window.Tapo.test(config);
-        window.log?.(`Tapo connected: ${info?.device_info?.device_on != null ? "L900-10 responding" : "device responding"}`, "ok");
+        await window.Tapo.test(config);
+        window.log?.("Tapo L900-10 responding", "ok");
       } catch (error) {
         window.log?.(`Tapo connection failed: ${error.message}`, "error");
       }
@@ -175,21 +157,14 @@
     const button = document.getElementById("btnPatch");
     if (!button || button.dataset.tapoPatched === "1") return !!button;
     button.dataset.tapoPatched = "1";
-
     button.addEventListener("click", () => {
-      const name = document.getElementById("patchName")?.value;
-      if (name !== TAPO_NAME) return;
-
+      if (document.getElementById("patchName")?.value !== TAPO_NAME) return;
       const config = window.__tapoSessionConfig || {
         ip: document.getElementById("tapoIp")?.value.trim(),
         email: document.getElementById("tapoEmail")?.value.trim(),
         password: document.getElementById("tapoPassword")?.value
       };
-      if (!config.ip || !config.email || !config.password) {
-        window.log?.("Configure the Tapo connection before patching the L900-10", "warn");
-        return;
-      }
-
+      if (!config.ip || !config.email || !config.password) return window.log?.("Configure the Tapo connection before patching the L900-10", "warn");
       window.__tapoSessionConfig = config;
       const before = new Set((window.State.fixtures || []).map(f => String(f.id)));
       setTimeout(() => {
@@ -206,34 +181,23 @@
         window.State.fixtureStates.set(fixture.id, state);
         window.updateDMX?.();
         window.updateParameterVisibility?.();
+        window.renderFixtures?.();
         window.log?.(`Tapo patched: #${fixture.fixtureNumber} ${TAPO_NAME}`, "ok");
         sendState(fixture);
       }, 0);
     }, true);
-
     return true;
   };
 
   const wireRendererControls = () => {
     if (document.documentElement.dataset.tapoControls === "1") return;
     document.documentElement.dataset.tapoControls = "1";
-
-    const relevant = ["intensity", "hue", "sat", "light"];
-    relevant.forEach(id => {
-      document.getElementById(id)?.addEventListener("input", () => {
-        getSelected().filter(isTapo).forEach(sendState);
-      });
-      document.getElementById(id)?.addEventListener("change", () => {
-        getSelected().filter(isTapo).forEach(sendState);
-      });
+    ["intensity", "hue", "sat", "light"].forEach(id => {
+      document.getElementById(id)?.addEventListener("input", () => getSelected().filter(isTapo).forEach(sendState));
+      document.getElementById(id)?.addEventListener("change", () => getSelected().filter(isTapo).forEach(sendState));
     });
-
-    document.querySelectorAll("[data-hue]").forEach(button => {
-      button.addEventListener("click", () => setTimeout(() => getSelected().filter(isTapo).forEach(sendState), 0));
-    });
-    document.querySelectorAll("[data-v]").forEach(button => {
-      button.addEventListener("click", () => setTimeout(() => getSelected().filter(isTapo).forEach(sendState), 0));
-    });
+    document.querySelectorAll("[data-hue]").forEach(button => button.addEventListener("click", () => setTimeout(() => getSelected().filter(isTapo).forEach(sendState), 0)));
+    document.querySelectorAll("[data-v]").forEach(button => button.addEventListener("click", () => setTimeout(() => getSelected().filter(isTapo).forEach(sendState), 0)));
   };
 
   const start = () => {
@@ -241,6 +205,7 @@
     injectSetup();
     wireFixturePatching();
     wireRendererControls();
+    installDmxGuard();
     window.renderLibrary?.();
   };
 

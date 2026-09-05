@@ -21,51 +21,62 @@
 
   const getViz = () => window.S || window.VizState || null;
 
+  const normalise = viz => {
+    const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
+    const byId = new Map(fixtures.map((fixture, index) => [String(fixture?.id), index]));
+
+    const positions = Array.isArray(viz?.fixturePositions) ? viz.fixturePositions : [];
+    const rotations = Array.isArray(viz?.fixtureManualRot) ? viz.fixtureManualRot : [];
+
+    return {
+      positions: positions.map(saved => ({
+        ...clone(saved),
+        fixtureIndex: saved?.fixtureId != null && byId.has(String(saved.fixtureId))
+          ? byId.get(String(saved.fixtureId))
+          : Number(saved?.fixtureIndex)
+      })).filter(saved => Number.isInteger(saved.fixtureIndex) && saved.fixtureIndex >= 0 && saved.fixtureIndex < fixtures.length),
+      rotations: rotations.map(saved => ({
+        ...clone(saved),
+        fixtureIndex: saved?.fixtureId != null && byId.has(String(saved.fixtureId))
+          ? byId.get(String(saved.fixtureId))
+          : Number(saved?.fixtureIndex)
+      })).filter(saved => Number.isInteger(saved.fixtureIndex) && saved.fixtureIndex >= 0 && saved.fixtureIndex < fixtures.length)
+    };
+  };
+
   const apply = viz => {
     if (!viz || typeof viz !== "object") return false;
     const Viz = getViz();
     if (!Viz) return false;
 
-    const positions = Array.isArray(viz.fixturePositions) ? viz.fixturePositions : [];
-    const rotations = Array.isArray(viz.fixtureManualRot) ? viz.fixtureManualRot : [];
-
     try {
+      const { positions, rotations } = normalise(viz);
+
       if (typeof Viz.applyLoadedPositions === "function") {
+        // The visualizer's native loader uses fixtureIndex. Convert saved
+        // fixture IDs to the current fixture order before calling it.
         Viz.applyLoadedPositions(clone(positions), clone(rotations));
       } else {
         if (!(Viz.fixturePositions instanceof Map)) Viz.fixturePositions = new Map();
         if (!(Viz.fixtureManualRot instanceof Map)) Viz.fixtureManualRot = new Map();
 
-        const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
-        const byId = new Map(fixtures.map((fixture, index) => [String(fixture?.id), index]));
-
         Viz.fixturePositions.clear();
         Viz.fixtureManualRot.clear();
 
         positions.forEach(saved => {
-          const index = saved?.fixtureId != null && byId.has(String(saved.fixtureId))
-            ? byId.get(String(saved.fixtureId))
-            : Number(saved?.fixtureIndex);
-          if (!Number.isInteger(index) || index < 0 || index >= fixtures.length) return;
-
           const x = Number(saved.x);
           const y = Number(saved.y);
           const z = Number(saved.z);
           if ([x, y, z].every(Number.isFinite)) {
-            Viz.fixturePositions.set(index, { x, y, z });
+            Viz.fixturePositions.set(saved.fixtureIndex, { x, y, z });
           }
         });
 
         rotations.forEach(saved => {
-          const index = saved?.fixtureId != null && byId.has(String(saved.fixtureId))
-            ? byId.get(String(saved.fixtureId))
-            : Number(saved?.fixtureIndex);
-          if (!Number.isInteger(index) || index < 0 || index >= fixtures.length) return;
-
           const pan = Number(saved.pan);
           const tilt = Number(saved.tilt);
           if ([pan, tilt].every(Number.isFinite)) {
-            Viz.fixtureManualRot.set(index, { pan, tilt });
+            Viz.fixtureManualRot.set(saved.fixtureIndex, { pan, tilt });
           }
         });
 
@@ -73,8 +84,6 @@
       }
 
       if (Viz.grid) Viz.grid.visible = viz.gridOn !== false;
-      if (Viz.house) Viz.house.visible = viz.houseOn === true;
-      if (Viz.work) Viz.work.visible = viz.workOn === true;
       return true;
     } catch (error) {
       console.warn("[SHOW] Visualizer position reapply failed:", error);
@@ -86,21 +95,31 @@
     let attempts = 0;
     const run = () => {
       attempts++;
-      if (apply(viz) || attempts >= 30) return;
-      setTimeout(run, 100);
+      const applied = apply(viz);
+
+      // Do not stop after the first successful apply. The visualizer can
+      // rebuild its fixture list immediately after a show load, so reapply
+      // for a short window to ensure the saved positions survive that rebuild.
+      if (attempts < 20) {
+        setTimeout(run, attempts < 5 ? 50 : 100);
+      } else if (!applied) {
+        console.warn("[SHOW] Visualizer positions could not be restored");
+      }
     };
     run();
   };
 
   document.addEventListener("lx-show-loaded", event => {
     const viz = event.detail?.visualizer;
-    if (viz) retry(viz);
+    if (viz) {
+      window.__pendingShowVisualizerState = clone(viz);
+      retry(window.__pendingShowVisualizerState);
+    }
   });
 
   window.addEventListener("lx-show-visualizer-ready", () => {
     const pending = window.__pendingShowVisualizerState;
     if (!pending) return;
-    delete window.__pendingShowVisualizerState;
     retry(pending);
   });
 

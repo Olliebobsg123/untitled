@@ -1,34 +1,40 @@
 "use strict";
 
+/*
+ * LX Console show-file system.
+ *
+ * This file is now the single source of truth for show save/load. It combines
+ * the old show.js browser/UI behaviour with the newer showfile.js Electron
+ * file bridge, including fixtures, Tapo settings, QLab, outputs, effects,
+ * chases, fixture states and visualizer state.
+ */
 (function () {
-  const api = () => window.LXShowFiles;
-
   const cloneValue = value => {
     if (value === null || value === undefined || typeof value !== "object") return value;
     if (Array.isArray(value)) return value.map(cloneValue);
     const out = {};
     for (const [key, item] of Object.entries(value)) {
-      if (key === "chaseTimer" || key === "fading" || key === "Viz" || key === "effectFrame") continue;
+      if (["chaseTimer", "fading", "Viz", "effectFrame"].includes(key)) continue;
       try { out[key] = cloneValue(item); } catch (_) {}
     }
     return out;
   };
 
-  function readStoredJSON(key, fallback) {
+  const readStoredJSON = (key, fallback) => {
     try {
       const raw = localStorage.getItem(key);
       return raw == null ? fallback : JSON.parse(raw);
     } catch (_) { return fallback; }
-  }
+  };
 
-  function writeStoredJSON(key, value) {
+  const writeStoredJSON = (key, value) => {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
-  }
+  };
 
-  function isTapoFixture(fixture) {
+  const isTapoFixture = fixture => {
     const def = fixture && (window.FixtureLibrary?.[fixture.name] || fixture.definition);
     return def?.transport === "tapo" || fixture?.transport === "tapo" || !!fixture?.tapo;
-  }
+  };
 
   function snapshotTapoSettings(fixtures) {
     return (Array.isArray(fixtures) ? fixtures : [])
@@ -45,19 +51,12 @@
       .filter(config => config.ip || config.email || config.password);
   }
 
-  function restoreTapoSettings(fixtures, tapoSettings) {
-    if (!Array.isArray(fixtures) || !Array.isArray(tapoSettings)) return;
-
-    const byId = new Map(
-      tapoSettings
-        .filter(item => item && item.fixtureId != null)
-        .map(item => [String(item.fixtureId), item])
-    );
-
+  function restoreTapoSettings(fixtures, settings) {
+    if (!Array.isArray(fixtures) || !Array.isArray(settings)) return;
+    const byId = new Map(settings.filter(x => x?.fixtureId != null).map(x => [String(x.fixtureId), x]));
     fixtures.forEach(fixture => {
       const config = byId.get(String(fixture?.id));
       if (!config) return;
-
       fixture.transport = "tapo";
       fixture.tapo = {
         ip: String(config.ip || "").trim(),
@@ -69,24 +68,67 @@
     });
   }
 
-  function snapshotExternalSettings(fixtures) {
-    // QLab keeps the editable lighting links in the live QLab object. Reading
-    // localStorage here can save an older copy when the user has changed links
-    // without a browser-storage write happening first.
-    const liveQLab = window.QLab;
-    const liveCueLinks = liveQLab?.cueLinks && typeof liveQLab.cueLinks === "object"
-      ? cloneValue(liveQLab.cueLinks) : null;
-    const liveTimeTriggers = liveQLab?.timeTriggers && typeof liveQLab.timeTriggers === "object"
-      ? cloneValue(liveQLab.timeTriggers) : null;
-    const storedConnection = readStoredJSON("qlabConnectionSettings", {});
-    const connection = liveQLab && typeof liveQLab === "object"
-      ? {
-          ip: liveQLab.ip,
-          bridgePort: liveQLab.bridgePort,
-          passcode: liveQLab.passcode
-        }
-      : storedConnection;
+  function getMultiOutputShowState() {
+    const outputs = readStoredJSON("lighting-multi-outputs", []);
+    return Array.isArray(outputs) ? outputs : [];
+  }
 
+  function getOutputSettingsShowState() {
+    const result = { outputs: getMultiOutputShowState(), relay: null, legacy: null };
+    const legacy = readStoredJSON("lighting-output-settings", null);
+    if (legacy && typeof legacy === "object") result.legacy = cloneValue(legacy);
+    try {
+      const art = window.ArtNet;
+      if (art && typeof art === "object") {
+        result.relay = {
+          protocol: "artnet",
+          universe: Number.isFinite(Number(art.universe)) ? Number(art.universe) : 0,
+          enabled: Boolean(art.enabled),
+          fps: Number.isFinite(Number(art.fps)) ? Number(art.fps) : 25,
+          port: 6454,
+          name: "Lighting Console"
+        };
+      }
+    } catch (_) {}
+    result.outputs = result.outputs.map((output, index) => {
+      const o = cloneValue(output) || {};
+      const protocol = String(o.protocol || "artnet").toLowerCase();
+      o.name = String(o.name || `Universe Output ${index + 1}`);
+      o.protocol = ["artnet", "sacn", "usb"].includes(protocol) ? protocol : "artnet";
+      o.port = Number.isInteger(Number(o.port)) ? Number(o.port) : (o.protocol === "sacn" ? 5568 : o.protocol === "artnet" ? 6454 : null);
+      o.target = String(o.target || "");
+      return o;
+    });
+    return result;
+  }
+
+  function restoreOutputSettingsShowState(settings) {
+    if (!settings || typeof settings !== "object") return;
+    if (settings.legacy && typeof settings.legacy === "object") writeStoredJSON("lighting-output-settings", settings.legacy);
+    if (Array.isArray(settings.outputs)) {
+      const outputs = settings.outputs.map((output, index) => {
+        const o = cloneValue(output) || {};
+        const protocol = String(o.protocol || "artnet").toLowerCase();
+        o.name = String(o.name || `Universe Output ${index + 1}`);
+        o.protocol = ["artnet", "sacn", "usb"].includes(protocol) ? protocol : "artnet";
+        o.port = Number.isInteger(Number(o.port)) ? Number(o.port) : (o.protocol === "sacn" ? 5568 : o.protocol === "artnet" ? 6454 : null);
+        return o;
+      });
+      writeStoredJSON("lighting-multi-outputs", outputs);
+      window.dispatchEvent(new CustomEvent("show-multi-output-restore", { detail: { outputs } }));
+    }
+  }
+
+  function snapshotExternalSettings(fixtures) {
+    const liveQLab = window.QLab;
+    const liveCueLinks = liveQLab?.cueLinks && typeof liveQLab.cueLinks === "object" ? cloneValue(liveQLab.cueLinks) : null;
+    const liveTimeTriggers = liveQLab?.timeTriggers && typeof liveQLab.timeTriggers === "object" ? cloneValue(liveQLab.timeTriggers) : null;
+    const storedConnection = readStoredJSON("qlabConnectionSettings", {});
+    const connection = liveQLab && typeof liveQLab === "object" ? {
+      ip: liveQLab.ip,
+      bridgePort: liveQLab.bridgePort,
+      passcode: liveQLab.passcode
+    } : storedConnection;
     return {
       qlab: {
         connection: cloneValue(connection || storedConnection || {}),
@@ -94,16 +136,77 @@
         timeTriggers: liveTimeTriggers || readStoredJSON("qlabTimeTriggers", {})
       },
       tapo: snapshotTapoSettings(fixtures),
-      multiOutputs: readStoredJSON("lighting-multi-outputs", []),
+      multiOutputs: getMultiOutputShowState(),
+      outputSettings: getOutputSettingsShowState(),
       networkTarget: (() => {
         try { return localStorage.getItem("lighting-network-target") || ""; } catch (_) { return ""; }
       })()
     };
   }
 
+  function getVisualizerState() {
+    if (window.S || window.VizState) return window.S || window.VizState;
+    return null;
+  }
+
+  function snapshotVisualizerState() {
+    const Viz = getVisualizerState();
+    const result = { fixturePositions: [], fixtureManualRot: [], gridOn: true, houseOn: false, workOn: false };
+    if (!Viz) return result;
+    const fixtures = Array.isArray(State.fixtures) ? State.fixtures : [];
+    fixtures.forEach((fx, index) => {
+      const pos = Viz.fixturePositions?.get(index);
+      if (pos) result.fixturePositions.push({ fixtureIndex: index, fixtureId: fx.id, x: Number(pos.x), y: Number(pos.y), z: Number(pos.z) });
+      const rot = Viz.fixtureManualRot?.get(index);
+      if (rot) result.fixtureManualRot.push({ fixtureIndex: index, fixtureId: fx.id, pan: Number(rot.pan), tilt: Number(rot.tilt) });
+    });
+    result.gridOn = Viz.gridOn !== undefined ? Boolean(Viz.gridOn) : true;
+    result.houseOn = Viz.houseOn !== undefined ? Boolean(Viz.houseOn) : false;
+    result.workOn = Viz.workOn !== undefined ? Boolean(Viz.workOn) : false;
+    return result;
+  }
+
+  function restoreVisualizerState(viz) {
+    if (!viz || typeof viz !== "object") return;
+    const Viz = getVisualizerState();
+    if (!Viz) {
+      window.__pendingShowVisualizerState = cloneValue(viz);
+      return;
+    }
+    try {
+      const positions = Array.isArray(viz.fixturePositions) ? viz.fixturePositions : [];
+      const rotations = Array.isArray(viz.fixtureManualRot) ? viz.fixtureManualRot : [];
+      if (typeof Viz.applyLoadedPositions === "function") {
+        Viz.applyLoadedPositions(positions, rotations);
+      } else {
+        if (!(Viz.fixturePositions instanceof Map)) Viz.fixturePositions = new Map();
+        if (!(Viz.fixtureManualRot instanceof Map)) Viz.fixtureManualRot = new Map();
+        Viz.fixturePositions.clear();
+        Viz.fixtureManualRot.clear();
+        const fixtures = Array.isArray(State.fixtures) ? State.fixtures : [];
+        const byId = new Map(fixtures.map((fx, index) => [String(fx?.id), index]));
+        positions.forEach(saved => {
+          const index = saved?.fixtureId != null && byId.has(String(saved.fixtureId)) ? byId.get(String(saved.fixtureId)) : Number(saved?.fixtureIndex);
+          if (!Number.isInteger(index) || index < 0 || index >= fixtures.length) return;
+          const x = Number(saved.x), y = Number(saved.y), z = Number(saved.z);
+          if ([x, y, z].every(Number.isFinite)) Viz.fixturePositions.set(index, { x, y, z });
+        });
+        rotations.forEach(saved => {
+          const index = saved?.fixtureId != null && byId.has(String(saved.fixtureId)) ? byId.get(String(saved.fixtureId)) : Number(saved?.fixtureIndex);
+          if (!Number.isInteger(index) || index < 0 || index >= fixtures.length) return;
+          const pan = Number(saved.pan), tilt = Number(saved.tilt);
+          if ([pan, tilt].every(Number.isFinite)) Viz.fixtureManualRot.set(index, { pan, tilt });
+        });
+        Viz.rebuildFixtures?.();
+      }
+      if (Viz.grid) Viz.grid.visible = viz.gridOn !== false;
+    } catch (error) {
+      console.warn("[SHOW] Visualizer restore failed:", error);
+    }
+  }
+
   function snapshotSelectedEffect() {
-    const name = String(document.getElementById("effectName")?.value || "").trim();
-    return name || null;
+    return String(document.getElementById("effectName")?.value || "").trim() || null;
   }
 
   function snapshotSelectedChase() {
@@ -111,65 +214,23 @@
     if (!list) return -1;
     const active = list.querySelector(".cue-item.active");
     if (!active) return -1;
-    const items = [...list.querySelectorAll(".cue-item")];
-    return items.indexOf(active);
-  }
-
-  function restoreExternalSettings(show) {
-    const external = show?.externalSettings || {};
-    // Also accept the older temporary top-level qlab format so shows saved by
-    // the earlier QLab persistence attempt can still be loaded correctly.
-    const qlab = external.qlab || show?.qlab || {};
-
-    if (qlab.connection && typeof qlab.connection === "object") writeStoredJSON("qlabConnectionSettings", qlab.connection);
-    if (qlab.cueLinks && typeof qlab.cueLinks === "object") writeStoredJSON("qlabCueLinks", qlab.cueLinks);
-    if (qlab.timeTriggers && typeof qlab.timeTriggers === "object") writeStoredJSON("qlabTimeTriggers", qlab.timeTriggers);
-
-    if (external.networkTarget) {
-      try { localStorage.setItem("lighting-network-target", String(external.networkTarget)); } catch (_) {}
-    }
-    if (Array.isArray(external.multiOutputs)) writeStoredJSON("lighting-multi-outputs", external.multiOutputs);
-
-    try {
-      if (window.QLab) {
-        const connection = qlab.connection || {};
-        if (connection.ip != null) window.QLab.ip = String(connection.ip);
-        if (connection.bridgePort != null) window.QLab.bridgePort = Number(connection.bridgePort) || 8083;
-        if (connection.passcode != null) window.QLab.passcode = String(connection.passcode);
-        if (qlab.cueLinks && typeof qlab.cueLinks === "object") window.QLab.cueLinks = cloneValue(qlab.cueLinks);
-        if (qlab.timeTriggers && typeof qlab.timeTriggers === "object") window.QLab.timeTriggers = cloneValue(qlab.timeTriggers);
-        // Keep both the live QLab object and browser persistence in sync after
-        // LOAD so a subsequent SAVE cannot accidentally overwrite the loaded
-        // links with the old localStorage copy.
-        if (typeof window.QLab.saveStoredLinks === "function") window.QLab.saveStoredLinks();
-        window.QLab.renderLinkEditor?.();
-        window.QLab.renderCueSync?.();
-        window.QLab.updateStatus?.(window.QLab.connected);
-      }
-    } catch (error) { console.warn("[SHOW] QLab settings refresh failed:", error); }
-
-    try {
-      window.dispatchEvent(new CustomEvent("show-multi-output-restore", {
-        detail: {
-          outputs: Array.isArray(external.multiOutputs) ? external.multiOutputs : [],
-          networkTarget: external.networkTarget || ""
-        }
-      }));
-    } catch (error) { console.warn("[SHOW] Multi-output settings refresh failed:", error); }
+    return [...list.querySelectorAll(".cue-item")].indexOf(active);
   }
 
   function snapshotShow() {
     const state = window.State || {};
     const fixtures = Array.isArray(state.fixtures) ? state.fixtures : [];
+    const effects = cloneValue(state.savedEffects || {});
     return {
       format: "lx-console-show",
-      version: 6,
+      version: 7,
       savedAt: new Date().toISOString(),
       fixtures: cloneValue(fixtures),
       groups: cloneValue(state.groups || []),
       cues: cloneValue(state.cues || []),
       chases: cloneValue(state.chases || []),
-      savedEffects: cloneValue(state.savedEffects || {}),
+      savedEffects: effects,
+      effects,
       effectTargetMode: String(state.effectTargetMode || "selected"),
       effectTargetIds: state.effectTargetIds instanceof Set ? [...state.effectTargetIds] : Array.isArray(state.effectTargetIds) ? state.effectTargetIds.slice() : [],
       palettes: cloneValue(state.palettes || []),
@@ -179,21 +240,26 @@
       selectedFixtureId: state.selectedFixtureId ?? null,
       selected: state.selected instanceof Set ? [...state.selected] : [],
       currentCue: Number.isInteger(state.currentCue) ? state.currentCue : -1,
-      chaseFade: Number.isFinite(state.chaseFade) ? state.chaseFade : 800,
-      chaseWait: Number.isFinite(state.chaseWait) ? state.chaseWait : 500,
+      currentChase: Number.isInteger(state.currentChase) ? state.currentChase : -1,
+      activeChase: Number.isInteger(state.currentChase) && state.currentChase >= 0 ? state.currentChase : -1,
+      activeEffect: state.activeEffect?.type ? cloneValue(state.activeEffect) : null,
+      chaseFade: Number.isFinite(Number(state.chaseFade)) ? Number(state.chaseFade) : 800,
+      chaseWait: Number.isFinite(Number(state.chaseWait)) ? Number(state.chaseWait) : 500,
       selectedEffectName: snapshotSelectedEffect(),
       selectedChaseIndex: snapshotSelectedChase(),
+      visualizer: snapshotVisualizerState(),
       externalSettings: snapshotExternalSettings(fixtures)
     };
   }
 
   function stopLivePlayback() {
-    try { window.stopEffect?.(true); } catch (error) { console.warn("[SHOW] Could not stop effect:", error); }
-    try { window.stopChase?.(false); } catch (error) { console.warn("[SHOW] Could not stop chase:", error); }
+    try { window.stopEffect?.(true); } catch (_) {}
+    try { window.stopChase?.(false); } catch (_) {}
     const state = window.State;
     if (!state) return;
     if (state.chaseTimer) { try { clearTimeout(state.chaseTimer); } catch (_) {} state.chaseTimer = null; }
     if (state.fading != null) { try { cancelAnimationFrame(state.fading); } catch (_) {} state.fading = null; }
+    if (state.followTimer != null) { try { clearTimeout(state.followTimer); } catch (_) {} state.followTimer = null; }
     state.currentChase = -1;
     state.activeEffect = null;
     state.effectFrame = null;
@@ -207,8 +273,14 @@
       const name = String(raw.name || key).trim();
       if (!name) continue;
       const fixtureIds = Array.isArray(raw.fixtureIds) ? raw.fixtureIds.map(String) : [];
-      const fixtureMode = ["selected", "all", "custom"].includes(String(raw.fixtureMode)) ? String(raw.fixtureMode) : fixtureIds.length ? "custom" : "selected";
-      effects[name] = { ...cloneValue(raw), name, type: String(raw.type || "rainbow").toLowerCase(), speed: Number.isFinite(Number(raw.speed)) ? Number(raw.speed) : 1, fixtureMode, fixtureIds };
+      effects[name] = {
+        ...cloneValue(raw),
+        name,
+        type: String(raw.type || "rainbow").toLowerCase(),
+        speed: Number.isFinite(Number(raw.speed)) ? Number(raw.speed) : 1,
+        fixtureMode: ["selected", "all", "custom"].includes(String(raw.fixtureMode)) ? String(raw.fixtureMode) : fixtureIds.length ? "custom" : "selected",
+        fixtureIds
+      };
     }
     return effects;
   }
@@ -232,6 +304,84 @@
     });
   }
 
+  function restoreExternalSettings(show) {
+    const external = show?.externalSettings || {};
+    const qlab = external.qlab || show?.qlab || {};
+    if (qlab.connection && typeof qlab.connection === "object") writeStoredJSON("qlabConnectionSettings", qlab.connection);
+    if (qlab.cueLinks && typeof qlab.cueLinks === "object") writeStoredJSON("qlabCueLinks", qlab.cueLinks);
+    if (qlab.timeTriggers && typeof qlab.timeTriggers === "object") writeStoredJSON("qlabTimeTriggers", qlab.timeTriggers);
+    if (external.networkTarget) {
+      try { localStorage.setItem("lighting-network-target", String(external.networkTarget)); } catch (_) {}
+    }
+    if (Array.isArray(external.multiOutputs)) writeStoredJSON("lighting-multi-outputs", external.multiOutputs);
+    if (external.outputSettings && typeof external.outputSettings === "object") restoreOutputSettingsShowState(external.outputSettings);
+    try {
+      if (window.QLab) {
+        const connection = qlab.connection || {};
+        if (connection.ip != null) window.QLab.ip = String(connection.ip);
+        if (connection.bridgePort != null) window.QLab.bridgePort = Number(connection.bridgePort) || 8083;
+        if (connection.passcode != null) window.QLab.passcode = String(connection.passcode);
+        if (qlab.cueLinks && typeof qlab.cueLinks === "object") window.QLab.cueLinks = cloneValue(qlab.cueLinks);
+        if (qlab.timeTriggers && typeof qlab.timeTriggers === "object") window.QLab.timeTriggers = cloneValue(qlab.timeTriggers);
+        window.QLab.saveStoredLinks?.();
+        window.QLab.renderLinkEditor?.();
+        window.QLab.renderCueSync?.();
+        window.QLab.updateStatus?.(window.QLab.connected);
+      }
+    } catch (error) { console.warn("[SHOW] QLab settings refresh failed:", error); }
+    try {
+      window.dispatchEvent(new CustomEvent("show-multi-output-restore", {
+        detail: {
+          outputs: Array.isArray(external.multiOutputs) ? external.multiOutputs : [],
+          networkTarget: external.networkTarget || ""
+        }
+      }));
+    } catch (_) {}
+  }
+
+  function restoreShow(show) {
+    if (!show || typeof show !== "object" || (show.format && show.format !== "lx-console-show")) throw new Error("Not a valid LX Console show file");
+    stopLivePlayback();
+    const state = window.State || (window.State = {});
+    state.fixtures = Array.isArray(show.fixtures) ? show.fixtures : [];
+    restoreTapoSettings(state.fixtures, show?.externalSettings?.tapo || show?.tapoSettings || []);
+    state.groups = Array.isArray(show.groups) ? show.groups : [];
+    state.cues = Array.isArray(show.cues) ? show.cues : [];
+    state.chases = normaliseChases(show.chases, state.cues.length);
+    state.savedEffects = normaliseEffects(show.savedEffects || show.effects);
+    state.effectTargetMode = String(show.effectTargetMode || "selected");
+    state.effectTargetIds = new Set(Array.isArray(show.effectTargetIds) ? show.effectTargetIds.map(String) : []);
+    state.palettes = Array.isArray(show.palettes) ? show.palettes : [];
+    state.targets = Array.isArray(show.targets) ? show.targets : [];
+    state.current = show.current && typeof show.current === "object" ? cloneValue(show.current) : {};
+    state.selectedFixtureId = show.selectedFixtureId ?? null;
+    state.currentCue = Number.isInteger(show.currentCue) ? show.currentCue : -1;
+    state.currentChase = -1;
+    state.chaseFade = Number.isFinite(Number(show.chaseFade)) ? Number(show.chaseFade) : 800;
+    state.chaseWait = Number.isFinite(Number(show.chaseWait)) ? Number(show.chaseWait) : 500;
+    state.selected = new Set(Array.isArray(show.selected) ? show.selected : []);
+    state.fixtureStates = new Map(Array.isArray(show.fixtureStates) ? show.fixtureStates.map(([id, value]) => [String(id), cloneValue(value)]) : []);
+    window.chaseFade = state.chaseFade;
+    window.chaseWait = state.chaseWait;
+    restoreExternalSettings(show);
+    try { window.initFixtureStates?.(); } catch (_) {}
+    try { window.renderFixtures?.(); } catch (_) {}
+    try { window.renderGroups?.(); } catch (_) {}
+    try { window.renderCues?.(); } catch (_) {}
+    try { window.renderChases?.(); } catch (_) {}
+    try { window.renderEffectsList?.(); } catch (_) {}
+    try { window.fxRenderEffectTargetUI?.(); } catch (_) {}
+    try { window.buildControls?.(); } catch (_) {}
+    try { window.render?.(); } catch (_) {}
+    try { window.updateControlVisibility?.(); } catch (_) {}
+    try { window.updateDMX?.(); } catch (_) {}
+    try { window.sendToVisualizer?.(); } catch (_) {}
+    restoreVisualizerState(show.visualizer);
+    restoreSelectedEffect(show);
+    restoreSelectedChase(show);
+    document.dispatchEvent(new CustomEvent("lx-show-loaded", { detail: show }));
+  }
+
   function restoreSelectedEffect(show) {
     const effects = window.State?.savedEffects || {};
     const name = String(show?.selectedEffectName || "").trim();
@@ -241,12 +391,12 @@
     const typeEl = document.getElementById("effectType");
     const speedEl = document.getElementById("effectSpeed");
     const modeEl = document.getElementById("effectFixtureMode");
-    const editor = document.getElementById("effectEditor");
     if (nameEl) nameEl.value = effect.name;
     if (typeEl) typeEl.value = effect.type;
     if (speedEl) speedEl.value = effect.speed;
     if (modeEl) modeEl.value = effect.fixtureMode || "selected";
     window.State.effectTargetIds = new Set(Array.isArray(effect.fixtureIds) ? effect.fixtureIds.map(String) : []);
+    const editor = document.getElementById("effectEditor");
     if (editor) editor.style.display = "block";
     window.fxRenderEffectTargetUI?.();
   }
@@ -254,66 +404,11 @@
   function restoreSelectedChase(show) {
     const chases = window.State?.chases || [];
     if (!chases.length) return;
-    let index = Number(show?.selectedChaseIndex);
-    if (!Number.isInteger(index) || index < 0 || index >= chases.length) index = 0;
+    const index = Number(show?.selectedChaseIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= chases.length) return;
     const list = document.getElementById("chaseList");
     const items = list ? [...list.querySelectorAll(".cue-item")] : [];
-    if (items[index]) {
-      items[index].click();
-      return;
-    }
-    setTimeout(() => {
-      const retry = document.getElementById("chaseList");
-      const retryItems = retry ? [...retry.querySelectorAll(".cue-item")] : [];
-      if (retryItems[index]) retryItems[index].click();
-    }, 0);
-  }
-
-  function restoreShow(show) {
-    if (!show || typeof show !== "object" || show.format !== "lx-console-show") throw new Error("Not a valid LX Console show file");
-
-    stopLivePlayback();
-    const state = window.State || (window.State = {});
-    state.fixtures = Array.isArray(show.fixtures) ? show.fixtures : [];
-    restoreTapoSettings(state.fixtures, show?.externalSettings?.tapo || show?.tapoSettings || []);
-    state.groups = Array.isArray(show.groups) ? show.groups : [];
-    state.cues = Array.isArray(show.cues) ? show.cues : [];
-    state.chases = normaliseChases(show.chases, state.cues.length);
-    state.savedEffects = normaliseEffects(show.savedEffects);
-    state.effectTargetMode = String(show.effectTargetMode || "selected");
-    state.effectTargetIds = new Set(Array.isArray(show.effectTargetIds) ? show.effectTargetIds.map(String) : []);
-    state.palettes = Array.isArray(show.palettes) ? show.palettes : [];
-    state.targets = Array.isArray(show.targets) ? show.targets : [];
-    state.current = show.current && typeof show.current === "object" ? show.current : {};
-    state.selectedFixtureId = show.selectedFixtureId ?? null;
-    state.currentCue = Number.isInteger(show.currentCue) ? show.currentCue : -1;
-    state.chaseFade = Number.isFinite(show.chaseFade) ? show.chaseFade : 800;
-    state.chaseWait = Number.isFinite(show.chaseWait) ? show.chaseWait : 500;
-    state.selected = new Set(Array.isArray(show.selected) ? show.selected : []);
-    state.fixtureStates = new Map(Array.isArray(show.fixtureStates) ? show.fixtureStates.map(([id, value]) => [String(id), cloneValue(value)]) : []);
-
-    window.chaseFade = state.chaseFade;
-    window.chaseWait = state.chaseWait;
-    restoreExternalSettings(show);
-
-    try { window.initFixtureStates?.(); } catch (error) { console.warn("[SHOW] Fixture state rebuild failed:", error); }
-    try { window.fxRenderEffectTargetUI?.(); } catch (_) {}
-    try { window.renderFixtures?.(); } catch (_) {}
-    try { window.renderGroups?.(); } catch (_) {}
-    try { window.renderCues?.(); } catch (_) {}
-    try { window.renderChases?.(); } catch (_) {}
-    try { window.renderEffectsList?.(); } catch (error) { console.warn("[SHOW] Effect list rebuild failed:", error); }
-    try { window.buildControls?.(); } catch (_) {}
-    try { window.render?.(); } catch (_) {}
-    try { window.updateControlVisibility?.(); } catch (_) {}
-    try { window.updateDMX?.(); } catch (_) {}
-    try { window.sendToVisualizer?.(); } catch (_) {}
-
-    try { restoreSelectedEffect(show); } catch (error) { console.warn("[SHOW] Effect selection restore failed:", error); }
-    try { restoreSelectedChase(show); } catch (error) { console.warn("[SHOW] Chase selection restore failed:", error); }
-    try { window.fxRenderEffectTargetUI?.(); } catch (_) {}
-
-    document.dispatchEvent(new CustomEvent("lx-show-loaded", { detail: show }));
+    if (items[index]) items[index].click();
   }
 
   function normalisePath(raw) {
@@ -321,14 +416,15 @@
   }
 
   function report(message, level = "ok") {
-    if (typeof window.log === "function") window.log(message, level); else console.log(`[SHOW] ${message}`);
+    if (typeof window.log === "function") window.log(message, level);
+    else console.log(`[SHOW] ${message}`);
   }
 
   async function saveShow(path) {
     const requested = normalisePath(path);
     if (!requested) throw new Error("SAVE requires a show path");
     if (!/\.json$/i.test(requested)) throw new Error("Show files must use the .json extension");
-    const bridge = api();
+    const bridge = window.LXShowFiles;
     if (!bridge || typeof bridge.save !== "function") throw new Error("Show file IPC bridge is unavailable — restart LX Console");
     const result = await bridge.save(requested, snapshotShow());
     report(`Show saved: ${result?.path || requested}`, "ok");
@@ -339,12 +435,38 @@
     const requested = normalisePath(path);
     if (!requested) throw new Error("LOAD requires a show path");
     if (!/\.json$/i.test(requested)) throw new Error("Show files must use the .json extension");
-    const bridge = api();
+    const bridge = window.LXShowFiles;
     if (!bridge || typeof bridge.load !== "function") throw new Error("Show file IPC bridge is unavailable — restart LX Console");
     const result = await bridge.load(requested);
     restoreShow(result.show);
     report(`Show loaded: ${result?.path || requested}`, "ok");
     return result;
+  }
+
+  function browserSaveShow() {
+    const show = snapshotShow();
+    const blob = new Blob([JSON.stringify(show, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `LightingShow_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    report("Show saved", "ok");
+  }
+
+  function browserLoadShow(file) {
+    if (!file) return;
+    file.text().then(text => {
+      const data = JSON.parse(text);
+      restoreShow(data);
+      report("Show loaded", "ok");
+    }).catch(error => {
+      console.error("[SHOW] Browser load failed:", error);
+      report(`Load failed: ${error.message || error}`, "error");
+    });
   }
 
   async function executeShowCommand(raw) {
@@ -354,33 +476,41 @@
     try {
       if (match[1].toLowerCase() === "save") await saveShow(match[2]);
       else await loadShow(match[2]);
-    } catch (err) {
-      console.error(`[SHOW] ${match[1].toUpperCase()} failed:`, err);
-      report(`${match[1].toUpperCase()} failed: ${err?.message || err}`, "error");
+    } catch (error) {
+      console.error(`[SHOW] ${match[1].toUpperCase()} failed:`, error);
+      report(`${match[1].toUpperCase()} failed: ${error?.message || error}`, "error");
     }
     return true;
   }
 
-  window.LXShowCommands = Object.freeze({ saveShow, loadShow, snapshot: snapshotShow, execute: executeShowCommand });
-
-  function installWindowInputFallback() {
-    if (window.__lxShowWindowCaptureInstalled) return true;
-    window.__lxShowWindowCaptureInstalled = true;
-    const intercept = event => {
-      if (event.key !== "Enter") return;
-      const target = event.target;
-      if (!target || target.id !== "cmdInput") return;
-      const command = String(target.value || "").trim();
-      if (!/^(save|load)\s+.+$/i.test(command)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-      target.value = "";
-      target.dispatchEvent(new Event("input", { bubbles: true }));
-      void executeShowCommand(command);
-    };
-    window.addEventListener("keydown", intercept, true);
-    window.addEventListener("keypress", intercept, true);
+  function initShowFileControls() {
+    const saveButton = document.getElementById("btnSaveShow");
+    const loadButton = document.getElementById("btnLoadShow");
+    const fileInput = document.getElementById("showFileInput");
+    if (!saveButton || !loadButton || !fileInput) return false;
+    if (saveButton.dataset.showWired !== "1") {
+      saveButton.dataset.showWired = "1";
+      saveButton.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        browserSaveShow();
+      });
+    }
+    if (loadButton.dataset.showWired !== "1") {
+      loadButton.dataset.showWired = "1";
+      loadButton.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        fileInput.click();
+      });
+    }
+    if (fileInput.dataset.showWired !== "1") {
+      fileInput.dataset.showWired = "1";
+      fileInput.addEventListener("change", event => {
+        browserLoadShow(event.target.files?.[0]);
+        fileInput.value = "";
+      });
+    }
     return true;
   }
 
@@ -395,40 +525,20 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       input.value = "";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
       void executeShowCommand(command);
     }, true);
     return true;
   }
 
-  function installLogFallback() {
-    if (window.log && window.log.__lxShowLogFallback) return true;
-    if (typeof window.log !== "function") return false;
-    const originalLog = window.log;
-    const wrappedLog = function (message, type) {
-      const text = String(message ?? "");
-      if (/^Show file support is unavailable\s*[—-]/i.test(text)) {
-        const input = document.getElementById("cmdInput");
-        const command = String(input?.dataset?.lxPendingShowCommand || "").trim();
-        if (command) { delete input.dataset.lxPendingShowCommand; void executeShowCommand(command); return; }
-      }
-      const unknown = text.match(/^Unknown command:\s*(save|load)\s+(.+?)(?:\s+—.*)?$/i);
-      if (unknown) { void executeShowCommand(`${unknown[1]} ${unknown[2]}`); return; }
-      return originalLog.apply(this, arguments);
-    };
-    wrappedLog.__lxShowLogFallback = true;
-    wrappedLog.__lxShowOriginal = originalLog;
-    window.log = wrappedLog;
-    return true;
-  }
-
   function installParserFallback() {
     const current = window.parseCommand;
-    if (typeof current !== "function") return false;
-    if (current.__lxShowFiles) return true;
+    if (typeof current !== "function" || current.__lxShowFiles) return false;
     const wrapped = function (raw) {
       const command = String(raw ?? "").trim();
-      if (/^(save|load)\s+.+$/i.test(command)) { void executeShowCommand(command); return; }
+      if (/^(save|load)\s+.+$/i.test(command)) {
+        void executeShowCommand(command);
+        return;
+      }
       return current.apply(this, arguments);
     };
     wrapped.__lxShowFiles = true;
@@ -437,35 +547,36 @@
     return true;
   }
 
-  function installPendingCommandCapture() {
-    if (window.__lxShowPendingCaptureInstalled) return true;
-    window.__lxShowPendingCaptureInstalled = true;
-    const capture = event => {
-      if (event.key !== "Enter") return;
-      const target = event.target;
-      if (!target || target.id !== "cmdInput") return;
-      const command = String(target.value || "").trim();
-      if (!/^(save|load)\s+.+$/i.test(command)) return;
-      target.dataset.lxPendingShowCommand = command;
-    };
-    window.addEventListener("keydown", capture, false);
-    return true;
+  function start() {
+    initShowFileControls();
+    installInputFallback();
+    installParserFallback();
+    if (!document.getElementById("btnSaveShow")) {
+      let attempts = 0;
+      const timer = setInterval(() => {
+        attempts++;
+        if (initShowFileControls() || attempts >= 100) clearInterval(timer);
+      }, 100);
+    }
   }
 
-  function install() {
-    const windowCapture = installWindowInputFallback();
-    const input = installInputFallback();
-    const log = installLogFallback();
-    const parser = installParserFallback();
-    const pending = installPendingCommandCapture();
-    return windowCapture || input || log || parser || pending;
-  }
+  window.LXShowCommands = Object.freeze({
+    saveShow,
+    loadShow,
+    snapshot: snapshotShow,
+    restore: restoreShow,
+    execute: executeShowCommand
+  });
+  window.saveShow = saveShow;
+  window.loadShow = loadShow;
+  window.addEventListener("lx-show-visualizer-ready", () => {
+    const pending = window.__pendingShowVisualizerState;
+    if (pending) {
+      delete window.__pendingShowVisualizerState;
+      restoreVisualizerState(pending);
+    }
+  });
 
-  function waitForInstall(attempts = 0) {
-    install();
-    if (attempts < 200) setTimeout(() => waitForInstall(attempts + 1), 100);
-  }
-
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => waitForInstall(), { once: true });
-  else waitForInstall();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+  else start();
 })();

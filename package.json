@@ -14,6 +14,7 @@
   "dependencies": {
     "serialport": "^12.0.0",
     "tp-link-tapo-connect": "^2.0.15",
+    "iobroker.tapo": "^0.6.3",
     "ws": "^8.18.1"
   },
   "devDependencies": {

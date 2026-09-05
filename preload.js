@@ -13,176 +13,75 @@ try {
   console.error('[SHOW DEBUG] FAILED to expose LXShowFiles bridge:', error);
 }
 
-/* ------------------------------------------------------------
- * Tapo L900-10 local Wi-Fi bridge
- *
- * Newer L900 firmware can reject KLAP with HTTP 403 and require
- * TPAP/SPAKE2+. Electron does not expose AES-CCM through its
- * crypto implementation, so install the local CCM adapter before
- * loading iobroker.tapo. The rest of the Tapo protocol remains
- * delegated to iobroker.tapo.
- * ------------------------------------------------------------ */
 try {
   require('./js/tapo-ccm.js');
 
   const P100Module = require('iobroker.tapo/build/lib/utils/p100.js');
   const P100 = P100Module.default || P100Module;
   const sessions = new Map();
-
   const logger = {
     debug: (...args) => console.debug('[TAPO]', ...args),
     info: (...args) => console.info('[TAPO]', ...args),
     warn: (...args) => console.warn('[TAPO]', ...args),
     error: (...args) => console.error('[TAPO]', ...args)
   };
-
-  const keyFor = config =>
-    `${String(config?.ip || '').trim()}|${String(config?.email || '').trim()}`;
-
+  const keyFor = config => `${String(config?.ip || '').trim()}|${String(config?.email || '').trim()}`;
   const createDevice = async config => {
     const ip = String(config?.ip || '').trim();
     const email = String(config?.email || '').trim();
     const password = String(config?.password || '');
-
-    if (!ip || !email || !password) {
-      throw new Error('Tapo IP, email and password are required');
-    }
-
-    const device = new P100(
-      logger,
-      ip,
-      email,
-      password,
-      8,
-      80,
-      false
-    );
-
-    if (typeof device.handshake_tpap !== 'function') {
-      throw new Error('TPAP transport is not available in the installed Tapo library');
-    }
-
+    if (!ip || !email || !password) throw new Error('Tapo IP, email and password are required');
+    const device = new P100(logger, ip, email, password, 8, 80, false);
+    if (typeof device.handshake_tpap !== 'function') throw new Error('TPAP transport is not available in the installed Tapo library');
     await device.handshake_tpap();
     return device;
   };
-
   const getDevice = async config => {
     const key = keyFor(config);
     let session = sessions.get(key);
-
-    if (!session) {
-      session = { promise: createDevice(config) };
-      sessions.set(key, session);
-    }
-
-    try {
-      return await session.promise;
-    } catch (error) {
-      sessions.delete(key);
-      throw error;
-    }
+    if (!session) { session = { promise: createDevice(config) }; sessions.set(key, session); }
+    try { return await session.promise; }
+    catch (error) { sessions.delete(key); throw error; }
   };
-
   const sendCommand = async (config, method, params = {}) => {
     const device = await getDevice(config);
-
-    try {
-      return await device.sendCommand(method, params);
-    } catch (error) {
-      sessions.delete(keyFor(config));
-      throw error;
-    }
+    try { return await device.sendCommand(method, params); }
+    catch (error) { sessions.delete(keyFor(config)); throw error; }
   };
-
   const hexToHsl = hex => {
     const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
     if (!match) return null;
-
     const rgb = match[1];
     const r = parseInt(rgb.slice(0, 2), 16) / 255;
     const g = parseInt(rgb.slice(2, 4), 16) / 255;
     const b = parseInt(rgb.slice(4, 6), 16) / 255;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const light = (max + min) / 2;
-
-    if (max === min) {
-      return { hue: 0, saturation: 0, brightness: Math.round(light * 100) };
-    }
-
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), light = (max + min) / 2;
+    if (max === min) return { hue: 0, saturation: 0, brightness: Math.round(light * 100) };
     const delta = max - min;
-    const saturation = light > 0.5
-      ? delta / (2 - max - min)
-      : delta / (max + min);
-
+    const saturation = light > 0.5 ? delta / (2 - max - min) : delta / (max + min);
     let hue;
     if (max === r) hue = (g - b) / delta + (g < b ? 6 : 0);
     else if (max === g) hue = (b - r) / delta + 2;
     else hue = (r - g) / delta + 4;
-
-    hue /= 6;
-
-    return {
-      hue: Math.round(hue * 360),
-      saturation: Math.round(saturation * 100),
-      brightness: Math.round(light * 100)
-    };
+    return { hue: Math.round((hue / 6) * 360), saturation: Math.round(saturation * 100), brightness: Math.round(light * 100) };
   };
-
   const tapoApi = {
-    test: async config => {
-      const info = await sendCommand(config, 'get_device_info');
-      return info;
-    },
-
+    test: async config => sendCommand(config, 'get_device_info'),
     setState: async (config, state = {}) => {
       const on = Boolean(state.on);
-      const brightness = Math.max(
-        1,
-        Math.min(100, Math.round(Number(state.brightness ?? 100)))
-      );
-
+      const brightness = Math.max(1, Math.min(100, Math.round(Number(state.brightness ?? 100))));
       if (!on) {
-        await sendCommand(config, 'set_device_info', {
-          device_on: false,
-          transition_period: 0
-        });
+        await sendCommand(config, 'set_device_info', { device_on: false, transition_period: 0 });
         return { ok: true, on: false };
       }
-
       const colour = hexToHsl(state.colour);
-
-      if (colour) {
-        await sendCommand(config, 'set_device_info', {
-          device_on: true,
-          brightness,
-          hue: colour.hue,
-          saturation: colour.saturation,
-          color_temp: 0,
-          transition_period: 0
-        });
-      } else {
-        await sendCommand(config, 'set_device_info', {
-          device_on: true,
-          brightness,
-          transition_period: 0
-        });
-      }
-
-      return {
-        ok: true,
-        on: true,
-        brightness,
-        colour: state.colour || null
-      };
+      await sendCommand(config, 'set_device_info', colour
+        ? { device_on: true, brightness, hue: colour.hue, saturation: colour.saturation, color_temp: 0, transition_period: 0 }
+        : { device_on: true, brightness, transition_period: 0 });
+      return { ok: true, on: true, brightness, colour: state.colour || null };
     },
-
-    clearSession: config => {
-      sessions.delete(keyFor(config));
-      return true;
-    }
+    clearSession: config => { sessions.delete(keyFor(config)); return true; }
   };
-
   contextBridge.exposeInMainWorld('Tapo', tapoApi);
   console.log('[TAPO] TPAP/SPAKE2+ bridge exposed');
 } catch (error) {
@@ -213,24 +112,19 @@ const injectRendererScript = (id, src, label) => {
   }
 };
 
-const injectShowFileCommands = () => {
-  injectRendererScript('lxShowFileCommandsScript', './js/showfile.js', 'showfile.js');
-};
-
-const injectFresnelControls = () => {
-  injectRendererScript('lxFresnelControlsScript', './js/fresnel-controls.js', 'fresnel-controls.js');
-};
-
-const injectTapoIntegration = () => {
-  injectRendererScript('lxTapoIntegrationScript', './js/tapo-integration.js', 'tapo-integration.js');
-};
+const injectShowFileCommands = () => injectRendererScript('lxShowFileCommandsScript', './js/showfile.js', 'showfile.js');
+const injectFresnelControls = () => injectRendererScript('lxFresnelControlsScript', './js/fresnel-controls.js', 'fresnel-controls.js');
+const injectTapoIntegration = () => injectRendererScript('lxTapoIntegrationScript', './js/tapo-integration.js', 'tapo-integration.js');
+const injectShowFileVisualizerFix = () => injectRendererScript('lxShowFileVisualizerFixScript', './js/showfile-visualizer-fix.js', 'showfile-visualizer-fix.js');
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', injectShowFileCommands, { once: true });
   document.addEventListener('DOMContentLoaded', injectFresnelControls, { once: true });
   document.addEventListener('DOMContentLoaded', injectTapoIntegration, { once: true });
+  document.addEventListener('DOMContentLoaded', injectShowFileVisualizerFix, { once: true });
 } else {
   injectShowFileCommands();
   injectFresnelControls();
   injectTapoIntegration();
+  injectShowFileVisualizerFix();
 }

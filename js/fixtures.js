@@ -1547,6 +1547,48 @@ const FixtureLibrary = {
         ]
     },
 
+    "Chauvet EVE E-50Z (1ch)": {
+    type: "dimmer",
+    channels: 1,
+    map: {
+        dimmer: 0,
+        intensity: 0
+    },
+    photometrics: {
+        verified: true,
+        sourceType: "LED",
+        ratedLumens: null,
+        beamAngle: null,
+        beamAngleMin: 20,
+        beamAngleMax: 39,
+        outputScale: 1.00,
+        manufacturer: "Chauvet DJ",
+        model: "EVE E-50Z"
+    }
+},
+
+"Chauvet EVE E-50Z (3ch)": {
+    type: "dimmer",
+    channels: 3,
+    map: {
+        dimmer: 0,
+        intensity: 0,
+        strobe: 1,
+        dimmerSpeed: 2
+    },
+    photometrics: {
+        verified: true,
+        sourceType: "LED",
+        ratedLumens: null,
+        beamAngle: null,
+        beamAngleMin: 20,
+        beamAngleMax: 39,
+        outputScale: 1.00,
+        manufacturer: "Chauvet DJ",
+        model: "EVE E-50Z"
+    }
+},
+
 
     /*
      * ========================================================

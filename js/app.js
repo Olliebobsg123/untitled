@@ -483,32 +483,74 @@ document.addEventListener("DOMContentLoaded", () => {
     const centre = size / 2;
 
     function drawWheel() {
-      const image = ctx.createImageData(size, size);
+  const image = ctx.createImageData(size, size);
 
-      for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-          const dx = x - centre;
-          const dy = y - centre;
-          const distance = Math.hypot(dx, dy);
+  function hslToRgb(h, s, l) {
+    s /= 100;
+    l /= 100;
 
-          if (distance > centre) continue;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    const m = l - c / 2;
 
-          const hue =
-            (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+    let r = 0;
+    let g = 0;
+    let b = 0;
 
-          const sat = Math.min(100, distance / centre * 100);
-          const [r, g, b] = hslToRgb(hue, sat, 50);
-          const i = (y * size + x) * 4;
-
-          image.data[i] = r;
-          image.data[i + 1] = g;
-          image.data[i + 2] = b;
-          image.data[i + 3] = 255;
-        }
-      }
-
-      ctx.putImageData(image, 0, 0);
+    if (h < 60) {
+      r = c;
+      g = x;
+    } else if (h < 120) {
+      r = x;
+      g = c;
+    } else if (h < 180) {
+      g = c;
+      b = x;
+    } else if (h < 240) {
+      g = x;
+      b = c;
+    } else if (h < 300) {
+      r = x;
+      b = c;
+    } else {
+      r = c;
+      b = x;
     }
+
+    return [
+      Math.round((r + m) * 255),
+      Math.round((g + m) * 255),
+      Math.round((b + m) * 255)
+    ];
+  }
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - centre;
+      const dy = y - centre;
+      const distance = Math.hypot(dx, dy);
+
+      if (distance > centre) continue;
+
+      const hue =
+        (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+
+      const sat =
+        Math.min(100, (distance / centre) * 100);
+
+      const [r, g, b] = hslToRgb(hue, sat, 50);
+
+      const i = (y * size + x) * 4;
+
+      image.data[i] = r;
+      image.data[i + 1] = g;
+      image.data[i + 2] = b;
+      image.data[i + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+}
 
     function colourAt(e) {
       const rect = wheel.getBoundingClientRect();

@@ -33,12 +33,19 @@
     return state.fixtures.filter(f => ids.has(String(f?.id)));
   };
 
+  const getAllTapoFixtures = () => {
+    const state = window.State;
+    if (!state?.fixtures) return [];
+    return state.fixtures.filter(isTapo);
+  };
+
   const isTapo = fixture => {
     const def = fixture && (window.FixtureLibrary?.[fixture.name] || fixture.definition);
     return def?.transport === "tapo" || fixture?.transport === "tapo";
   };
 
   const getState = fixture => {
+    if (!fixture) return null;
     if (typeof window.ensureFixtureState === "function") return window.ensureFixtureState(fixture.id);
     if (!(window.State.fixtureStates instanceof Map)) window.State.fixtureStates = new Map();
     if (!window.State.fixtureStates.has(fixture.id)) window.State.fixtureStates.set(fixture.id, { ...(window.State.current || {}) });
@@ -64,8 +71,8 @@
   };
 
   let lastSent = new Map();
+  const pending = new Map();
   let sending = false;
-  const queue = [];
 
   const sendState = async fixture => {
     if (!isTapo(fixture) || !window.Tapo?.setState) return;
@@ -81,80 +88,52 @@
     const colour = hslToHex(hue, sat, light);
     const signature = JSON.stringify([config.ip, config.email, on, intensity, colour]);
     if (lastSent.get(fixture.id) === signature) return;
-    lastSent.set(fixture.id, signature);
 
-    queue.push({ fixture, config, on, intensity, colour });
+    // Keep only the newest state for each Tapo fixture. Cue fades and effects
+    // can call updateDMX many times per second; sending every intermediate
+    // frame would make the Wi-Fi device lag behind the console.
+    pending.set(String(fixture.id), { fixture, config: { ...config }, on, intensity, colour, signature });
     if (sending) return;
+
     sending = true;
-    while (queue.length) {
-      const item = queue.shift();
-      try {
-        await window.Tapo.setState(item.config, { on: item.on, brightness: item.intensity, colour: item.colour });
-      } catch (error) {
-        lastSent.delete(item.fixture.id);
-        window.log?.(`Tapo ${item.fixture.name}: ${error.message}`, "error");
+    try {
+      while (pending.size) {
+        const [id, item] = pending.entries().next().value;
+        pending.delete(id);
+        try {
+          await window.Tapo.setState(item.config, {
+            on: item.on,
+            brightness: item.intensity,
+            colour: item.colour
+          });
+          lastSent.set(item.fixture.id, item.signature);
+        } catch (error) {
+          window.log?.(`Tapo ${item.fixture.name}: ${error.message}`, "error");
+        }
       }
+    } finally {
+      sending = false;
     }
-    sending = false;
   };
 
+  // Manual control still targets the selected Tapo fixture(s).
   window.sendTapoState = () => getSelected().filter(isTapo).forEach(sendState);
 
-  // The colour wheel changes hue/saturation directly in State rather than
-  // necessarily dispatching input events on the hue/sat sliders. The controls
-  // can also be rebuilt after a fixture selection, so delegated listeners keep
-  // the L900 connected to the live UI state.
-  const wireRendererControls = () => {
-    if (document.documentElement.dataset.tapoControls === "1") return;
-    document.documentElement.dataset.tapoControls = "1";
-
-    let scheduled = false;
-    const sendSelectedTapo = () => {
-      if (scheduled) return;
-      scheduled = true;
-      requestAnimationFrame(() => {
-        scheduled = false;
-        getSelected().filter(isTapo).forEach(sendState);
-      });
+  // IMPORTANT: updateDMX is the common output path used by normal controls,
+  // cues, chases and the effects engine. Tapo fixtures are deliberately not
+  // included in the DMX universe, so after the normal DMX calculation we send
+  // their fixture-state through the Wi-Fi transport instead.
+  const installOutputHook = () => {
+    if (typeof window.updateDMX !== "function" || window.updateDMX.__tapoOutputHook) return false;
+    const original = window.updateDMX;
+    const hooked = function tapoOutputHook(...args) {
+      const result = original.apply(this, args);
+      getAllTapoFixtures().forEach(sendState);
+      return result;
     };
-
-    document.addEventListener("input", event => {
-      const id = event.target?.id;
-      if (id === "intensity" || id === "hue" || id === "sat" || id === "light") {
-        // Run after the normal controls handler has copied the new slider value
-        // into the selected fixture state.
-        sendSelectedTapo();
-      }
-    }, true);
-
-    document.addEventListener("change", event => {
-      const id = event.target?.id;
-      if (id === "intensity" || id === "hue" || id === "sat" || id === "light") {
-        sendSelectedTapo();
-      }
-    }, true);
-
-    const wireColourWheel = () => {
-      const wheel = document.getElementById("colourWheel");
-      if (!wheel || wheel.dataset.tapoColourWheel === "1") return !!wheel;
-      wheel.dataset.tapoColourWheel = "1";
-
-      ["pointerdown", "pointermove", "pointerup", "pointercancel", "mousedown", "mousemove", "mouseup", "touchstart", "touchmove", "touchend"].forEach(type => {
-        wheel.addEventListener(type, sendSelectedTapo, true);
-      });
-
-      return true;
-    };
-
-    let attempts = 0;
-    const waitForWheel = () => {
-      if (wireColourWheel()) return;
-      if (++attempts < 150) setTimeout(waitForWheel, 100);
-    };
-    waitForWheel();
-
-    document.querySelectorAll("[data-hue]").forEach(button => button.addEventListener("click", () => setTimeout(sendSelectedTapo, 0)));
-    document.querySelectorAll("[data-v]").forEach(button => button.addEventListener("click", () => setTimeout(sendSelectedTapo, 0)));
+    hooked.__tapoOutputHook = true;
+    window.updateDMX = hooked;
+    return true;
   };
 
   const installDmxGuard = () => {
@@ -173,6 +152,13 @@
     guarded.__tapoGuard = true;
     window.updateDMX = guarded;
     return true;
+  };
+
+  const installOutputIntegration = () => {
+    // The guard must be inside the output hook so the original DMX renderer
+    // never attempts to patch the zero-channel Wi-Fi fixture.
+    installDmxGuard();
+    installOutputHook();
   };
 
   const injectSetup = () => {
@@ -235,6 +221,7 @@
         state.intensity = Number(state.intensity ?? 100);
         state.hue = Number(state.hue ?? 0);
         state.sat = Number(state.sat ?? 100);
+        state.light = Number(state.light ?? 50);
         window.State.fixtureStates.set(fixture.id, state);
         window.updateDMX?.();
         window.updateParameterVisibility?.();
@@ -246,12 +233,57 @@
     return true;
   };
 
+  const wireRendererControls = () => {
+    if (document.documentElement.dataset.tapoControls === "1") return;
+    document.documentElement.dataset.tapoControls = "1";
+
+    let scheduled = false;
+    const sendSelectedTapo = () => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        getSelected().filter(isTapo).forEach(sendState);
+      });
+    };
+
+    document.addEventListener("input", event => {
+      const id = event.target?.id;
+      if (id === "intensity" || id === "hue" || id === "sat" || id === "light") sendSelectedTapo();
+    }, true);
+
+    document.addEventListener("change", event => {
+      const id = event.target?.id;
+      if (id === "intensity" || id === "hue" || id === "sat" || id === "light") sendSelectedTapo();
+    }, true);
+
+    const wireColourWheel = () => {
+      const wheel = document.getElementById("colourWheel");
+      if (!wheel || wheel.dataset.tapoColourWheel === "1") return !!wheel;
+      wheel.dataset.tapoColourWheel = "1";
+      ["pointerdown", "pointermove", "pointerup", "pointercancel", "mousedown", "mousemove", "mouseup", "touchstart", "touchmove", "touchend"].forEach(type => {
+        wheel.addEventListener(type, sendSelectedTapo, true);
+      });
+      return true;
+    };
+
+    let attempts = 0;
+    const waitForWheel = () => {
+      if (wireColourWheel()) return;
+      if (++attempts < 150) setTimeout(waitForWheel, 100);
+    };
+    waitForWheel();
+
+    document.querySelectorAll("[data-hue]").forEach(button => button.addEventListener("click", () => setTimeout(sendSelectedTapo, 0)));
+    document.querySelectorAll("[data-v]").forEach(button => button.addEventListener("click", () => setTimeout(sendSelectedTapo, 0)));
+  };
+
   const start = () => {
     ensureFixtureDefinition();
     injectSetup();
     wireFixturePatching();
     wireRendererControls();
-    installDmxGuard();
+    installOutputIntegration();
     window.renderLibrary?.();
   };
 

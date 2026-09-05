@@ -33,36 +33,3 @@
 #btnHome:active {
   transform: translateY(0);
 }
-
-/* Compact control spacing. home-button.css is loaded after styles.css. */
-.control-group {
-  gap: 5px;
-}
-
-.master-card,
-.parameter-card {
-  margin-top: 5px;
-}
-
-.fresnel-controls,
-#fixtureDynamicControls,
-#fresnelControlsHost {
-  gap: 6px;
-}
-
-.fresnel-control,
-.fixture-dynamic-card {
-  margin-top: 0;
-}
-
-/* Generic capability-control name for future controls. */
-.parameter-control {
-  padding: 11px 12px;
-  border: 1px solid var(--border, #223038);
-  border-radius: 10px;
-  background: rgba(255,255,255,.018);
-}
-
-.parameter-control .fader {
-  width: 100%;
-}

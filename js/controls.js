@@ -73,16 +73,80 @@
     }
   }
 
+  // ------------------------------------------------------------
+  // Fixture capability visibility
+  // ------------------------------------------------------------
+  // The HTML contains the shared control cards. We only hide cards whose
+  // underlying DMX capability is absent. When multiple fixtures are selected,
+  // capabilities are combined (union), so ALL never removes controls just
+  // because one fixture does not have a particular parameter.
+  const CONTROL_CAPABILITIES = {
+    intensity: ["intensity", "dimmer", "dim"],
+    strobe: ["strobe", "shutter"],
+    zoom: ["zoom"],
+    colour: ["hue", "sat", "saturation", "red", "green", "blue", "white", "amber", "uv", "cyan", "magenta"],
+    xy: ["pan", "tilt"]
+  };
+
+  const mapHasCapability = (map, names) => names.some(name => typeof map?.[name] === "number");
+
+  function selectedCapability(capability) {
+    const fixtures = getSelectedFixtures();
+    if (!fixtures.length) return false;
+    const names = CONTROL_CAPABILITIES[capability] || [capability];
+    return fixtures.some(fixture => mapHasCapability(getDefinition(fixture)?.map || {}, names));
+  }
+
+  function setGroupVisibility(id, visible) {
+    const group = document.getElementById(id);
+    if (group) group.style.display = visible ? "" : "none";
+  }
+
+  function setInputGroupVisibility(inputId, visible) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const group = input.closest(".control-group");
+    if (group) group.style.display = visible ? "" : "none";
+  }
+
+  function refreshParameterVisibility() {
+    const fixtures = getSelectedFixtures();
+    const hasSelection = fixtures.length > 0;
+
+    // Keep Master as a global output control.
+    setInputGroupVisibility("master", true);
+
+    // No fixture selected: show the empty-state and keep parameter cards hidden.
+    if (!hasSelection) {
+      setInputGroupVisibility("intensity", false);
+      setGroupVisibility("strobeGroup", false);
+      setGroupVisibility("zoomGroup", false);
+      setGroupVisibility("colourGroup", false);
+      setGroupVisibility("xyGroup", false);
+      return;
+    }
+
+    setInputGroupVisibility("intensity", selectedCapability("intensity"));
+    setGroupVisibility("strobeGroup", selectedCapability("strobe"));
+    setGroupVisibility("zoomGroup", selectedCapability("zoom"));
+    setGroupVisibility("colourGroup", selectedCapability("colour"));
+    setGroupVisibility("xyGroup", selectedCapability("xy"));
+  }
+
+  // Selection/rendering code elsewhere can call this after changing State.
+  window.updateParameterVisibility = refreshParameterVisibility;
+
   let refreshQueued = false;
   function refreshVisibilityNow() {
     refreshQueued = false;
     const pad = document.querySelector(".xy-pad");
-    if (!pad) return;
-    const moving = getSelectedFixtures().some(f => {
+    const fixtures = getSelectedFixtures();
+    const moving = fixtures.some(f => {
       const map = getDefinition(f)?.map || {};
       return typeof map.pan === "number" || typeof map.tilt === "number";
     });
-    pad.style.display = moving ? "" : "none";
+    if (pad) pad.style.display = moving ? "" : "none";
+    refreshParameterVisibility();
   }
   function refreshVisibility() {
     if (refreshQueued) return;

@@ -100,6 +100,67 @@
 
   window.sendTapoState = () => getSelected().filter(isTapo).forEach(sendState);
 
+  // The colour wheel changes the hue/saturation state directly; it does not
+  // necessarily dispatch an `input` event on the hidden hue/sat sliders.
+  // Likewise, controls can be rebuilt after a fixture selection. Use delegated
+  // listeners so the L900 always receives the current intensity/colour state.
+  const wireRendererControls = () => {
+    if (document.documentElement.dataset.tapoControls === "1") return;
+    document.documentElement.dataset.tapoControls = "1";
+
+    const sendSelectedTapo = () => {
+      getSelected().filter(isTapo).forEach(sendState);
+    };
+
+    document.addEventListener("input", event => {
+      const id = event.target?.id;
+      if (id === "intensity" || id === "hue" || id === "sat" || id === "light") {
+        sendSelectedTapo();
+      }
+    }, true);
+
+    document.addEventListener("change", event => {
+      const id = event.target?.id;
+      if (id === "intensity" || id === "hue" || id === "sat" || id === "light") {
+        sendSelectedTapo();
+      }
+    }, true);
+
+    // Canvas colour-wheel interaction updates State directly, so listen to the
+    // wheel gesture itself and send after the wheel code has updated the state.
+    const wireColourWheel = () => {
+      const wheel = document.getElementById("colourWheel");
+      if (!wheel || wheel.dataset.tapoColourWheel === "1") return !!wheel;
+      wheel.dataset.tapoColourWheel = "1";
+
+      let pending = false;
+      const sendAfterWheelUpdate = () => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => {
+          pending = false;
+          sendSelectedTapo();
+        });
+      };
+
+      ["pointerdown", "pointermove", "pointerup", "pointercancel", "mousedown", "mousemove", "mouseup", "touchstart", "touchmove", "touchend"].forEach(type => {
+        wheel.addEventListener(type, sendAfterWheelUpdate, true);
+      });
+
+      return true;
+    };
+
+    let attempts = 0;
+    const waitForWheel = () => {
+      if (wireColourWheel()) return;
+      if (++attempts < 150) setTimeout(waitForWheel, 100);
+    };
+    waitForWheel();
+
+    document.querySelectorAll("[data-hue]").forEach(button => button.addEventListener("click", () => setTimeout(sendSelectedTapo, 0)));
+    document.querySelectorAll("[data-v]").forEach(button => button.addEventListener("click", () => setTimeout(sendSelectedTapo, 0)));
+  };
+
   const installDmxGuard = () => {
     if (typeof window.updateDMX !== "function" || window.updateDMX.__tapoGuard) return false;
     const original = window.updateDMX;
@@ -187,17 +248,6 @@
       }, 0);
     }, true);
     return true;
-  };
-
-  const wireRendererControls = () => {
-    if (document.documentElement.dataset.tapoControls === "1") return;
-    document.documentElement.dataset.tapoControls = "1";
-    ["intensity", "hue", "sat", "light"].forEach(id => {
-      document.getElementById(id)?.addEventListener("input", () => getSelected().filter(isTapo).forEach(sendState));
-      document.getElementById(id)?.addEventListener("change", () => getSelected().filter(isTapo).forEach(sendState));
-    });
-    document.querySelectorAll("[data-hue]").forEach(button => button.addEventListener("click", () => setTimeout(() => getSelected().filter(isTapo).forEach(sendState), 0)));
-    document.querySelectorAll("[data-v]").forEach(button => button.addEventListener("click", () => setTimeout(() => getSelected().filter(isTapo).forEach(sendState), 0)));
   };
 
   const start = () => {

@@ -84,14 +84,20 @@
     const hue = Number(state.hue ?? 0);
     const sat = Math.max(0, Math.min(100, Number(state.sat ?? 100)));
     const light = Math.max(0, Math.min(100, Number(state.light ?? 50)));
-    const on = intensity > 0;
+
+    // Tapo is a live network output, so its safety state must follow the
+    // console rather than only the DMX buffer. BLIND deliberately produces
+    // no physical Tapo output; switching back to LIVE causes the next update
+    // to be sent immediately.
+    const mode = String(document.documentElement?.dataset.consoleMode || "LIVE").toUpperCase();
+    const blackout = Boolean(window.State?.blackout);
+    if (mode === "BLIND") return;
+
+    const on = !blackout && intensity > 0;
     const colour = hslToHex(hue, sat, light);
-    const signature = JSON.stringify([config.ip, config.email, on, intensity, colour]);
+    const signature = JSON.stringify([config.ip, config.email, on, intensity, colour, mode, blackout]);
     if (lastSent.get(fixture.id) === signature) return;
 
-    // Keep only the newest state for each Tapo fixture. Cue fades and effects
-    // can call updateDMX many times per second; sending every intermediate
-    // frame would make the Wi-Fi device lag behind the console.
     pending.set(String(fixture.id), { fixture, config: { ...config }, on, intensity, colour, signature });
     if (sending) return;
 
@@ -104,7 +110,8 @@
           await window.Tapo.setState(item.config, {
             on: item.on,
             brightness: item.intensity,
-            colour: item.colour
+            colour: item.colour,
+            immediate: true
           });
           lastSent.set(item.fixture.id, item.signature);
         } catch (error) {
@@ -116,13 +123,8 @@
     }
   };
 
-  // Manual control still targets the selected Tapo fixture(s).
   window.sendTapoState = () => getSelected().filter(isTapo).forEach(sendState);
 
-  // IMPORTANT: updateDMX is the common output path used by normal controls,
-  // cues, chases and the effects engine. Tapo fixtures are deliberately not
-  // included in the DMX universe, so after the normal DMX calculation we send
-  // their fixture-state through the Wi-Fi transport instead.
   const installOutputHook = () => {
     if (typeof window.updateDMX !== "function" || window.updateDMX.__tapoOutputHook) return false;
     const original = window.updateDMX;
@@ -155,8 +157,6 @@
   };
 
   const installOutputIntegration = () => {
-    // The guard must be inside the output hook so the original DMX renderer
-    // never attempts to patch the zero-channel Wi-Fi fixture.
     installDmxGuard();
     installOutputHook();
   };

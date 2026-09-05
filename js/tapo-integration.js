@@ -100,21 +100,29 @@
 
   window.sendTapoState = () => getSelected().filter(isTapo).forEach(sendState);
 
-  // The colour wheel changes the hue/saturation state directly; it does not
-  // necessarily dispatch an `input` event on the hidden hue/sat sliders.
-  // Likewise, controls can be rebuilt after a fixture selection. Use delegated
-  // listeners so the L900 always receives the current intensity/colour state.
+  // The colour wheel changes hue/saturation directly in State rather than
+  // necessarily dispatching input events on the hue/sat sliders. The controls
+  // can also be rebuilt after a fixture selection, so delegated listeners keep
+  // the L900 connected to the live UI state.
   const wireRendererControls = () => {
     if (document.documentElement.dataset.tapoControls === "1") return;
     document.documentElement.dataset.tapoControls = "1";
 
+    let scheduled = false;
     const sendSelectedTapo = () => {
-      getSelected().filter(isTapo).forEach(sendState);
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        getSelected().filter(isTapo).forEach(sendState);
+      });
     };
 
     document.addEventListener("input", event => {
       const id = event.target?.id;
       if (id === "intensity" || id === "hue" || id === "sat" || id === "light") {
+        // Run after the normal controls handler has copied the new slider value
+        // into the selected fixture state.
         sendSelectedTapo();
       }
     }, true);
@@ -126,25 +134,13 @@
       }
     }, true);
 
-    // Canvas colour-wheel interaction updates State directly, so listen to the
-    // wheel gesture itself and send after the wheel code has updated the state.
     const wireColourWheel = () => {
       const wheel = document.getElementById("colourWheel");
       if (!wheel || wheel.dataset.tapoColourWheel === "1") return !!wheel;
       wheel.dataset.tapoColourWheel = "1";
 
-      let pending = false;
-      const sendAfterWheelUpdate = () => {
-        if (pending) return;
-        pending = true;
-        requestAnimationFrame(() => {
-          pending = false;
-          sendSelectedTapo();
-        });
-      };
-
       ["pointerdown", "pointermove", "pointerup", "pointercancel", "mousedown", "mousemove", "mouseup", "touchstart", "touchmove", "touchend"].forEach(type => {
-        wheel.addEventListener(type, sendAfterWheelUpdate, true);
+        wheel.addEventListener(type, sendSelectedTapo, true);
       });
 
       return true;

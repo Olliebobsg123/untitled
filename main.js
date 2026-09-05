@@ -162,6 +162,65 @@ function createWindow() {
 
     mainWindow.webContents.executeJavaScript(`
       (() => {
+        if (window.__visualiserShowPositionFix) return;
+        window.__visualiserShowPositionFix = true;
+        let pendingShowVisualizer = null;
+
+        const apply = visualizerState => {
+          if (!visualizerState || typeof visualizerState !== 'object') return false;
+          const Viz = window.S || window.VizState;
+          if (!Viz || !(Viz.fixturePositions instanceof Map)) {
+            pendingShowVisualizer = visualizerState;
+            return false;
+          }
+
+          const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
+          const byId = new Map(fixtures.map((fixture, index) => [String(fixture?.id), index]));
+          const positions = Array.isArray(visualizerState.fixturePositions) ? visualizerState.fixturePositions : [];
+          const rotations = Array.isArray(visualizerState.fixtureManualRot) ? visualizerState.fixtureManualRot : [];
+
+          Viz.fixturePositions.clear();
+          Viz.fixtureManualRot.clear();
+
+          positions.forEach(saved => {
+            const index = saved?.fixtureId != null && byId.has(String(saved.fixtureId))
+              ? byId.get(String(saved.fixtureId))
+              : Number(saved?.fixtureIndex);
+            if (!Number.isInteger(index) || index < 0 || index >= fixtures.length) return;
+            const x = Number(saved.x), y = Number(saved.y), z = Number(saved.z);
+            if ([x, y, z].every(Number.isFinite)) Viz.fixturePositions.set(index, { x, y, z });
+          });
+
+          rotations.forEach(saved => {
+            const index = saved?.fixtureId != null && byId.has(String(saved.fixtureId))
+              ? byId.get(String(saved.fixtureId))
+              : Number(saved?.fixtureIndex);
+            if (!Number.isInteger(index) || index < 0 || index >= fixtures.length) return;
+            const pan = Number(saved.pan), tilt = Number(saved.tilt);
+            if ([pan, tilt].every(Number.isFinite)) Viz.fixtureManualRot.set(index, { pan, tilt });
+          });
+
+          Viz.rebuildFixtures?.();
+          if (Viz.grid) Viz.grid.visible = visualizerState.gridOn !== false;
+          return true;
+        };
+
+        window.addEventListener('lx-show-loaded', event => {
+          pendingShowVisualizer = event.detail?.visualizer || null;
+          if (pendingShowVisualizer) apply(pendingShowVisualizer);
+        });
+
+        window.addEventListener('message', event => {
+          if (event.data?.type !== 'VISUALIZER_READY' || !pendingShowVisualizer) return;
+          if (apply(pendingShowVisualizer)) pendingShowVisualizer = null;
+        });
+
+        window.__applyShowVisualizerPositions = apply;
+      })();
+    `).catch(err => console.error('❌ Visualiser show-position fix failed:', err));
+
+    mainWindow.webContents.executeJavaScript(`
+      (() => {
         if (window.__qlabStableCueRendererLoader) return;
         window.__qlabStableCueRendererLoader = true;
         let attempts = 0;
@@ -215,7 +274,6 @@ function createWindow() {
 app.whenReady().then(() => {
   buildApplicationMenu(); startServices(); createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-  app.on('browser-window-focus', () => buildApplicationMenu());
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
 app.on('before-quit', () => stopServices());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

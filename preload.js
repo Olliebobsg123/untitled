@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const https = require('node:https');
 
 const showFileApi = {
   save: (filePath, show) => ipcRenderer.invoke('lx-show-save', { filePath, show }),
@@ -6,11 +7,72 @@ const showFileApi = {
   getDefaultDirectory: () => ipcRenderer.invoke('lx-show-default-directory')
 };
 
+const feedbackApi = {
+  send: payload => new Promise((resolve, reject) => {
+    const destination = 'olivergrainger100@gmail.com';
+    const body = JSON.stringify({
+      name: 'LX Console User',
+      message: String(payload?.message || '').trim(),
+      type: String(payload?.type || 'Feedback'),
+      app: 'LX Console',
+      _subject: `[LX Console] ${String(payload?.type || 'Feedback')}`,
+      _template: 'table',
+      _url: 'https://github.com/olliebobsg123/untitled'
+    });
+
+    if (!JSON.parse(body).message) {
+      reject(new Error('Please enter a message first.'));
+      return;
+    }
+
+    const request = https.request({
+      hostname: 'formsubmit.co',
+      path: `/ajax/${encodeURIComponent(destination)}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      },
+      timeout: 15000
+    }, response => {
+      let raw = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { raw += chunk; });
+      response.on('end', () => {
+        let result = {};
+        try { result = raw ? JSON.parse(raw) : {}; } catch (_) {}
+
+        console.log('[FEEDBACK] FormSubmit response:', response.statusCode, result || raw);
+
+        if ((response.statusCode || 500) < 200 || (response.statusCode || 500) >= 300 || result?.success === false) {
+          reject(new Error(result?.message || `Email service returned HTTP ${response.statusCode}`));
+          return;
+        }
+
+        resolve({ success: true, status: response.statusCode, result });
+      });
+    });
+
+    request.on('timeout', () => request.destroy(new Error('Email request timed out')));
+    request.on('error', error => reject(error));
+    request.write(body);
+    request.end();
+  })
+};
+
 try {
   contextBridge.exposeInMainWorld('LXShowFiles', showFileApi);
   console.log('[SHOW DEBUG] LXShowFiles preload bridge exposed');
 } catch (error) {
   console.error('[SHOW DEBUG] FAILED to expose LXShowFiles bridge:', error);
+}
+
+try {
+  contextBridge.exposeInMainWorld('LXFeedbackMail', feedbackApi);
+  console.log('[FEEDBACK] Electron email bridge exposed');
+} catch (error) {
+  console.error('[FEEDBACK] FAILED to expose email bridge:', error);
 }
 
 try {

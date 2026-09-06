@@ -3,9 +3,8 @@
 // ==============================================
 // SUGGESTIONS / BUG REPORTS
 // ==============================================
-// Sends feedback to Oliver without requiring an app-side mail password.
-// FormSubmit handles the email delivery; the first submission may require
-// confirming the destination address with FormSubmit.
+// FormSubmit is used as the free email delivery backend. The app submits
+// normal named form fields so FormSubmit can reliably build the email.
 
 (function installFeedbackCommands() {
   const DESTINATION = "olivergrainger100@gmail.com";
@@ -45,15 +44,8 @@
         text-transform: uppercase;
         margin-bottom: 8px;
       }
-      #lxFeedbackModal h3 {
-        margin: 0 0 7px;
-        font-size: 20px;
-      }
-      #lxFeedbackModal p {
-        margin: 0 0 16px;
-        color: #879693;
-        font-size: 12px;
-      }
+      #lxFeedbackModal h3 { margin: 0 0 7px; font-size: 20px; }
+      #lxFeedbackModal p { margin: 0 0 16px; color: #879693; font-size: 12px; }
       #lxFeedbackModal textarea {
         width: 100%;
         min-height: 170px;
@@ -191,28 +183,42 @@
     if (status) status.textContent = "Sending feedback...";
 
     try {
+      // Use FormData with real field names. This is the same form format
+      // FormSubmit expects and avoids the old JSON-only submission issue.
+      const form = new FormData();
+      form.append("name", "LX Console User");
+      form.append("message", text);
+      form.append("type", currentType === "bug" ? "Bug Report" : "Suggestion");
+      form.append("app", "LX Console");
+      form.append("_subject", `[LX Console] ${currentType === "bug" ? "Bug Report" : "Suggestion"}`);
+      form.append("_template", "table");
+      form.append("_url", "https://github.com/olliebobsg123/untitled");
+
       const response = await fetch(ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          _subject: `[LX Console] ${currentType === "bug" ? "Bug Report" : "Suggestion"}`,
-          _captcha: "false",
-          message: text,
-          type: currentType === "bug" ? "Bug Report" : "Suggestion",
-          app: "LX Console"
-        })
+        headers: { Accept: "application/json" },
+        body: form
       });
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const result = await response.json().catch(() => ({}));
-      if (result.success === false) throw new Error(result.message || "Email service rejected the message");
+      const raw = await response.text();
+      let result = {};
+      try { result = raw ? JSON.parse(raw) : {}; } catch (_) {}
+
+      if (!response.ok) {
+        throw new Error(result?.message || `HTTP ${response.status}`);
+      }
+      if (result?.success === false) {
+        throw new Error(result.message || "Email service rejected the message");
+      }
 
       if (status) status.textContent = "Sent successfully. Thank you!";
-      if (typeof window.log === "function") window.log(`${currentType === "bug" ? "Bug report" : "Suggestion"} sent`, "ok");
+      if (typeof window.log === "function") {
+        window.log(`${currentType === "bug" ? "Bug report" : "Suggestion"} sent`, "ok");
+      }
       setTimeout(() => document.getElementById("lxFeedbackModal")?.classList.remove("is-open"), 900);
     } catch (error) {
       console.error("[FEEDBACK] Send failed:", error);
-      if (status) status.textContent = "Could not send. Check your internet connection and try again.";
+      if (status) status.textContent = `Could not send: ${error?.message || "email service error"}`;
       if (typeof window.log === "function") window.log("Feedback could not be sent", "error");
     } finally {
       if (sendButton) {

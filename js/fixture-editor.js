@@ -7,7 +7,7 @@
  */
 (function installFixtureEditorModule() {
   const STORE = "lx-custom-fixtures";
-  const ATTRS = ["dimmer","intensity","strobe","r","g","b","w","a","l","c","pan","panf","tilt","tiltf","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","iris","frost","colour","colourr","speed","effect","preset","cct","cyan","magenta","yellow","amber","lime","warmWhite","coolWhite","naturalWhite","fog","haze","fana","fluid","control"];
+  const ATTRS = ["dimmer","intensity","strobe","r","g","b","w","uv","a","l","c","pan","panf","tilt","tiltf","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","iris","frost","colour","colourr","speed","effect","preset","cct","cyan","magenta","yellow","amber","lime","warmWhite","coolWhite","naturalWhite","fog","haze","fana","fluid","control"];
   const TYPES = ["dimmer","rgb","rgbw","moving","strobe","rgbal","rgbalc","tungsten"];
   let editingName = null;
 

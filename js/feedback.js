@@ -1,0 +1,264 @@
+"use strict";
+
+// ==============================================
+// SUGGESTIONS / BUG REPORTS
+// ==============================================
+// Sends feedback to Oliver without requiring an app-side mail password.
+// FormSubmit handles the email delivery; the first submission may require
+// confirming the destination address with FormSubmit.
+
+(function installFeedbackCommands() {
+  const DESTINATION = "olivergrainger100@gmail.com";
+  const ENDPOINT = `https://formsubmit.co/ajax/${encodeURIComponent(DESTINATION)}`;
+
+  const addStyles = () => {
+    if (document.getElementById("lxFeedbackStyles")) return;
+    const style = document.createElement("style");
+    style.id = "lxFeedbackStyles";
+    style.textContent = `
+      #lxFeedbackModal {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,.72);
+        z-index: 100000;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+      #lxFeedbackModal.is-open { display: flex; }
+      #lxFeedbackModal .lx-feedback-box {
+        width: min(620px, 100%);
+        background: #0b1012;
+        border: 1px solid #2a373b;
+        box-shadow: 0 24px 80px rgba(0,0,0,.55);
+        padding: 22px;
+        box-sizing: border-box;
+        color: #eef4f2;
+        font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      }
+      #lxFeedbackModal .lx-feedback-kicker {
+        color: #19d6a3;
+        font: 900 9px/1 var(--mono, monospace);
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      #lxFeedbackModal h3 {
+        margin: 0 0 7px;
+        font-size: 20px;
+      }
+      #lxFeedbackModal p {
+        margin: 0 0 16px;
+        color: #879693;
+        font-size: 12px;
+      }
+      #lxFeedbackModal textarea {
+        width: 100%;
+        min-height: 170px;
+        resize: vertical;
+        box-sizing: border-box;
+        background: #070a0b;
+        border: 1px solid #2a373b;
+        color: #eef4f2;
+        padding: 12px;
+        outline: none;
+        font: 700 12px/1.5 var(--mono, monospace);
+      }
+      #lxFeedbackModal textarea:focus { border-color: #19d6a3; }
+      #lxFeedbackModal .lx-feedback-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 9px;
+        margin-top: 13px;
+      }
+      #lxFeedbackModal button {
+        border: 1px solid #2a373b;
+        background: #11191c;
+        color: #eef4f2;
+        padding: 9px 14px;
+        cursor: pointer;
+        font: 900 10px/1 var(--mono, monospace);
+        text-transform: uppercase;
+      }
+      #lxFeedbackModal button:hover { background: #172124; }
+      #lxFeedbackModal .lx-feedback-send {
+        background: #19d6a3;
+        color: #06110d;
+        border-color: #19d6a3;
+      }
+      #lxFeedbackModal .lx-feedback-send:hover { background: #42e2b8; }
+      #lxFeedbackModal .lx-feedback-status {
+        min-height: 16px;
+        margin-top: 9px;
+        color: #879693;
+        font: 700 10px/1.4 var(--mono, monospace);
+      }
+    `;
+    document.head.appendChild(style);
+  };
+
+  function ensureModal() {
+    addStyles();
+    let modal = document.getElementById("lxFeedbackModal");
+    if (modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "lxFeedbackModal";
+    modal.innerHTML = `
+      <div class="lx-feedback-box" role="dialog" aria-modal="true" aria-labelledby="lxFeedbackTitle">
+        <div class="lx-feedback-kicker" id="lxFeedbackKicker">FEEDBACK</div>
+        <h3 id="lxFeedbackTitle">Send feedback</h3>
+        <p id="lxFeedbackHelp">Tell us what you would like to report or suggest.</p>
+        <textarea id="lxFeedbackText" placeholder="Type your message here..."></textarea>
+        <div class="lx-feedback-status" id="lxFeedbackStatus"></div>
+        <div class="lx-feedback-actions">
+          <button type="button" id="lxFeedbackCancel">Cancel</button>
+          <button type="button" id="lxFeedbackSend" class="lx-feedback-send">Send</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => {
+      modal.classList.remove("is-open");
+      const text = document.getElementById("lxFeedbackText");
+      if (text) text.value = "";
+      const status = document.getElementById("lxFeedbackStatus");
+      if (status) status.textContent = "";
+    };
+
+    document.getElementById("lxFeedbackCancel")?.addEventListener("click", close);
+    modal.addEventListener("click", event => {
+      if (event.target === modal) close();
+    });
+    document.getElementById("lxFeedbackText")?.addEventListener("keydown", event => {
+      if (event.key === "Escape") close();
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        submitFeedback();
+      }
+    });
+    document.getElementById("lxFeedbackSend")?.addEventListener("click", submitFeedback);
+
+    return modal;
+  }
+
+  let currentType = "suggestion";
+
+  function openFeedback(type) {
+    const modal = ensureModal();
+    currentType = type === "bug" ? "bug" : "suggestion";
+
+    const kicker = document.getElementById("lxFeedbackKicker");
+    const title = document.getElementById("lxFeedbackTitle");
+    const help = document.getElementById("lxFeedbackHelp");
+    const text = document.getElementById("lxFeedbackText");
+    const status = document.getElementById("lxFeedbackStatus");
+
+    if (currentType === "bug") {
+      if (kicker) kicker.textContent = "BUG REPORT";
+      if (title) title.textContent = "Report a bug";
+      if (help) help.textContent = "Describe what went wrong and what you expected to happen.";
+      if (text) text.placeholder = "What happened? What were you trying to do?";
+    } else {
+      if (kicker) kicker.textContent = "SUGGESTION";
+      if (title) title.textContent = "Send a suggestion";
+      if (help) help.textContent = "Tell us what you would like to see added or changed.";
+      if (text) text.placeholder = "What would you like to suggest?";
+    }
+
+    if (status) status.textContent = "";
+    modal.classList.add("is-open");
+    setTimeout(() => text?.focus(), 0);
+  }
+
+  async function submitFeedback() {
+    const text = String(document.getElementById("lxFeedbackText")?.value || "").trim();
+    const status = document.getElementById("lxFeedbackStatus");
+    const sendButton = document.getElementById("lxFeedbackSend");
+
+    if (!text) {
+      if (status) status.textContent = "Please enter a message first.";
+      return;
+    }
+
+    if (sendButton) {
+      sendButton.disabled = true;
+      sendButton.textContent = "Sending...";
+    }
+    if (status) status.textContent = "Sending feedback...";
+
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          _subject: `[LX Console] ${currentType === "bug" ? "Bug Report" : "Suggestion"}`,
+          _captcha: "false",
+          message: text,
+          type: currentType === "bug" ? "Bug Report" : "Suggestion",
+          app: "LX Console"
+        })
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const result = await response.json().catch(() => ({}));
+      if (result.success === false) throw new Error(result.message || "Email service rejected the message");
+
+      if (status) status.textContent = "Sent successfully. Thank you!";
+      if (typeof window.log === "function") window.log(`${currentType === "bug" ? "Bug report" : "Suggestion"} sent`, "ok");
+      setTimeout(() => document.getElementById("lxFeedbackModal")?.classList.remove("is-open"), 900);
+    } catch (error) {
+      console.error("[FEEDBACK] Send failed:", error);
+      if (status) status.textContent = "Could not send. Check your internet connection and try again.";
+      if (typeof window.log === "function") window.log("Feedback could not be sent", "error");
+    } finally {
+      if (sendButton) {
+        sendButton.disabled = false;
+        sendButton.textContent = "Send";
+      }
+    }
+  }
+
+  // Add the commands to the existing autocomplete list.
+  if (typeof commandDefs !== "undefined") {
+    commandDefs.push(
+      { cmd: "suggestion", hint: "open suggestion menu" },
+      { cmd: "suggestions", hint: "open suggestion menu" },
+      { cmd: "bug report", hint: "open bug report menu" },
+      { cmd: "bugreport", hint: "open bug report menu" }
+    );
+  }
+
+  const previousParseCommand = window.parseCommand || window.__lxOriginalParseCommand;
+  window.parseCommand = function(rawCommand) {
+    const command = String(rawCommand || "").trim().toLowerCase();
+
+    if (/^(suggestion|suggestions)$/.test(command)) {
+      openFeedback("suggestion");
+      return;
+    }
+
+    if (/^(bug\s+report|bugreport)$/.test(command)) {
+      openFeedback("bug");
+      return;
+    }
+
+    return typeof previousParseCommand === "function"
+      ? previousParseCommand(rawCommand)
+      : undefined;
+  };
+
+  window.LXFeedback = Object.freeze({
+    openSuggestion: () => openFeedback("suggestion"),
+    openBugReport: () => openFeedback("bug")
+  });
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", ensureModal, { once: true });
+  } else {
+    ensureModal();
+  }
+})();

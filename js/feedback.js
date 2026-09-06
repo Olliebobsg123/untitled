@@ -3,13 +3,10 @@
 // ==============================================
 // SUGGESTIONS / BUG REPORTS
 // ==============================================
-// Uses FormSubmit's documented AJAX endpoint. The request is sent as JSON,
-// which is the format their AJAX endpoint expects.
+// Email delivery is handled by the Electron preload bridge so this also
+// works when the app is opened from a local file:// URL.
 
 (function installFeedbackCommands() {
-  const DESTINATION = "olivergrainger100@gmail.com";
-  const ENDPOINT = `https://formsubmit.co/ajax/${encodeURIComponent(DESTINATION)}`;
-
   const addStyles = () => {
     if (document.getElementById("lxFeedbackStyles")) return;
     const style = document.createElement("style");
@@ -125,35 +122,21 @@
     if (status) status.textContent = "Sending feedback...";
 
     const typeLabel = currentType === "bug" ? "Bug Report" : "Suggestion";
-    const subject = `[LX Console] ${typeLabel}`;
 
     try {
-      // FormSubmit documents JSON for its AJAX endpoint.
-      const response = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: JSON.stringify({
-          name: "LX Console User",
-          message: text,
-          type: typeLabel,
-          app: "LX Console",
-          _subject: subject,
-          _template: "table",
-          _url: "https://github.com/olliebobsg123/untitled"
-        })
+      if (!window.LXFeedbackMail || typeof window.LXFeedbackMail.send !== "function") {
+        throw new Error("The desktop email bridge is not available. Restart the app after updating it.");
+      }
+
+      const result = await window.LXFeedbackMail.send({
+        message: text,
+        type: typeLabel
       });
 
-      const raw = await response.text();
-      let result = {};
-      try { result = raw ? JSON.parse(raw) : {}; } catch (_) {}
+      console.log("[FEEDBACK] Email bridge response:", result);
 
-      console.log("[FEEDBACK] FormSubmit response:", response.status, result || raw);
-
-      if (!response.ok || result?.success === false) {
-        throw new Error(result?.message || `Email service returned HTTP ${response.status}`);
+      if (!result?.success) {
+        throw new Error(result?.message || "Email service rejected the message");
       }
 
       if (status) status.textContent = "Sent successfully — check your email.";
@@ -175,7 +158,6 @@
     }
   }
 
-  // Add the commands to the existing autocomplete list.
   if (typeof commandDefs !== "undefined" && Array.isArray(commandDefs)) {
     commandDefs.push(
       { cmd: "suggestion", hint: "open suggestion menu" },

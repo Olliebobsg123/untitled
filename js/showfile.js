@@ -364,6 +364,16 @@
     window.chaseFade = state.chaseFade;
     window.chaseWait = state.chaseWait;
     restoreExternalSettings(show);
+    
+
+// Keep the loaded visualizer state available even when the visualizer
+// window is closed. A newly opened visualizer will request this state.
+window.__loadedShowVisualizerState =
+  show.visualizer && typeof show.visualizer === "object"
+    ? cloneValue(show.visualizer)
+    : null;
+
+try { window.initFixtureStates?.(); } catch (_) {}
     try { window.initFixtureStates?.(); } catch (_) {}
     try { window.renderFixtures?.(); } catch (_) {}
     try { window.renderGroups?.(); } catch (_) {}
@@ -577,6 +587,307 @@
     }
   });
 
+
+
+  "use strict";
+
+/*
+ * Visualizer show-load reliability patch.
+ *
+ * The show data is already stored by showfile.js. This layer only reapplies
+ * the saved visualizer state after the visualizer has finished rebuilding its
+ * fixture objects, which prevents saved positions from being overwritten by
+ * the normal visualizer startup/render cycle.
+ */
+(function installVisualizerShowLoadFix() {
+  const clone = value => {
+    if (value === null || value === undefined || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(clone);
+    const out = {};
+    Object.entries(value).forEach(([key, item]) => {
+      try { out[key] = clone(item); } catch (_) {}
+    });
+    return out;
+  };
+
+  const getViz = () => window.S || window.VizState || null;
+
+  const normalise = viz => {
+    const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
+    const byId = new Map(fixtures.map((fixture, index) => [String(fixture?.id), index]));
+
+    const positions = Array.isArray(viz?.fixturePositions) ? viz.fixturePositions : [];
+    const rotations = Array.isArray(viz?.fixtureManualRot) ? viz.fixtureManualRot : [];
+
+    return {
+      fixtures,
+      positions: positions.map(saved => ({
+        ...clone(saved),
+        fixtureIndex: saved?.fixtureId != null && byId.has(String(saved.fixtureId))
+          ? byId.get(String(saved.fixtureId))
+          : Number(saved?.fixtureIndex)
+      })).filter(saved => Number.isInteger(saved.fixtureIndex) && saved.fixtureIndex >= 0 && saved.fixtureIndex < fixtures.length),
+      rotations: rotations.map(saved => ({
+        ...clone(saved),
+        fixtureIndex: saved?.fixtureId != null && byId.has(String(saved.fixtureId))
+          ? byId.get(String(saved.fixtureId))
+          : Number(saved?.fixtureIndex)
+      })).filter(saved => Number.isInteger(saved.fixtureIndex) && saved.fixtureIndex >= 0 && saved.fixtureIndex < fixtures.length)
+    };
+  };
+
+  const apply = viz => {
+    if (!viz || typeof viz !== "object") return false;
+    const Viz = getViz();
+    if (!Viz) return false;
+
+    try {
+      const { fixtures, positions, rotations } = normalise(viz);
+
+      // The visualizer keeps its own fixture array. After a show load the
+      // console's State.fixtures has been replaced, so make the visualizer use
+      // that exact loaded fixture list before rebuilding its scene objects.
+      if (fixtures.length) {
+        Viz.fixtures = fixtures;
+        if (window.FixtureLibrary && typeof window.FixtureLibrary === "object") {
+          Viz.library = window.FixtureLibrary;
+          Viz.fixtureCache?.clear?.();
+        }
+      }
+
+      if (typeof Viz.applyLoadedPositions === "function") {
+        // The visualizer's native loader uses fixtureIndex. Convert saved
+        // fixture IDs to the current fixture order before calling it.
+        Viz.applyLoadedPositions(clone(positions), clone(rotations));
+      } else {
+        if (!(Viz.fixturePositions instanceof Map)) Viz.fixturePositions = new Map();
+        if (!(Viz.fixtureManualRot instanceof Map)) Viz.fixtureManualRot = new Map();
+
+        Viz.fixturePositions.clear();
+        Viz.fixtureManualRot.clear();
+
+        positions.forEach(saved => {
+          const x = Number(saved.x);
+          const y = Number(saved.y);
+          const z = Number(saved.z);
+          if ([x, y, z].every(Number.isFinite)) {
+            Viz.fixturePositions.set(saved.fixtureIndex, { x, y, z });
+          }
+        });
+
+        rotations.forEach(saved => {
+          const pan = Number(saved.pan);
+          const tilt = Number(saved.tilt);
+          if ([pan, tilt].every(Number.isFinite)) {
+            Viz.fixtureManualRot.set(saved.fixtureIndex, { pan, tilt });
+          }
+        });
+
+        Viz.rebuildFixtures?.();
+      }
+
+      if (Viz.grid) Viz.grid.visible = viz.gridOn !== false;
+      return true;
+    } catch (error) {
+      console.warn("[SHOW] Visualizer position reapply failed:", error);
+      return false;
+    }
+  };
+
+  const retry = viz => {
+    let attempts = 0;
+    const run = () => {
+      attempts++;
+      const applied = apply(viz);
+
+      // Do not stop after the first successful apply. The visualizer can
+      // rebuild its fixture list immediately after a show load, so reapply
+      // for a short window to ensure the saved positions survive that rebuild.
+      if (attempts < 20) {
+        setTimeout(run, attempts < 5 ? 50 : 100);
+      } else if (!applied) {
+        console.warn("[SHOW] Visualizer positions could not be restored");
+      }
+    };
+    run();
+  };
+
+  document.addEventListener("lx-show-loaded", event => {
+    const viz = event.detail?.visualizer;
+    if (viz) {
+      window.__pendingShowVisualizerState = clone(viz);
+      retry(window.__pendingShowVisualizerState);
+    }
+  });
+
+  window.addEventListener("lx-show-visualizer-ready", () => {
+    const pending = window.__pendingShowVisualizerState;
+    if (!pending) return;
+    retry(pending);
+  });
+
+  window.LXShowVisualizerFix = Object.freeze({ apply, retry });
+})();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
   else start();
+  // ---------------------------------------------------------------------------
+// VISUALIZER WINDOW HANDSHAKE
+//
+// The visualizer is a separate window. Its S/VizState belongs to THAT window,
+// not this console window.
+//
+// Therefore, when the visualizer announces that it is ready, send the saved
+// show-file visualizer state back to the window that sent the READY message.
+// ---------------------------------------------------------------------------
+
+window.addEventListener("message", event => {
+  if (event.data?.type !== "VISUALIZER_READY") return;
+
+  const saved = window.__loadedShowVisualizerState;
+
+  console.log("[SHOW] VISUALIZER_READY received", {
+    hasSavedVisualizerState: !!saved,
+    source: !!event.source
+  });
+
+  if (!saved || !event.source) {
+    console.log("[SHOW] No loaded visualizer state to send");
+    return;
+  }
+
+  const payload = {
+    type: "LOAD_VISUALIZER_STATE",
+    state: cloneValue(saved)
+  };
+
+  try {
+    event.source.postMessage(payload, "*");
+    console.log("[SHOW] Sent loaded visualizer positions to new visualizer");
+  } catch (error) {
+    console.warn("[SHOW] Failed to send visualizer state:", error);
+  }
+});
+// ---------------------------------------------------------------------------
+// SHOW FILE VISUALIZER STATE
+//
+// The main console sends the saved show-file visualizer state here whenever
+// this visualizer window is opened.
+// ---------------------------------------------------------------------------
+
+window.addEventListener("message", event => {
+  if (event.data?.type !== "LOAD_VISUALIZER_STATE") return;
+
+  const state = event.data?.state;
+  if (!state || typeof state !== "object") return;
+
+  console.log("[VIZ] Received visualizer state from show file");
+
+  // If the visualizer is still starting up, keep the state until it is ready.
+  window.__pendingLoadedVisualizerState = state;
+
+  const Viz = window.S || window.VizState;
+
+  if (!Viz) {
+    console.log("[VIZ] Visualizer state object not ready yet");
+    return;
+  }
+
+  try {
+    if (typeof Viz.applyLoadedPositions === "function") {
+      Viz.applyLoadedPositions(
+        Array.isArray(state.fixturePositions)
+          ? state.fixturePositions
+          : [],
+        Array.isArray(state.fixtureManualRot)
+          ? state.fixtureManualRot
+          : []
+      );
+    } else {
+      if (!(Viz.fixturePositions instanceof Map)) {
+        Viz.fixturePositions = new Map();
+      }
+
+      if (!(Viz.fixtureManualRot instanceof Map)) {
+        Viz.fixtureManualRot = new Map();
+      }
+
+      const fixtures = Array.isArray(window.State?.fixtures)
+        ? window.State.fixtures
+        : Array.isArray(Viz.fixtures)
+          ? Viz.fixtures
+          : [];
+
+      const byId = new Map(
+        fixtures.map((fixture, index) => [
+          String(fixture?.id),
+          index
+        ])
+      );
+
+      Viz.fixturePositions.clear();
+      Viz.fixtureManualRot.clear();
+
+      for (const saved of state.fixturePositions || []) {
+        let index = Number(saved?.fixtureIndex);
+
+        if (
+          saved?.fixtureId != null &&
+          byId.has(String(saved.fixtureId))
+        ) {
+          index = byId.get(String(saved.fixtureId));
+        }
+
+        if (!Number.isInteger(index)) continue;
+
+        const x = Number(saved.x);
+        const y = Number(saved.y);
+        const z = Number(saved.z);
+
+        if ([x, y, z].every(Number.isFinite)) {
+          Viz.fixturePositions.set(index, { x, y, z });
+        }
+      }
+
+      for (const saved of state.fixtureManualRot || []) {
+        let index = Number(saved?.fixtureIndex);
+
+        if (
+          saved?.fixtureId != null &&
+          byId.has(String(saved.fixtureId))
+        ) {
+          index = byId.get(String(saved.fixtureId));
+        }
+
+        if (!Number.isInteger(index)) continue;
+
+        const pan = Number(saved.pan);
+        const tilt = Number(saved.tilt);
+
+        if ([pan, tilt].every(Number.isFinite)) {
+          Viz.fixtureManualRot.set(index, { pan, tilt });
+        }
+      }
+
+      Viz.rebuildFixtures?.();
+    }
+
+    if (Viz.grid) {
+      Viz.grid.visible = state.gridOn !== false;
+    }
+
+    if (Viz.houseOn !== undefined) {
+      Viz.houseOn = state.houseOn !== false;
+    }
+
+    if (Viz.workOn !== undefined) {
+      Viz.workOn = state.workOn !== false;
+    }
+
+    window.__pendingLoadedVisualizerState = null;
+
+    console.log("[VIZ] Show-file visualizer state applied");
+  } catch (error) {
+    console.error("[VIZ] Failed to apply show-file visualizer state:", error);
+  }
+});
 })();

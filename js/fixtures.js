@@ -1349,8 +1349,8 @@ const FixtureLibrary = {
             b: 3,
             w: 4,
             strobe: 5,
-            speed: 6,
-            colmacro: 7
+            speed: 7,
+            colmacro: 6
         },
 
         photometrics: {

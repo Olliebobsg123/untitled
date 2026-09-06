@@ -9,15 +9,12 @@ const showFileApi = {
 
 const feedbackApi = {
   send: payload => new Promise((resolve, reject) => {
-    const destination = 'olivergrainger100@gmail.com';
+    const apiUrl = new URL('https://api-bice-ten.vercel.app/api/feedback');
     const body = JSON.stringify({
       name: 'LX Console User',
       message: String(payload?.message || '').trim(),
       type: String(payload?.type || 'Feedback'),
-      app: 'LX Console',
-      _subject: `[LX Console] ${String(payload?.type || 'Feedback')}`,
-      _template: 'table',
-      _url: 'https://github.com/olliebobsg123/untitled'
+      app: 'LX Console'
     });
 
     if (!JSON.parse(body).message) {
@@ -26,8 +23,8 @@ const feedbackApi = {
     }
 
     const request = https.request({
-      hostname: 'formsubmit.co',
-      path: `/ajax/${encodeURIComponent(destination)}`,
+      hostname: apiUrl.hostname,
+      path: `${apiUrl.pathname}${apiUrl.search}`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -43,10 +40,10 @@ const feedbackApi = {
         let result = {};
         try { result = raw ? JSON.parse(raw) : {}; } catch (_) {}
 
-        console.log('[FEEDBACK] FormSubmit response:', response.statusCode, result || raw);
+        console.log('[FEEDBACK] API response:', response.statusCode, result || raw);
 
         if ((response.statusCode || 500) < 200 || (response.statusCode || 500) >= 300 || result?.success === false) {
-          reject(new Error(result?.message || `Email service returned HTTP ${response.statusCode}`));
+          reject(new Error(result?.error || result?.message || `Feedback API returned HTTP ${response.statusCode}`));
           return;
         }
 
@@ -54,7 +51,7 @@ const feedbackApi = {
       });
     });
 
-    request.on('timeout', () => request.destroy(new Error('Email request timed out')));
+    request.on('timeout', () => request.destroy(new Error('Feedback API request timed out')));
     request.on('error', error => reject(error));
     request.write(body);
     request.end();
@@ -70,9 +67,9 @@ try {
 
 try {
   contextBridge.exposeInMainWorld('LXFeedbackMail', feedbackApi);
-  console.log('[FEEDBACK] Electron email bridge exposed');
+  console.log('[FEEDBACK] Electron feedback API bridge exposed');
 } catch (error) {
-  console.error('[FEEDBACK] FAILED to expose email bridge:', error);
+  console.error('[FEEDBACK] FAILED to expose feedback API bridge:', error);
 }
 
 try {

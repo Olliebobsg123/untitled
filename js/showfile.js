@@ -587,6 +587,98 @@ try { window.initFixtureStates?.(); } catch (_) {}
     }
   });
 
+  /*
+   * Custom fixture show-file bridge.
+   *
+   * The fixture editor still uses its existing lx-custom-fixtures storage API,
+   * but this bridge redirects that key into State.current so custom fixture
+   * definitions are part of the normal show-file snapshot instead of being
+   * machine-local saves.
+   */
+  const CUSTOM_FIXTURE_STORE = "lx-custom-fixtures";
+  const CUSTOM_FIXTURE_STATE_KEY = "__lxCustomFixtures";
+  const nativeStorageGet = Storage.prototype.getItem;
+  const nativeStorageSet = Storage.prototype.setItem;
+  const nativeStorageRemove = Storage.prototype.removeItem;
+
+  function ensureCustomFixtureState() {
+    const state = window.State || (window.State = {});
+    if (!state.current || typeof state.current !== "object" || Array.isArray(state.current)) {
+      state.current = {};
+    }
+    if (!state.current[CUSTOM_FIXTURE_STATE_KEY] || typeof state.current[CUSTOM_FIXTURE_STATE_KEY] !== "object" || Array.isArray(state.current[CUSTOM_FIXTURE_STATE_KEY])) {
+      state.current[CUSTOM_FIXTURE_STATE_KEY] = {};
+    }
+    return state;
+  }
+
+  function getCustomFixtureDefinitions() {
+    return ensureCustomFixtureState().current[CUSTOM_FIXTURE_STATE_KEY];
+  }
+
+  function setCustomFixtureDefinitions(value) {
+    const state = ensureCustomFixtureState();
+    state.current[CUSTOM_FIXTURE_STATE_KEY] = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    return true;
+  }
+
+  // Migrate fixtures created by older versions of the editor into the current
+  // show state. The old localStorage copy is removed after migration.
+  try {
+    const legacy = nativeStorageGet.call(window.localStorage, CUSTOM_FIXTURE_STORE);
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.keys(parsed).length) {
+        Object.assign(getCustomFixtureDefinitions(), parsed);
+      }
+      nativeStorageRemove.call(window.localStorage, CUSTOM_FIXTURE_STORE);
+    }
+  } catch (_) {}
+
+  Storage.prototype.getItem = function (key) {
+    if (key === CUSTOM_FIXTURE_STORE && this === window.localStorage) {
+      return JSON.stringify(getCustomFixtureDefinitions());
+    }
+    return nativeStorageGet.call(this, key);
+  };
+
+  Storage.prototype.setItem = function (key, value) {
+    if (key === CUSTOM_FIXTURE_STORE && this === window.localStorage) {
+      try {
+        const parsed = JSON.parse(String(value));
+        setCustomFixtureDefinitions(parsed);
+      } catch (_) {
+        setCustomFixtureDefinitions({});
+      }
+      return;
+    }
+    return nativeStorageSet.call(this, key, value);
+  };
+
+  Storage.prototype.removeItem = function (key) {
+    if (key === CUSTOM_FIXTURE_STORE && this === window.localStorage) {
+      setCustomFixtureDefinitions({});
+      return;
+    }
+    return nativeStorageRemove.call(this, key);
+  };
+
+  function reinstallCustomFixtures() {
+    try { window.LXFixtureEditor?.install?.(); } catch (_) {}
+    try { window.renderLibrary?.(); } catch (_) {}
+  }
+
+  document.addEventListener("lx-show-loaded", () => {
+    // restoreShow has replaced State.current with the loaded show snapshot.
+    // Reinstall the custom definitions from that show immediately.
+    setTimeout(reinstallCustomFixtures, 0);
+  });
+
+  window.LXCustomFixtureShowfile = Object.freeze({
+    get: () => JSON.parse(JSON.stringify(getCustomFixtureDefinitions())),
+    set: value => setCustomFixtureDefinitions(value),
+    clear: () => setCustomFixtureDefinitions({})
+  });
 
 
   "use strict";

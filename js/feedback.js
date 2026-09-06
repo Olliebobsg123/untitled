@@ -197,3 +197,11 @@
     ensureModal();
   }
 })();
+
+// The custom fixture editor lives in its own module.
+if (!document.querySelector('script[data-lx-fixture-editor]')) {
+  const script = document.createElement("script");
+  script.src = "js/fixture-editor.js";
+  script.dataset.lxFixtureEditor = "1";
+  document.head.appendChild(script);
+}

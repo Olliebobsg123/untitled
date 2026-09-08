@@ -120,8 +120,6 @@
       const intensity = clamp100(state.intensity ?? window.State.current?.intensity ?? 100) / 100;
       const level = window.State.blackout ? 0 : master * intensity;
 
-      // Pan / tilt and their fine channels are already handled by dmx.js.
-      // Re-assert them here only when this compatibility layer is used.
       write(base, map.pan, state.pan ?? 128);
       write(base, map.panf, state.panf ?? 0);
       write(base, map.tilt, state.tilt ?? 128);
@@ -131,11 +129,11 @@
       write(base, map.macro, state.macro ?? 0);
       write(base, map.macroSpeed, state.macroSpeed ?? 0);
 
-      // Mode 1 has a combined mechanical dimmer/shutter on channel 17.
+      // Mode 1 channel 17 is the combined mechanical dimmer/shutter.
       write(base, map.dimmer, 255 * level);
 
-      // If explicit CMY values exist, use them. Otherwise convert the
-      // console's normal HSL programmer colour to subtractive CMY.
+      // CMY is subtractive. Use explicit CMY state when supplied;
+      // otherwise convert the console's normal HSL colour into CMY.
       const hasExplicitCMY = ["cyan", "magenta", "yellow"].some(k =>
         state[k] != null || window.State.current?.[k] != null
       );
@@ -145,7 +143,11 @@
         write(base, map.magenta, window.State.blackout ? 0 : clamp255(state.magenta ?? window.State.current?.magenta ?? 0));
         write(base, map.yellow, window.State.blackout ? 0 : clamp255(state.yellow ?? window.State.current?.yellow ?? 0));
       } else {
-        const rgb = rgbFromHsl(state.hue ?? window.State.current?.hue ?? 0, state.sat ?? window.State.current?.sat ?? 100, state.light ?? window.State.current?.light ?? 50);
+        const rgb = rgbFromHsl(
+          state.hue ?? window.State.current?.hue ?? 0,
+          state.sat ?? window.State.current?.sat ?? 100,
+          state.light ?? window.State.current?.light ?? 50
+        );
         write(base, map.cyan, (1 - rgb[0]) * 255);
         write(base, map.magenta, (1 - rgb[1]) * 255);
         write(base, map.yellow, (1 - rgb[2]) * 255);
@@ -154,7 +156,7 @@
       // CTO: 0 = no correction / 5600K, 255 = maximum correction / 3200K.
       write(base, map.cto, window.State.blackout ? 0 : clamp255(state.cto ?? window.State.current?.cto ?? 0));
 
-      // Preserve explicit colour-wheel positions if a cue/command supplies them.
+      // Preserve explicit colour-wheel positions supplied by cues/commands.
       write(base, map.colour, window.State.blackout ? 0 : clamp255(state.colour ?? window.State.current?.colour ?? 0));
       write(base, map.colourFine, window.State.blackout ? 0 : clamp255(state.colourFine ?? window.State.current?.colourFine ?? 0));
       write(base, map.colour2, window.State.blackout ? 0 : clamp255(state.colour2 ?? window.State.current?.colour2 ?? 0));
@@ -171,8 +173,10 @@
     window.updateDMX = function robeColorWashCompatibleUpdateDMX() {
       originalUpdateDMX.apply(this, arguments);
       applyToColorWash();
-      window.ArtNet?.send?.();
+      // updateDMX already sends the frame; no second Art-Net send is needed.
     };
+    window.renderLibrary?.();
+    window.renderFixtures?.();
     return true;
   }
 

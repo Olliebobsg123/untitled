@@ -24,9 +24,6 @@
       ids.add(String(state.selectedFixtureId));
     }
 
-    // Some older selection rendering uses the .sel marker. Only use it when
-    // State.selected has not supplied a selection, avoiding accidental UNION
-    // with stale DOM classes.
     if (!ids.size) {
       document.querySelectorAll("#fixtureList .sel[data-fixture-id]").forEach(el => {
         ids.add(String(el.dataset.fixtureId));
@@ -61,7 +58,6 @@
     intensity: ["intensity", "dimmer", "dim"],
     strobe: ["strobe", "shutter"],
     zoom: ["zoom"],
-    // IMPORTANT: fixture maps use r/g/b, not red/green/blue.
     colour: [
       "hue", "sat", "saturation",
       "r", "g", "b", "w", "white",
@@ -390,8 +386,6 @@
       });
     }
 
-    // Selection state can change without a DOM mutation. This is deliberately
-    // light-weight and only refreshes when the selection signature changes.
     let last = "";
     setInterval(() => {
       const signature = getFixtures().map(f => String(f.id)).join(",");
@@ -407,4 +401,16 @@
   } else {
     install();
   }
+})();
+
+// Load the ROBE ColorWash compatibility layer after the existing fixture
+// capability module. It patches the existing DMX writer without changing
+// the rest of the control system.
+(function loadRobeColorWashCompatibility() {
+  if (document.querySelector('script[data-robe-colorwash-compat]')) return;
+  const script = document.createElement("script");
+  script.src = "js/robe-colorwash-1200e.js";
+  script.dataset.robeColorwashCompat = "1";
+  script.async = false;
+  (document.head || document.documentElement).appendChild(script);
 })();

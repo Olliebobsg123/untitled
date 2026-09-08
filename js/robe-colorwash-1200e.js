@@ -6,14 +6,13 @@
  * Correct 17-channel Mode 1 map from the ROBE manual:
  *  1 Pan, 2 Pan Fine, 3 Tilt, 4 Tilt Fine, 5 P/T Speed,
  *  6 Power/Special, 7 P/T Macro, 8 Macro Speed,
- *  9 Colour Wheel 1, 10 CW1 Fine, 11 Colour Wheel 2,
- * 12 CW2 Fine, 13 Cyan, 14 Magenta, 15 Yellow,
- * 16 CTO, 17 CMY macro/effect assignment.
+ *  9 Cyan, 10 Magenta, 11 Yellow, 12 CTO,
+ * 13 Effect Speed, 14 Fresnel Opening, 15 Zoom,
+ * 16 Shutter/Strobe, 17 Dimmer.
  *
- * NOTE: the ROBE manual's Mode 1 table also places zoom, shutter/strobe
- * and dimmer in the later mode/channel columns. They are NOT channels
- * 15/16/17 in Mode 1. This profile therefore does not invent those
- * channels where the Mode 1 table does not expose them.
+ * Mode 1 does not contain the colour-wheel channels; those are used by
+ * later personalities. This is why the previous mapping made colour
+ * controls appear to operate the wrong functions.
  */
 (function installRobeColorWash1200ECompatibility() {
   const NAME = "Robe ColorWash 1200E AT (17ch Mode 1)";
@@ -30,16 +29,17 @@
       control: 5,
       macro: 6,
       macroSpeed: 7,
-      colour: 8,
-      colourFine: 9,
-      colour2: 10,
-      colour2Fine: 11,
-      cyan: 12,
-      magenta: 13,
-      yellow: 14,
-      cto: 15,
+      cyan: 8,
+      magenta: 9,
+      yellow: 10,
+      cto: 11,
       effectSpeed: 12,
-      effectAssign: 16
+      fresnel: 13,
+      zoom: 14,
+      strobe: 15,
+      shutter: 15,
+      dimmer: 16,
+      intensity: 16
     },
     photometrics: {
       verified: true,
@@ -125,7 +125,9 @@
       write(base, profile.map.macro, fixtureState.macro ?? current.macro ?? 0);
       write(base, profile.map.macroSpeed, fixtureState.macroSpeed ?? current.macroSpeed ?? 0);
 
-      // CMY: 0 is clear/white, 255 is full filter.
+      // Mode 1 colour control is CMY, not RGB and not the colour wheels.
+      // The normal colour picker is converted to CMY when explicit CMY
+      // values have not been supplied by the user.
       const cyan = fixtureState.cyan ?? current.cyan;
       const magenta = fixtureState.magenta ?? current.magenta;
       const yellow = fixtureState.yellow ?? current.yellow;
@@ -148,18 +150,28 @@
       // CTO: 0 = 5600 K / no correction, 255 = 3200 K.
       write(base, profile.map.cto, state.blackout ? 0 : fixtureState.cto ?? current.cto ?? 0);
 
-      write(base, profile.map.colour, state.blackout ? 0 : fixtureState.colour ?? current.colour ?? 0);
-      write(base, profile.map.colourFine, state.blackout ? 0 : fixtureState.colourFine ?? current.colourFine ?? 0);
-      write(base, profile.map.colour2, state.blackout ? 0 : fixtureState.colour2 ?? current.colour2 ?? 0);
-      write(base, profile.map.colour2Fine, state.blackout ? 0 : fixtureState.colour2Fine ?? current.colour2Fine ?? 0);
+      // Keep the fixture's physical dimmer open independently of the
+      // shutter/strobe control. The previous implementation calculated
+      // 'level' but never wrote it to the DMX dimmer channel.
+      write(base, profile.map.dimmer, state.blackout ? 0 : level * 255);
 
-      // The final channel in Mode 1 is the effect-speed assigning channel.
-      write(base, profile.map.effectAssign, fixtureState.effectAssign ?? current.effectAssign ?? 0);
+      // Strobe UI semantics: 0 means OPEN/no strobe, rather than the ROBE
+      // shutter-closed DMX range 0-31. Values above zero enter the strobe
+      // range 64-95 and therefore do not prevent the dimmer from working.
+      const strobe = clamp255(fixtureState.strobe ?? current.strobe ?? 0);
+      const strobeDMX = strobe === 0
+        ? 63
+        : 64 + Math.round((strobe / 255) * 31);
+      write(base, profile.map.strobe, state.blackout ? 0 : strobeDMX);
 
-      // Keep the console intensity state represented in the DMX frame only
-      // when the active fixture personality actually exposes a dimmer channel.
-      // Mode 1 does not expose a separate dimmer channel in this map.
-      void level;
+      // Zoom is a single 8-bit proportional channel in Mode 1.
+      write(base, profile.map.zoom, fixtureState.zoom ?? current.zoom ?? 0);
+
+      // Fresnel opening: 85 DMX is the LightMax/high-intensity spot point.
+      write(base, profile.map.fresnel, fixtureState.fresnel ?? current.fresnel ?? 0);
+
+      // Effect speed is channel 13 in Mode 1.
+      write(base, profile.map.effectSpeed, fixtureState.effectSpeed ?? current.effectSpeed ?? 0);
     }
   }
 

@@ -3,10 +3,17 @@
 /*
  * ROBE ColorWash 1200E AT compatibility layer.
  *
- * Mode 1 is a 17-channel personality. The fixture is CMY based;
- * it does not expose zoom or shutter/strobe in this personality.
- * This layer makes the existing programmer state drive the actual
- * CMY/CTO/colour-wheel channels instead of treating the fixture as RGB.
+ * Correct 17-channel Mode 1 map from the ROBE manual:
+ *  1 Pan, 2 Pan Fine, 3 Tilt, 4 Tilt Fine, 5 P/T Speed,
+ *  6 Power/Special, 7 P/T Macro, 8 Macro Speed,
+ *  9 Colour Wheel 1, 10 CW1 Fine, 11 Colour Wheel 2,
+ * 12 CW2 Fine, 13 Cyan, 14 Magenta, 15 Yellow,
+ * 16 CTO, 17 CMY macro/effect assignment.
+ *
+ * NOTE: the ROBE manual's Mode 1 table also places zoom, shutter/strobe
+ * and dimmer in the later mode/channel columns. They are NOT channels
+ * 15/16/17 in Mode 1. This profile therefore does not invent those
+ * channels where the Mode 1 table does not expose them.
  */
 (function installRobeColorWash1200ECompatibility() {
   const NAME = "Robe ColorWash 1200E AT (17ch Mode 1)";
@@ -31,30 +38,24 @@
       magenta: 13,
       yellow: 14,
       cto: 15,
-      dimmer: 16,
-      intensity: 16
+      effectSpeed: 12,
+      effectAssign: 16
     },
     photometrics: {
       verified: true,
       sourceType: "DISCHARGE",
       ratedLumens: null,
       beamAngle: null,
-      beamAngleMin: 10,
-      beamAngleMax: 87,
+      beamAngleMin: 13,
+      beamAngleMax: 44,
       outputScale: 1,
       manufacturer: "ROBE",
       model: "ColorWash 1200E AT"
-    },
-    colourWheel: [
-      { min: 0, max: 31, rgb: [1, 1, 1], hue: 0 },
-      { min: 32, max: 63, rgb: [0.55, 0, 0], hue: 0 },
-      { min: 64, max: 95, rgb: [0, 0.05, 0.55], hue: 235 },
-      { min: 96, max: 127, rgb: [0.05, 0.55, 0.05], hue: 120 },
-      { min: 128, max: 159, rgb: [1, 0.35, 0.02], hue: 20 },
-      { min: 160, max: 191, rgb: [0.95, 0.95, 0.95], hue: 0 },
-      { min: 192, max: 255, rgb: [1, 1, 1], hue: 0 }
-    ]
+    }
   };
+
+  const clamp255 = value => Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+  const clamp100 = value => Math.max(0, Math.min(100, Number(value) || 0));
 
   function installProfile() {
     if (!window.FixtureLibrary || typeof window.FixtureLibrary !== "object") return false;
@@ -62,22 +63,22 @@
     return true;
   }
 
-  function getFixtureDefinition(fixture) {
-    if (typeof window.getFixtureDefinition === "function") return window.getFixtureDefinition(fixture);
-    return window.FixtureLibrary?.[fixture?.name];
-  }
-
   function getBase(fixture) {
     const n = Number(fixture?.addr ?? fixture?.address ?? fixture?.startAddress ?? fixture?.start ?? fixture?.channel);
     return Number.isFinite(n) && n >= 1 && n <= 512 ? n - 1 : -1;
   }
 
-  function clamp255(value) {
-    return Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+  function getState(fixture) {
+    if (typeof window.ensureFixtureState === "function") return window.ensureFixtureState(fixture.id);
+    return window.State?.fixtureStates?.get(fixture.id) || null;
   }
 
-  function clamp100(value) {
-    return Math.max(0, Math.min(100, Number(value) || 0));
+  function write(base, channel, value) {
+    if (!Number.isInteger(channel)) return;
+    const index = base + channel;
+    if (index >= 0 && index < 512 && window.State?.dmx) {
+      window.State.dmx[index] = clamp255(value);
+    }
   }
 
   function rgbFromHsl(h, s, l) {
@@ -98,85 +99,86 @@
     return [r + m, g + m, b + m];
   }
 
-  function write(base, channel, value) {
-    if (!Number.isInteger(channel)) return;
-    const index = base + channel;
-    if (index >= 0 && index < 512 && window.State?.dmx) window.State.dmx[index] = clamp255(value);
-  }
-
   function applyToColorWash() {
-    if (!window.State || !Array.isArray(window.State.fixtures) || !window.State.dmx) return;
-    for (const fixture of window.State.fixtures) {
+    const state = window.State;
+    if (!state || !Array.isArray(state.fixtures) || !state.dmx) return;
+
+    for (const fixture of state.fixtures) {
       if (fixture?.name !== NAME) continue;
-      const map = getFixtureDefinition(fixture)?.map || profile.map;
       const base = getBase(fixture);
       if (base < 0) continue;
-      const state = typeof window.ensureFixtureState === "function"
-        ? window.ensureFixtureState(fixture.id)
-        : window.State.fixtureStates?.get(fixture.id);
-      if (!state) continue;
 
-      const master = clamp100(state.master ?? window.State.current?.master ?? 100) / 100;
-      const intensity = clamp100(state.intensity ?? window.State.current?.intensity ?? 100) / 100;
-      const level = window.State.blackout ? 0 : master * intensity;
+      const fixtureState = getState(fixture);
+      if (!fixtureState) continue;
 
-      write(base, map.pan, state.pan ?? 128);
-      write(base, map.panf, state.panf ?? 0);
-      write(base, map.tilt, state.tilt ?? 128);
-      write(base, map.tiltf, state.tiltf ?? 0);
-      write(base, map.speed, state.speed ?? 0);
-      write(base, map.control, state.control ?? 0);
-      write(base, map.macro, state.macro ?? 0);
-      write(base, map.macroSpeed, state.macroSpeed ?? 0);
+      const current = state.current || {};
+      const master = clamp100(fixtureState.master ?? current.master ?? 100) / 100;
+      const intensity = clamp100(fixtureState.intensity ?? current.intensity ?? 100) / 100;
+      const level = state.blackout ? 0 : master * intensity;
 
-      // Mode 1 channel 17 is the combined mechanical dimmer/shutter.
-      write(base, map.dimmer, 255 * level);
+      write(base, profile.map.pan, fixtureState.pan ?? current.pan ?? 128);
+      write(base, profile.map.panf, fixtureState.panf ?? current.panf ?? 0);
+      write(base, profile.map.tilt, fixtureState.tilt ?? current.tilt ?? 128);
+      write(base, profile.map.tiltf, fixtureState.tiltf ?? current.tiltf ?? 0);
+      write(base, profile.map.speed, fixtureState.speed ?? current.speed ?? 0);
+      write(base, profile.map.control, fixtureState.control ?? current.control ?? 0);
+      write(base, profile.map.macro, fixtureState.macro ?? current.macro ?? 0);
+      write(base, profile.map.macroSpeed, fixtureState.macroSpeed ?? current.macroSpeed ?? 0);
 
-      // CMY is subtractive. Use explicit CMY state when supplied;
-      // otherwise convert the console's normal HSL colour into CMY.
-      const hasExplicitCMY = ["cyan", "magenta", "yellow"].some(k =>
-        state[k] != null || window.State.current?.[k] != null
-      );
+      // CMY: 0 is clear/white, 255 is full filter.
+      const cyan = fixtureState.cyan ?? current.cyan;
+      const magenta = fixtureState.magenta ?? current.magenta;
+      const yellow = fixtureState.yellow ?? current.yellow;
 
-      if (hasExplicitCMY) {
-        write(base, map.cyan, window.State.blackout ? 0 : clamp255(state.cyan ?? window.State.current?.cyan ?? 0));
-        write(base, map.magenta, window.State.blackout ? 0 : clamp255(state.magenta ?? window.State.current?.magenta ?? 0));
-        write(base, map.yellow, window.State.blackout ? 0 : clamp255(state.yellow ?? window.State.current?.yellow ?? 0));
+      if (cyan != null || magenta != null || yellow != null) {
+        write(base, profile.map.cyan, state.blackout ? 0 : cyan ?? 0);
+        write(base, profile.map.magenta, state.blackout ? 0 : magenta ?? 0);
+        write(base, profile.map.yellow, state.blackout ? 0 : yellow ?? 0);
       } else {
         const rgb = rgbFromHsl(
-          state.hue ?? window.State.current?.hue ?? 0,
-          state.sat ?? window.State.current?.sat ?? 100,
-          state.light ?? window.State.current?.light ?? 50
+          fixtureState.hue ?? current.hue ?? 0,
+          fixtureState.sat ?? current.sat ?? 100,
+          fixtureState.light ?? current.light ?? 50
         );
-        write(base, map.cyan, (1 - rgb[0]) * 255);
-        write(base, map.magenta, (1 - rgb[1]) * 255);
-        write(base, map.yellow, (1 - rgb[2]) * 255);
+        write(base, profile.map.cyan, (1 - rgb[0]) * 255);
+        write(base, profile.map.magenta, (1 - rgb[1]) * 255);
+        write(base, profile.map.yellow, (1 - rgb[2]) * 255);
       }
 
-      // CTO: 0 = no correction / 5600K, 255 = maximum correction / 3200K.
-      write(base, map.cto, window.State.blackout ? 0 : clamp255(state.cto ?? window.State.current?.cto ?? 0));
+      // CTO: 0 = 5600 K / no correction, 255 = 3200 K.
+      write(base, profile.map.cto, state.blackout ? 0 : fixtureState.cto ?? current.cto ?? 0);
 
-      // Preserve explicit colour-wheel positions supplied by cues/commands.
-      write(base, map.colour, window.State.blackout ? 0 : clamp255(state.colour ?? window.State.current?.colour ?? 0));
-      write(base, map.colourFine, window.State.blackout ? 0 : clamp255(state.colourFine ?? window.State.current?.colourFine ?? 0));
-      write(base, map.colour2, window.State.blackout ? 0 : clamp255(state.colour2 ?? window.State.current?.colour2 ?? 0));
-      write(base, map.colour2Fine, window.State.blackout ? 0 : clamp255(state.colour2Fine ?? window.State.current?.colour2Fine ?? 0));
+      write(base, profile.map.colour, state.blackout ? 0 : fixtureState.colour ?? current.colour ?? 0);
+      write(base, profile.map.colourFine, state.blackout ? 0 : fixtureState.colourFine ?? current.colourFine ?? 0);
+      write(base, profile.map.colour2, state.blackout ? 0 : fixtureState.colour2 ?? current.colour2 ?? 0);
+      write(base, profile.map.colour2Fine, state.blackout ? 0 : fixtureState.colour2Fine ?? current.colour2Fine ?? 0);
+
+      // The final channel in Mode 1 is the effect-speed assigning channel.
+      write(base, profile.map.effectAssign, fixtureState.effectAssign ?? current.effectAssign ?? 0);
+
+      // Keep the console intensity state represented in the DMX frame only
+      // when the active fixture personality actually exposes a dimmer channel.
+      // Mode 1 does not expose a separate dimmer channel in this map.
+      void level;
     }
   }
 
   function install() {
     if (!installProfile()) return false;
-    if (typeof window.updateDMX !== "function") return false;
     if (window.__robeColorWash1200ECompat) return true;
     window.__robeColorWash1200ECompat = true;
+
     const originalUpdateDMX = window.updateDMX;
-    window.updateDMX = function robeColorWashCompatibleUpdateDMX() {
-      originalUpdateDMX.apply(this, arguments);
-      applyToColorWash();
-      // updateDMX already sends the frame; no second Art-Net send is needed.
-    };
+    if (typeof originalUpdateDMX === "function") {
+      window.updateDMX = function robeColorWashCompatibleUpdateDMX() {
+        originalUpdateDMX.apply(this, arguments);
+        applyToColorWash();
+      };
+    }
+
     window.renderLibrary?.();
     window.renderFixtures?.();
+    window.updateControlVisibility?.();
     return true;
   }
 

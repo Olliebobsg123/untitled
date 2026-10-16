@@ -3,6 +3,20 @@
    Presentation layer only. Existing JS IDs/hooks are preserved.
    ============================================================ */
 
+/* The browser's own default [hidden]{display:none} rule has the same
+   specificity as (and loses to, since author styles beat UA styles at
+   equal specificity) any class rule that also sets display on the same
+   element — e.g. .splash-loading{display:flex}. Without this, setting
+   el.hidden=true silently does nothing for any element whose own class
+   sets a display value, leaving it visibly stacked on top of whatever
+   replaced it (this is exactly what made the splash screen's
+   loading/license/chooser sections pile up instead of swapping). This
+   rule guarantees the hidden attribute always actually hides, however
+   the element's own class styles it otherwise. */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --bg-0: #07090b;
   --bg-1: #0c1013;
@@ -35,7 +49,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--sans); user-select: none; }
 html, body { width: 100%; height: 100%; overflow: hidden; }
-body { background: radial-gradient(circle at 55% 5%, rgba(25,214,163,.045), transparent 28%), linear-gradient(135deg, #06080a 0%, #090c0f 48%, #07090b 100%); color: var(--text); display: grid; grid-template-columns: 214px minmax(0, 1fr) 330px; grid-template-rows: 58px minmax(0, 1fr) 156px 44px; grid-template-areas: "sidebar topbar topbar" "sidebar workspace controls" "sidebar bottom-row controls" "sidebar cmd-line controls"; gap: 9px; padding: 9px; }
+body { background: radial-gradient(circle at 55% 5%, rgba(25,214,163,.045), transparent 28%), linear-gradient(135deg, #06080a 0%, #090c0f 48%, #07090b 100%); color: var(--text); display: grid; grid-template-columns: 214px minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr) 156px 44px; grid-template-areas: "sidebar topbar" "sidebar workspace" "sidebar bottom-row" "sidebar cmd-line"; gap: 9px; padding: 9px; }
 button, input, select { font: inherit; }
 button { border: 0; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent-line); }
@@ -394,24 +408,24 @@ select:focus-visible {
 
 .page.active {
   display: block;
+  height: 100%;
 }
 
 .live-grid {
   display: grid;
-  grid-template-columns: minmax(180px, .8fr) minmax(250px, 1.2fr);
+  grid-template-columns: minmax(200px, .6fr) minmax(360px, 1.4fr);
   gap: 9px;
+  height: 100%;
+  min-height: 0;
 }
 
-.groups-panel {
-  grid-column: 1;
-}
-
-.quick-panel {
-  grid-column: 2;
-}
-
-.fixtures-panel {
-  grid-column: 1 / -1;
+.live-grid-left {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 
 .page-grid.two-col {
@@ -429,6 +443,56 @@ select:focus-visible {
 
 .fixture-body {
   min-height: 160px;
+}
+
+/* Groups gets a generous, viewport-scaled ceiling on its own height
+   (so a long group list has real room before it needs to scroll) but
+   can still shrink if the window is short — the shrinking always
+   comes out of the LIST (flex:1 inside groups' own panel-body), never
+   out of the header/Create Group/Palettes/Targets buttons below it,
+   which stay flex:none so they're never the thing that gets clipped
+   by .panel's overflow:hidden. Fixtures takes whatever's left in the
+   column and scrolls its own list too, so neither one ever needs the
+   page itself to scroll except in genuinely too-short windows. */
+.groups-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 220px;
+  max-height: min(560px, 45vh);
+}
+
+.groups-panel > .panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#groupList {
+  flex: 1 1 auto;
+  min-height: 60px;
+  overflow-y: auto;
+}
+
+.fixtures-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+
+.fixtures-panel .fixture-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fixtures-panel .fixture-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .list-toolbar {
@@ -578,54 +642,6 @@ select:focus-visible {
 .btn-icon-danger:hover {
   color: #ff7c8b;
 }
-
-/* ---------- Presets ---------- */
-
-.presets {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.preset {
-  min-height: 48px;
-  padding: 7px 5px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #10171b;
-  color: #a9b4b1;
-  cursor: pointer;
-  font-size: 9px;
-  font-weight: 850;
-  letter-spacing: .5px;
-  position: relative;
-  overflow: hidden;
-  transition: transform .12s ease, border-color .12s ease, filter .12s ease;
-}
-
-.preset:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.15);
-}
-
-.preset small {
-  display: block;
-  margin-top: 3px;
-  color: rgba(255,255,255,.38);
-  font-size: 6px;
-  letter-spacing: 1px;
-}
-
-.preset-danger { background: rgba(255,55,74,.10); border-color: rgba(255,82,101,.30); color: #ff7180; }
-.preset-bright { background: rgba(255,255,255,.07); color: #ffffff; }
-.preset-red { border-bottom: 3px solid #ff404d; }
-.preset-green { border-bottom: 3px solid #38dc76; }
-.preset-blue { border-bottom: 3px solid #438cff; }
-.preset-white { border-bottom: 3px solid #fffdfd; }
-.preset-yellow { border-bottom: 3px solid #ffd447; }
-.preset-cyan { border-bottom: 3px solid #30e7dc; }
-.preset-magenta { border-bottom: 3px solid #ef55ff; }
-.preset-level { min-height: 36px; }
 
 /* ---------- Forms ---------- */
 
@@ -991,46 +1007,66 @@ select:focus-visible {
   letter-spacing: 1px;
 }
 
-/* ---------- Right control deck ---------- */
-
-.controls {
-  grid-area: controls;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px;
-  background: linear-gradient(180deg, #0c1114, #080c0f);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-}
-
-.control-deck-header {
-  min-height: 43px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 2px 3px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.control-deck-header strong {
-  display: block;
-  margin-top: 3px;
-  font-size: 10px;
-  letter-spacing: .5px;
-}
-
-.deck-led {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 12px rgba(25,214,163,.7);
-}
 
 .control-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* Fills whatever height the Live page grid gives it and scrolls its
+   own content internally — a fixture with every tab full of cards
+   shouldn't grow the page, it should just scroll in place. */
+.control-deck-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.control-deck-panel > .panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.deck-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.deck-tab {
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs, 4px);
+  background: #0e1519;
+  color: #7c8a92;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+
+.deck-tab:hover {
+  color: #aebbb7;
+}
+
+.deck-tab.active {
+  color: var(--accent, #19d6a3);
+  border-color: rgba(25,214,163,.4);
+  background: rgba(25,214,163,.08);
+}
+
+.deck-tab-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.deck-tab-panel[hidden] {
+  display: none;
 }
 
 .master-card,
@@ -1070,6 +1106,106 @@ select:focus-visible {
   font-size: 6px;
   font-weight: 850;
   letter-spacing: 1.2px;
+}
+
+/* ---------- Dynamic parameter groups ---------- */
+/* Related channels (a gobo + its rotation, all 4 shutter blades,
+   etc.) share ONE compact card instead of one full fader card
+   per channel — this is what keeps a fixture with a dozen extra
+   channels from turning into a dozen full-size faders. */
+
+.dynamic-parameter-card {
+  padding: 9px 10px;
+}
+
+.dynamic-group-heading {
+  color: #7d8987;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.dynamic-row {
+  margin-top: 6px;
+}
+
+.dynamic-row:first-of-type {
+  margin-top: 0;
+}
+
+.dynamic-row-label {
+  display: block;
+  color: #66736f;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+
+.dynamic-row-fields {
+  display: flex;
+  gap: 8px;
+}
+
+.dynamic-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dynamic-field-label {
+  flex: 0 0 auto;
+  width: 34px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #7d8987;
+  font-size: 7px;
+  font-weight: 750;
+}
+
+.dynamic-field-val {
+  flex: 0 0 auto;
+  min-width: 18px;
+  text-align: right;
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.dynamic-mini-fader {
+  flex: 1;
+  min-width: 0;
+  height: 3px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 99px;
+  outline: 0;
+  background: #1c272d;
+  cursor: pointer;
+}
+
+.dynamic-mini-fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d9fff4;
+  border: 2px solid var(--accent);
+}
+
+.dynamic-mini-fader::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d9fff4;
+  border: 2px solid var(--accent);
 }
 
 .big-value {
@@ -1169,6 +1305,42 @@ select:focus-visible {
 
 .colour-card {
   padding-bottom: 10px;
+}
+
+/* Shown only for a selection mixing a true-RGB and a true-CMY fixture
+   at once — see isMixedColourSelection in js/controls.js. */
+.colour-mode-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-raised);
+}
+
+.colour-mode-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+
+.colour-mode-btn:hover {
+  color: var(--text);
+}
+
+.colour-mode-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent-2);
 }
 
 .colour-wheel {
@@ -1438,11 +1610,11 @@ select:focus-visible {
 
 @media (max-width: 1200px) {
   body {
-    grid-template-columns: 185px minmax(0, 1fr) 290px;
+    grid-template-columns: 185px minmax(0, 1fr);
   }
 
-  .presets {
-    grid-template-columns: repeat(4, 1fr);
+  .live-grid {
+    grid-template-columns: minmax(180px, .6fr) minmax(300px, 1.4fr);
   }
 
   .qlab-grid {
@@ -1466,19 +1638,33 @@ select:focus-visible {
       "sidebar cmd-line";
   }
 
-  .controls {
-    display: none;
-  }
-
   .live-grid,
   .page-grid.two-col {
     grid-template-columns: 1fr;
   }
 
+  /* Three boxes stacked in one narrow column each fighting over a
+     fixed viewport height is worse than just letting the page
+     scroll — revert to natural content height here. */
+  .page.active,
+  .live-grid {
+    height: auto;
+  }
+
+  .live-grid-left,
   .groups-panel,
-  .quick-panel,
-  .fixtures-panel {
-    grid-column: auto;
+  .groups-panel > .panel-body,
+  #groupList,
+  .fixtures-panel,
+  .fixtures-panel .fixture-body,
+  .fixtures-panel .fixture-list,
+  .control-deck-panel,
+  .control-deck-panel > .panel-body {
+    flex: none;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 
@@ -1897,12 +2083,12 @@ select:focus-visible {
    ============================================================ */
 
 body {
-  grid-template-columns: 58px minmax(0, 1fr) 330px;
+  grid-template-columns: 58px minmax(0, 1fr);
   transition: grid-template-columns .22s cubic-bezier(.2,.8,.2,1);
 }
 
 body:has(.sidebar:hover) {
-  grid-template-columns: 214px minmax(0, 1fr) 330px;
+  grid-template-columns: 214px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -2035,4 +2221,279 @@ body:has(.sidebar:hover) .sidebar [class*="icon"] {
     opacity .18s ease,
     padding .22s ease,
     margin .22s ease;
+}
+
+/* ============================================================
+   SPLASH SCREEN
+   ============================================================ */
+
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 35%, var(--bg-2), var(--bg-0) 70%);
+  opacity: 1;
+  transition: opacity .45s ease;
+}
+
+.splash-screen.splash-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: min(92vw, 420px);
+  padding: 40px 36px;
+}
+
+.splash-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 18px var(--accent-line));
+  animation: splashPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes splashPulse {
+  0%, 100% { transform: scale(1); opacity: .92; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+
+.splash-title {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: .16em;
+  color: var(--text);
+}
+
+.splash-title-accent {
+  color: var(--accent);
+}
+
+.splash-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.splash-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  min-height: 14px;
+}
+
+.splash-progress {
+  width: 100%;
+  max-width: 220px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+
+.splash-progress-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width .25s ease;
+}
+
+.splash-chooser {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* Shown when no cached license token exists — the same first-run
+   activation prompt js/license.js's standalone #licenseStartupScreen
+   overlay used to show separately after this splash, now inline. */
+.splash-license {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.splash-license-subtitle {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  margin: 0 0 10px;
+}
+
+.splash-license-field label {
+  display: block;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.splash-license-field input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-0);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.splash-license-field input:focus {
+  border-color: var(--accent-line);
+  outline: none;
+}
+
+.splash-license-primary,
+.splash-license-secondary {
+  width: 100%;
+  height: 40px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 12px;
+  margin-top: 10px;
+  border: none;
+}
+
+.splash-license-primary {
+  background: var(--accent);
+  color: #06110d;
+}
+
+.splash-license-secondary {
+  background: var(--bg-3);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+}
+
+.splash-license-secondary:hover {
+  background: var(--bg-4);
+  color: var(--text);
+}
+
+.splash-license-primary:disabled,
+.splash-license-secondary:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+
+.splash-license-status {
+  min-height: 16px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.splash-chooser-heading {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  margin: 0 0 4px;
+}
+
+.splash-chooser-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.splash-shows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.splash-show-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.splash-show-item:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.splash-show-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.splash-show-meta {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.splash-shows-empty {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 8px 0;
+}
+
+.splash-new-show {
+  padding: 11px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: .04em;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+.splash-new-show:hover {
+  background: var(--accent-line);
+  border-color: var(--accent);
 }

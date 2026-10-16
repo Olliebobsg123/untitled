@@ -378,6 +378,33 @@ function recordCue(number, name, fadeMs = 800, follow = 0, followEnabled = false
 }
 
 /*
+ * Wipe the programmer back to a dark, blank slate. recordCue() snapshots
+ * EVERY entry in State.fixtureStates (see snapshotFixtureStates above),
+ * not just the currently-selected fixtures — so a fixture that was
+ * brought up earlier and then deselected still has its old, non-zero
+ * intensity sitting in the Map and gets baked into the next cue you
+ * record, appearing as unwanted extra light. Just clearing the Map
+ * would not fix this: dmx.js's fixtureState() lazily re-clones missing
+ * entries from State.current, and State.current's own default
+ * intensity/master is 100 — so a deleted entry would silently come back
+ * at full. Explicitly zeroing intensity/master on State.current AND on
+ * every existing entry is what actually gets fixtures dark.
+ */
+function clearProgrammer() {
+    if (typeof window.stopEffect === "function") window.stopEffect(true);
+    State.current = { ...clone(State.current || {}), intensity: 0, master: 0 };
+    if (!(State.fixtureStates instanceof Map)) State.fixtureStates = new Map();
+    State.fixtureStates.forEach((state, id) => {
+        State.fixtureStates.set(id, { ...clone(state), intensity: 0, master: 0 });
+    });
+    pushLightingUpdate();
+    if (typeof window.syncControlsFromSelection === "function") window.syncControlsFromSelection();
+    cueLog("Programmer cleared — all fixtures set to 0", "ok");
+    return true;
+}
+window.clearProgrammer = clearProgrammer;
+
+/*
  * Re-record the current look into an existing cue without forcing
  * the operator to rebuild the cue metadata. This is the normal
  * "update cue" workflow: capture the programmer state, keep the

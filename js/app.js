@@ -212,6 +212,16 @@ document.addEventListener("DOMContentLoaded", () => {
     updateColourUI(state.hue ?? 0, state.sat ?? 100);
   }
 
+  // updateColourUI/setFader are declared inside this DOMContentLoaded
+  // closure, so nothing outside app.js (e.g. midi.js, running as a
+  // separate plain script) could ever reach them — a MIDI-driven
+  // colour/parameter change updated the real fixture state correctly,
+  // but the colour wheel, its hue/sat sliders and the other faders
+  // never got told to redraw, leaving them stale or (since the wheel
+  // math depends on both hue AND sat together) visibly wrong until
+  // the next real click-driven refresh.
+  window.syncControlsFromSelection = syncControlsFromSelection;
+
   /* ==========================================================
      XY PAD
   ========================================================== */
@@ -577,6 +587,15 @@ document.addEventListener("DOMContentLoaded", () => {
       updateSelected("hue", Math.round(hue));
       updateSelected("sat", Math.round(sat));
       updateColourUI(hue, sat);
+
+      // A selection mixing a true-RGB and a true-CMY fixture at once,
+      // with this wheel the active control (js/controls.js's
+      // colourMixMode === "rgb"): updateSelected above already drove
+      // the RGB fixture via hue/sat, but does nothing for the CMY one
+      // (js/dmx.js never derives cyan/magenta/yellow from hue). No-op
+      // when there's no CMY-capable fixture in the selection, so this
+      // is safe to call on every pick regardless.
+      window.applyRGBWheelToCMYFixtures?.(hue, sat);
     }
 
     drawWheel();
@@ -720,6 +739,10 @@ document.addEventListener("DOMContentLoaded", () => {
         followEnabled
       );
     }
+  });
+
+  button("btnClearProgrammer", () => {
+    if (typeof clearProgrammer === "function") clearProgrammer();
   });
 
   button("btnDelCue", () => {
@@ -982,7 +1005,12 @@ document.addEventListener("DOMContentLoaded", () => {
   renderCues?.();
   renderChases?.();
   initFixtureStates?.();
-  connectVisualizer?.();
+  // Auto-opening the visualizer popup here meant a focus-stealing new
+  // window opened at the exact moment the license bootstrap (main.js)
+  // and license.js's own boot()/validate() were racing to complete,
+  // which made a Pro license intermittently read as Free until that
+  // popup was closed. The visualizer is one "viz"/"visualizer" command
+  // away — open it when you actually want it.
   updateDMX?.();
 
   updateControlVisibility();

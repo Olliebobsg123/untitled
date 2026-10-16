@@ -67,31 +67,15 @@
     xy: ["pan", "tilt"]
   };
 
-  const DYNAMIC = [
-    ["gobo", "Gobo", "GOBO"],
-    ["gobo2", "Gobo 2", "GOBO 2"],
-    ["gobor", "Gobo Rotation", "GOBO ROTATION"],
-    ["gobo2r", "Gobo 2 Rotation", "GOBO 2 ROTATION"],
-    ["prism", "Prism", "PRISM"],
-    ["prismr", "Prism Rotation", "PRISM ROTATION"],
-    ["focus", "Focus", "FOCUS"],
-    ["zoom", "Zoom", "LENS"],
-    ["frost", "Frost", "FROST"],
-    ["iris", "Iris", "IRIS"],
-    ["rot", "Rotation", "ROTATION"],
-    ["effect", "Effect", "EFFECT"],
-    ["speed", "Speed", "SPEED"],
-    ["macro", "Macro", "MACRO"],
-    ["preset", "Preset", "PRESET"],
-    ["shake", "Shake", "SHAKE"],
-    ["mode", "Mode", "MODE"],
-    ["zone", "Zone", "ZONE"],
-    ["fog", "Fog", "FOG"],
-    ["fana", "Fan", "FAN"],
-    ["haze", "Haze", "HAZE"],
-    ["fluid", "Fluid", "FLUID"],
-    ["colmacro", "Colour Macro", "COLOUR MACRO"]
-  ];
+  // NOTE: gobo/gobo2/prism/focus/zoom/frost/iris/rot/effect/speed/
+  // macro/preset/shake/mode/zone/fog/fana/haze/fluid/colmacro used
+  // to be duplicated here as a second full set of fader cards,
+  // right next to the ones controls.js's DYNAMIC_CONTROL_GROUPS
+  // already renders for the exact same channels. That's gone —
+  // controls.js is now the single owner of all of those (grouped
+  // compactly there). This file keeps only what's genuinely its
+  // own: warm/cool/natural-white + CCT mixing for fresnel-style
+  // tunable-white fixtures, which controls.js has no model for.
 
   const clamp255 = value => Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
 
@@ -100,19 +84,14 @@
     const style = document.createElement("style");
     style.id = "fixtureCapabilityStyles";
     style.textContent = `
-      #fixtureDynamicControls,
       #fresnelControlsHost { display:grid; gap:10px; }
-      #fixtureDynamicControls { margin-top:10px; }
-      .fixture-dynamic-card,
       .fresnel-control {
         padding:11px 12px;
         border:1px solid var(--border,#223038);
         border-radius:10px;
         background:rgba(255,255,255,.018);
       }
-      .fixture-dynamic-card .fader,
       .fresnel-control .fader { width:100%; }
-      .fixture-capability-title,
       .fresnel-title {
         display:flex;
         align-items:baseline;
@@ -120,13 +99,11 @@
         gap:10px;
         margin-bottom:7px;
       }
-      .fixture-capability-title strong,
       .fresnel-title strong {
         letter-spacing:.08em;
         text-transform:uppercase;
         font-size:13px;
       }
-      .fixture-capability-title small,
       .fresnel-title small,
       .fresnel-note {
         color:var(--text-muted);
@@ -166,89 +143,19 @@
     const panel = $("controlPanel");
     if (!panel) return null;
 
-    let dynamic = $("fixtureDynamicControls");
-    if (!dynamic) {
-      dynamic = document.createElement("div");
-      dynamic.id = "fixtureDynamicControls";
-      dynamic.className = "dynamic-controls";
-      const old = $("dynamicControls");
-      if (old) old.insertAdjacentElement("afterend", dynamic);
-      else panel.appendChild(dynamic);
-    }
-
     let fresnel = $("fresnelControlsHost");
     if (!fresnel) {
       fresnel = document.createElement("div");
       fresnel.id = "fresnelControlsHost";
       fresnel.className = "fresnel-controls-host";
-      dynamic.insertAdjacentElement("afterend", fresnel);
+      // Tunable-white mixing is a colour control, so it lives at the
+      // end of the deck's Colour tab rather than directly in the panel.
+      const colourTab = $("controlTabColour");
+      if (colourTab) colourTab.appendChild(fresnel);
+      else panel.appendChild(fresnel);
     }
 
-    return { dynamic, fresnel };
-  }
-
-  function applyDynamic(key, value) {
-    const number = clamp255(value);
-    const fixtures = getFixtures();
-    let changed = false;
-
-    for (const fixture of fixtures) {
-      const map = getDefinition(fixture)?.map || {};
-      if (typeof map[key] !== "number") continue;
-      const state = getState(fixture);
-      if (!state) continue;
-      state[key] = number;
-      window.State.fixtureStates.set(fixture.id, state);
-      changed = true;
-    }
-
-    if (!changed) return;
-    window.State.current ||= {};
-    window.State.current[key] = number;
-    $("dynamic-" + key + "-val")?.replaceChildren(String(number));
-    $("fixture-dynamic-" + key + "-val")?.replaceChildren(String(number));
-    window.updateDMX?.();
-    window.sendToVisualizer?.();
-  }
-
-  function renderDynamic(fixtures, host) {
-    if (!host) return;
-    host.replaceChildren();
-
-    const supported = DYNAMIC.filter(([key]) =>
-      fixtures.some(f => typeof getDefinition(f)?.map?.[key] === "number")
-    );
-
-    for (const [key, label, sub] of supported) {
-      const card = document.createElement("div");
-      card.className = "control-group parameter-card fixture-dynamic-card";
-
-      const heading = document.createElement("div");
-      heading.className = "control-heading";
-      heading.innerHTML = `<div><span class="control-label">${label}</span><small>${sub}</small></div><strong class="fader-val"><span id="fixture-dynamic-${key}-val">0</span></strong>`;
-
-      const fader = document.createElement("div");
-      fader.className = "fader";
-      const input = document.createElement("input");
-      input.type = "range";
-      input.min = "0";
-      input.max = "255";
-      input.step = "1";
-      input.value = "0";
-      input.id = `fixture-dynamic-${key}`;
-      input.addEventListener("input", () => applyDynamic(key, input.value));
-      input.addEventListener("change", () => applyDynamic(key, input.value));
-      fader.appendChild(input);
-
-      card.append(heading, fader);
-      host.appendChild(card);
-
-      const representative = fixtures.find(f => typeof getDefinition(f)?.map?.[key] === "number");
-      const state = representative ? getState(representative) : null;
-      const value = state?.[key] ?? window.State?.current?.[key] ?? 0;
-      input.value = clamp255(value);
-      $("fixture-dynamic-" + key + "-val")?.replaceChildren(String(clamp255(value)));
-    }
+    return { fresnel };
   }
 
   const cctToDmx = kelvin =>
@@ -265,7 +172,7 @@
   }
 
   function fresnelSlider(id, label, value, min = 0, max = 255, suffix = "") {
-    return `<div class="fresnel-control"><div class="control-heading"><div><span class="control-label">${label}</span><small>${min === 0 && max === 255 ? "0–255 DMX" : `${min}–${max}`}</small></div><strong class="fader-val"><span id="${id}Val">${value}</span>${suffix}</strong></div><div class="fader"><input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${value}" aria-label="${label}"></div></div>`;
+    return `<div class="control-group fresnel-control"><div class="control-heading"><div><span class="control-label">${label}</span><small>${min === 0 && max === 255 ? "0–255 DMX" : `${min}–${max}`}</small></div><strong class="fader-val"><span id="${id}Val">${value}</span>${suffix}</strong></div><div class="fader"><input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${value}" aria-label="${label}"></div></div>`;
   }
 
   function applyFresnel(property, value) {
@@ -322,7 +229,7 @@
     if (typeof map.warmWhite === "number") root.insertAdjacentHTML("beforeend", fresnelSlider("fresnelWarmWhite", "Warm White", warm));
     if (threeChannel) root.insertAdjacentHTML("beforeend", fresnelSlider("fresnelCoolWhite", "Cool White", second));
     else if (typeof map.naturalWhite === "number") root.insertAdjacentHTML("beforeend", fresnelSlider("fresnelNaturalWhite", "Natural White", second));
-    if (typeof map.cct === "number") root.insertAdjacentHTML("beforeend", `<div class="fresnel-control"><div class="control-heading"><div><span class="control-label">CCT</span><small>2700–4500 K</small></div><strong class="fader-val"><span id="fresnelCctVal">${Math.round(cct)}</span>K</strong></div><div class="fader"><input type="range" id="fresnelCct" min="2700" max="4500" step="50" value="${Math.round(cct)}" aria-label="CCT"></div></div>`);
+    if (typeof map.cct === "number") root.insertAdjacentHTML("beforeend", `<div class="control-group fresnel-control"><div class="control-heading"><div><span class="control-label">CCT</span><small>2700–4500 K</small></div><strong class="fader-val"><span id="fresnelCctVal">${Math.round(cct)}</span>K</strong></div><div class="fader"><input type="range" id="fresnelCct" min="2700" max="4500" step="50" value="${Math.round(cct)}" aria-label="CCT"></div></div>`);
     root.insertAdjacentHTML("beforeend", `<div class="fresnel-note">Fresnel controls affect only the selected Fresnel fixtures.</div>`);
     host.appendChild(root);
 
@@ -360,10 +267,12 @@
     setInputGroupVisibility("intensity", fixtures.length ? selectedCapability("intensity", fixtures) : false);
     setGroupVisibility("strobeGroup", fixtures.length ? selectedCapability("strobe", fixtures) : false);
     setGroupVisibility("zoomGroup", fixtures.length ? selectedCapability("zoom", fixtures) : false);
-    setGroupVisibility("colourGroup", fixtures.length ? selectedCapability("colour", fixtures) : false);
+    // CMY-only fixtures (ROBE ColorWash, SolaFrame 750, CyberLight) get
+    // js/controls.js's dedicated CMY wheel in place of this main hue/sat
+    // wheel — window.isCMYSelection is that same file's own check, so
+    // this poll doesn't re-show colourGroup out from under it.
+    setGroupVisibility("colourGroup", fixtures.length && !window.isCMYSelection?.(fixtures) ? selectedCapability("colour", fixtures) : false);
     setGroupVisibility("xyGroup", fixtures.length ? selectedCapability("xy", fixtures) : false);
-
-    renderDynamic(fixtures, hosts.dynamic);
 
     const key = fixtures.filter(fresnelFixture).map(f => String(f.id)).join(",");
     if ((hosts.fresnel.firstElementChild?.dataset.selectionKey || "") !== key) {
@@ -401,16 +310,4 @@
   } else {
     install();
   }
-})();
-
-// Load the ROBE ColorWash compatibility layer after the existing fixture
-// capability module. It patches the existing DMX writer without changing
-// the rest of the control system.
-(function loadRobeColorWashCompatibility() {
-  if (document.querySelector('script[data-robe-colorwash-compat]')) return;
-  const script = document.createElement("script");
-  script.src = "js/robe-colorwash-1200e.js";
-  script.dataset.robeColorwashCompat = "1";
-  script.async = false;
-  (document.head || document.documentElement).appendChild(script);
 })();

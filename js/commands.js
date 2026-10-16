@@ -744,6 +744,19 @@ function parseCommand(cmd){
   if(/^(visualizer|viz)$/.test(c)){window.open('visualizer.html','_blank','width=1280,height=800,menubar=no,toolbar=no');return log('Visualizer opened in new window','ok');}
   if(c==='artnet'){document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.querySelector('[data-page="settings"]')?.classList.add('active');document.getElementById('page-settings')?.classList.add('active');return log('Opened Art-Net Settings','ok');}
   if(/^(clear|release)$/.test(c)){State.selected.clear();renderFixtures?.();return log('Cleared selection','ok');}
+  // MIDI position hold (js/midi.js) is normally toggled from a MIDI pad and
+  // persists across restarts by design (so a held position survives closing
+  // the app mid-show). That also means it can be left ON from a previous
+  // session — e.g. a MIDI controller that isn't plugged in this time — with
+  // no way to turn it back off without physical MIDI hardware. Every
+  // pan/tilt change gets silently forced back to the stale held value,
+  // which reads as "the controls are broken". This command gives it a
+  // MIDI-free escape hatch.
+  if(/^(unhold|hold\s*off)$/.test(c)){
+    if(typeof window.resetMIDIPosition==='function'&&window.resetMIDIPosition())
+      return log('MIDI position hold released','ok');
+    return log('Position hold was already off','ok');
+  }
   if(c==='blackout'){fadeTo?.({intensity:0,strobe:0},500);Object.assign(State.current,{intensity:0,strobe:0});setIntensityUI(0);updateDMX?.();return log('Blackout — all lights off','ok');}
   if(/^(full|all)$/.test(c)){fadeTo?.({intensity:100,strobe:0},500);Object.assign(State.current,{intensity:100,strobe:0});setIntensityUI(100);updateDMX?.();return log('Full On — all lights 100%','ok');}
   if(c==='all half')applyLevel(50),log('All @ 50%','ok');
@@ -852,6 +865,7 @@ function parseCommand(cmd){
     if((m=c.match(/^copy\s+cue\s+(\d+)\s+to\s+(\d+)(?:\s+(.+))?$/))){const from=Number(m[1]),to=Number(m[2]);if(!cueExists(from))return log(`Cue ${from} not found`,'warn');if(to<1)return log('Destination cue must be 1 or higher','warn');const source=cueAt(from),copy=cloneCueValue(source);if(!copy)return log(`Could not copy Cue ${from}`,'warn');copy.name=(m[3]||source.name||`Cue ${to}`).trim()||`Cue ${to}`;while(State.cues.length<to)State.cues.push(null);State.cues[to-1]=copy;cueRefresh();return log(`Copied Cue ${from} → Cue ${to}`,'ok');}
     if((m=c.match(/^move\s+cue\s+(\d+)\s+to\s+(\d+)$/))){const from=Number(m[1]),to=Number(m[2]);if(!cueExists(from))return log(`Cue ${from} not found`,'warn');if(to<1)return log('Destination cue must be 1 or higher','warn');while(State.cues.length<to)State.cues.push(null);const moved=State.cues[from-1];State.cues[to-1]=moved;State.cues[from-1]=null;if(State.currentCue===from-1)State.currentCue=to-1;cueRefresh();return log(`Moved Cue ${from} → Cue ${to}`,'ok');}
     if((m=c.match(/^cue\s+(\d+)(?:\s+go)?$/))){const n=Number(m[1]);if(!cueExists(n))return log(`Cue ${n} not found`,'warn');return goToCue(n-1);}
+    if(/^clear\s+programmer$/.test(c)){return typeof clearProgrammer==='function'?clearProgrammer():log('Clear Programmer is unavailable','warn');}
     return originalParseCommand(rawCommand);
   };
 })();
@@ -942,7 +956,8 @@ commandDefs.push(
   {cmd:'update palette',hint:'[name] — overwrite an existing palette'},
   {cmd:'palette',hint:'[name] — apply a palette'},
   {cmd:'delete palette',hint:'[name]'},
-  {cmd:'list palettes',hint:''}
+  {cmd:'list palettes',hint:''},
+  {cmd:'clear programmer',hint:'— set every fixture to 0 so nothing leaks into the next recorded cue'}
 );
 
 (function installPaletteCommands(){

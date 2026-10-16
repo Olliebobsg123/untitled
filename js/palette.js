@@ -206,7 +206,7 @@
     if (document.getElementById("paletteModal")) return;
     injectStyles();
 
-    const quickPanel = document.querySelector("#page-live .quick-panel .panel-body");
+    const quickPanel = document.querySelector("#page-live .groups-panel .panel-body");
     if (quickPanel && !document.getElementById("paletteLaunch")) {
       const launch = document.createElement("button");
       launch.type = "button";

@@ -145,7 +145,13 @@
         const intensityValue = getElement("intVal");
         if (intensityInput) intensityInput.value = intensity;
         if (intensityValue) intensityValue.textContent = `${intensity}%`;
-        if (typeof window.renderFixtures === "function") window.renderFixtures();
+        // Selecting a group only changes which fixtures are selected, not
+        // any fixture's own data — the full renderFixtures() rebuild (every
+        // item torn down and recreated, photometrics/output recalculated
+        // for the whole patch) isn't needed here and was expensive enough
+        // with a large patch to visibly flash the fixture list.
+        if (typeof window.syncFixtureListSelectionClasses === "function") window.syncFixtureListSelectionClasses();
+        else if (typeof window.renderFixtures === "function") window.renderFixtures();
         if (typeof window.updateControlVisibility === "function") window.updateControlVisibility();
         if (typeof window.updateDMX === "function") window.updateDMX();
         if (typeof window.log === "function") window.log(`✅ Selected ${name}: ${found}/${members.length} — DMX active`);

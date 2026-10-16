@@ -97,15 +97,25 @@
     const dmx = window.State?.dmx;
     if (!(dmx instanceof Uint8Array) && !Array.isArray(dmx)) return frames;
     const getDef = window.getFixtureDefinition || (f => window.FixtureLibrary?.[f?.name]);
+    // window.State.dmx spans every patch universe end-to-end (see js/dmx.js),
+    // so reading it needs the fixture's GLOBAL offset (getFixtureBaseAddress,
+    // which folds fixture.uni in) — but writing into this universe's OWN
+    // 512-channel wire frame needs the LOCAL offset (address alone). Using
+    // the local offset for both, like before multi-universe support existed,
+    // read every universe past the first back from the wrong slice of dmx.
     for (const fixture of fixtures) {
       const universe = Number(fixture?.uni ?? fixture?.universe);
       if (!Number.isInteger(universe) || universe < 0 || universe > 32767) continue;
       const base = Number(fixture?.addr ?? fixture?.address ?? fixture?.startAddress ?? fixture?.channel) - 1;
       if (!Number.isInteger(base) || base < 0 || base >= 512) continue;
+      const globalBase = typeof window.getFixtureBaseAddress === "function"
+        ? window.getFixtureBaseAddress(fixture)
+        : base;
+      if (!Number.isInteger(globalBase) || globalBase < 0) continue;
       const def = getDef?.(fixture);
       const channels = Math.max(1, Math.min(512, Number(def?.channels || def?.channelCount || 1)));
       if (!frames[universe]) frames[universe] = new Array(512).fill(0);
-      for (let i=0;i<channels && base+i<512;i++) frames[universe][base+i]=Number(dmx[base+i])&255;
+      for (let i=0;i<channels && base+i<512;i++) frames[universe][base+i]=Number(dmx[globalBase+i])&255;
     }
     return frames;
   }

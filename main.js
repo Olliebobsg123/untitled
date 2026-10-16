@@ -27,6 +27,28 @@ function resolveShowPath(filePath) {
 }
 
 ipcMain.handle('lx-show-default-directory', () => getShowDirectory());
+// Backs the splash screen's "Recent Shows" list — a real directory read
+// of the one folder this app ever saves shows into, not an arbitrary
+// disk search. Bounded and fast (typically a handful of files), and
+// always accurate (a show renamed or deleted outside the app just
+// stops/starts appearing) in a way a separately-tracked history list
+// couldn't be.
+ipcMain.handle('lx-show-list', () => {
+  const directory = getShowDirectory();
+  let entries;
+  try { entries = fs.readdirSync(directory, { withFileTypes: true }); }
+  catch (err) { return []; }
+  return entries
+    .filter(entry => entry.isFile() && /\.json$/i.test(entry.name))
+    .map(entry => {
+      const filePath = path.join(directory, entry.name);
+      let mtimeMs = 0;
+      try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch (_) {}
+      return { name: entry.name.replace(/\.json$/i, ''), path: filePath, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, 8);
+});
 ipcMain.handle('lx-show-save', (_event, payload) => {
   const filePath = resolveShowPath(payload?.filePath);
   const show = payload?.show;
@@ -43,6 +65,24 @@ ipcMain.handle('lx-show-load', (_event, payload) => {
   catch (err) { throw new Error(`Could not read show file: ${err.message}`); }
   return { path: filePath, show };
 });
+
+// ---- Phone remote (see remote-server.js) ----
+let remoteServer = null;
+function getRemoteServer() {
+  if (!remoteServer) {
+    const { createRemoteServer } = require('./remote-server.js');
+    remoteServer = createRemoteServer({
+      configPath: path.join(app.getPath('userData'), 'remote.json'),
+      onCommand: msg => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('lx-remote-command', msg); },
+      onClientsChanged: info => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('lx-remote-info', info); }
+    });
+  }
+  return remoteServer;
+}
+ipcMain.handle('lx-remote-info', () => getRemoteServer().info());
+ipcMain.handle('lx-remote-set-enabled', (_e, enabled) => getRemoteServer().setEnabled(enabled));
+ipcMain.handle('lx-remote-regen-pin', () => getRemoteServer().regeneratePin());
+ipcMain.on('lx-remote-snapshot', (_e, snapshot) => { if (remoteServer) remoteServer.broadcast(snapshot); });
 
 function startServices() {
   if (servicesStarted) return;
@@ -95,7 +135,16 @@ function createWindow() {
   // Keep context isolation enabled for security, but disable Electron's
   // sandbox so the preload can reliably expose the file IPC bridge used by
   // SAVE / LOAD in the desktop app.
-  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, 'preload.js') } });
+  //
+  // backgroundThrottling:false matters here specifically: Chromium's
+  // default is to throttle a window's timers (setTimeout/rAF) once it
+  // loses focus/visibility to another window — which is exactly what
+  // happens the moment the visualizer popup opens and takes focus. The
+  // QLab bridge client's reconnect loop and the license-tier bootstrap
+  // poll both run on setTimeout in THIS window, so throttling them made
+  // QLab connections stall or drop for as long as the visualizer stayed
+  // open, recovering only once it closed and this window got focus back.
+  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, backgroundThrottling: false, preload: path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -273,7 +322,8 @@ function createWindow() {
 
 app.whenReady().then(() => {
   buildApplicationMenu(); startServices(); createWindow();
+  try { getRemoteServer().autostart(); } catch (err) { console.error('❌ Remote server failed:', err); }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
-app.on('before-quit', () => stopServices());
+app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} stopServices(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

@@ -60,15 +60,56 @@ const MIDI_CONTROLS=[
   ["pad15","PAD 15"],["pad16","PAD 16"]
 ];
 
+// Every target here can be assigned to ANY control (knob, pad or
+// joystick axis) via the dropdown in the MIDI settings panel — not
+// just the knobs' out-of-the-box defaults in MIDI_DEFAULTS. Anything
+// not specially handled in executeNamedControl (hue/saturation/pan/
+// tilt/master/named actions) falls through to a generic "write this
+// value straight to the fixture's DMX-equivalent state key" handler,
+// so adding a new channel here is enough to make it MIDI-controllable.
 const TARGETS=[
   ["intensity","Intensity"],["hue","Hue"],["saturation","Saturation"],
   ["pan","Pan"],["tilt","Tilt"],["zoom","Zoom"],["focus","Focus"],
-  ["speed","Speed"],["strobe","Strobe"],["blackout","Blackout"],
+  ["speed","Speed"],["strobe","Strobe"],["master","Master"],
+
+  ["frost","Frost"],["iris","Iris"],
+  ["gobo","Gobo 1 Pattern"],["gobor","Gobo 1 Rotate"],
+  ["gobo2","Gobo 2 Pattern"],["gobo2r","Gobo 2 Rotate"],
+  ["prism","Prism Engage"],["prismr","Prism Rotate"],
+
+  ["shutter1Insert","Shutter 1 Insert"],["shutter1Rotate","Shutter 1 Rotate"],
+  ["shutter2Insert","Shutter 2 Insert"],["shutter2Rotate","Shutter 2 Rotate"],
+  ["shutter3Insert","Shutter 3 Insert"],["shutter3Rotate","Shutter 3 Rotate"],
+  ["shutter4Insert","Shutter 4 Insert"],["shutter4Rotate","Shutter 4 Rotate"],
+
+  ["warmWhite","Warm White"],["naturalWhite","Natural White"],
+  ["coolWhite","Cool White"],["cct","CCT"],
+
+  ["rot","Rotation"],["effect","Effect"],["macro","Macro"],
+  ["preset","Preset"],["shake","Shake"],["mode","Mode"],["zone","Zone"],
+  ["fog","Fog"],["fana","Fan"],["haze","Haze"],["fluid","Fluid"],
+  ["colmacro","Colour Macro"],
+
+  ["blackout","Blackout"],
   ["go","GO"],["recordnext","Record Next Cue"],
   ["holdposition","Hold Position"],["resetposition","Release Position"],
   ...Array.from({length:50},(_,i)=>[`cue${i+1}`,`Cue ${i+1}`]),
   ["none","None"]
 ];
+
+// Anything in here just means "clamp the incoming MIDI value to
+// 0-255 and write it to this key on the selected fixture(s)' state" —
+// exactly the same DMX-equivalent value every other dynamic control
+// in controls.js/fresnel-controls.js already writes to that same key.
+const DIRECT_STATE_TARGETS=new Set([
+  "zoom","focus","speed","strobe",
+  "frost","iris","gobo","gobor","gobo2","gobo2r","prism","prismr",
+  "shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate",
+  "shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate",
+  "warmWhite","naturalWhite","coolWhite","cct",
+  "rot","effect","macro","preset","shake","mode","zone",
+  "fog","fana","haze","fluid","colmacro"
+]);
 
 /* --------------------------------------------------------- */
 
@@ -396,6 +437,14 @@ function scheduleMIDIVisualUpdate(){
     if(typeof sendToVisualizer==="function")try{sendToVisualizer()}catch(e){}
     if(typeof renderFixtures==="function")try{renderFixtures()}catch(e){}
     if(typeof updateControlVisibility==="function")try{updateControlVisibility()}catch(e){}
+    /* Redraws the colour wheel + hue/sat/zoom/focus/etc faders from
+       the fixture state MIDI just wrote — without this, the wheel's
+       indicator and preview swatch never move for a MIDI-driven
+       colour change (its own update path lives in a closure app.js
+       never exposes), only snapping into place later on some
+       unrelated click, which reads as it randomly "flashing". */
+    if(typeof window.syncControlsFromSelection==="function")
+      try{window.syncControlsFromSelection()}catch(e){}
   };
 
   requestAnimationFrame?.(render)||setTimeout(render,0);
@@ -405,22 +454,38 @@ function updateSelectedFixturesState(key,value){
   const fixtures=getSelectedFixtures();
 
   if(!fixtures.length){
-  
+
     return false;
   }
+
+  // Callers like forceHeldPosition() reassert the SAME value on a fixed
+  // interval (position hold re-writes pan/tilt every 100ms for as long
+  // as it's on, which can be indefinitely — see enforceMIDIPositionHold)
+  // rather than only when the value actually changes. scheduleMIDIVisualUpdate()
+  // is not cheap: it runs a full renderFixtures() (list teardown/rebuild)
+  // plus a visualizer resync every time it fires. Without checking for
+  // an actual change here, re-asserting an unchanged held position looks
+  // to the user like the fixture list and controls flashing continuously
+  // for no reason, and can run forever since position hold persists
+  // across restarts (localStorage) with no MIDI-free way to clear it.
+  let changed=false;
 
   fixtures.forEach(f=>{
     const s=getFixtureMIDIState(f);
     if(!s)return;
 
+    if(s[key]!==value)changed=true;
+
     s[key]=value;
     if(State.fixtureStates?.set)State.fixtureStates.set(f.id,s);
   });
 
-  if(State.current&&typeof State.current==="object")
+  if(State.current&&typeof State.current==="object"){
+    if(State.current[key]!==value)changed=true;
     State.current[key]=value;
+  }
 
-  scheduleMIDIVisualUpdate();
+  if(changed)scheduleMIDIVisualUpdate();
   return true;
 }
 
@@ -467,9 +532,10 @@ function updateMIDIColour(hue,sat){
     Object.assign(State.current,{hue,sat,r,g,b});
   }
 
-  if(typeof updateColourUI==="function")
-    try{updateColourUI()}catch(e){}
-
+  // The colour wheel itself gets redrawn via syncControlsFromSelection()
+  // inside scheduleMIDIVisualUpdate() below — updateColourUI is declared
+  // inside app.js's own DOMContentLoaded closure and was never reachable
+  // as a bare global from here.
   scheduleMIDIVisualUpdate();
   return true;
 }
@@ -697,8 +763,19 @@ function forceHeldPosition(){
   return true;
 }
 
+// MIDI.positionHold is persisted to localStorage (see saveMIDIPositionHold)
+// so it survives an app restart — deliberately, so a held position isn't
+// lost if the app closes mid-session. But that means it can also be left
+// "on" from a previous session with a MIDI controller that isn't plugged
+// in this time, with no MIDI-only way to clear it (resetMIDIPosition()
+// needs a real MIDI pad press). Without gating on MIDI.connected, this
+// 100ms interval would then force every selected fixture's pan/tilt back
+// to the stale held value ten times a second forever, with each pass
+// triggering scheduleMIDIVisualUpdate()'s full renderFixtures() —
+// exactly what a stuck flag looks like: the fixture list and controls
+// visibly flashing at 10Hz and pan/tilt refusing to respond to input.
 function enforceMIDIPositionHold(){
-  if(MIDI.positionHold)forceHeldPosition();
+  if(MIDI.connected&&MIDI.positionHold)forceHeldPosition();
 }
 
 function resetMIDIPosition(){
@@ -728,53 +805,17 @@ function toggleMIDIPositionHold(){
    CONTROLS
 --------------------------------------------------------- */
 
+// Every control (knob, pad, joystick axis) resolves to a named
+// action via getMIDITarget() — the SAME dropdown-driven lookup pads
+// already used. Knobs used to have their behaviour hardcoded here
+// by control number instead, which meant reassigning a knob's target
+// in the settings panel dropdown silently did nothing; now the
+// dropdown is the single source of truth for every control.
 function executeMIDIControl(control,value){
-  const normal=clamp(+value/127,0,1);
-  const scaled=Math.round(normal*255);
+  if(control==="joystickX")return updateMIDIJoystickX(value);
+  if(control==="joystickY")return updateMIDIJoystickY(value);
 
-  const simple={
-    knob1:["intensity",Math.round(normal*100)],
-    knob6:["zoom",scaled],
-    knob7:["focus",scaled],
-    knob8:["speed",scaled],
-    knob9:["strobe",scaled]
-  };
-
-  if(simple[control]){
-    const [key,val]=simple[control];
-    updateSelectedFixturesState(key,val);
-    setControlValue(key,val);
-    return;
-  }
-
-  switch(control){
-    case "knob2":
-      return updateMIDIColour(
-        Math.round(normal*360),
-        getCurrentSaturation()
-      );
-
-    case "knob3":
-      return updateMIDIColour(
-        getCurrentHue(),
-        Math.round(normal*100)
-      );
-
-    case "knob4":
-      return MIDI.positionHold?forceHeldPosition():updateMIDIPan(scaled);
-
-    case "knob5":
-      return MIDI.positionHold?forceHeldPosition():updateMIDITilt(scaled);
-
-    case "joystickX":
-      return updateMIDIJoystickX(value);
-
-    case "joystickY":
-      return updateMIDIJoystickY(value);
-  }
-
-  if(isPadControl(control))
-    return executeNamedControl(getMIDITarget(control),value);
+  return executeNamedControl(getMIDITarget(control),value);
 }
 
 function getMIDITarget(control){
@@ -784,14 +825,38 @@ function getMIDITarget(control){
 function executeNamedControl(action,value){
   if(!action||action==="none")return;
 
-  const controls={
-    intensity:"knob1",hue:"knob2",saturation:"knob3",
-    pan:"knob4",tilt:"knob5",zoom:"knob6",
-    focus:"knob7",speed:"knob8",strobe:"knob9"
-  };
+  const normal=clamp(+value/127,0,1);
+  const scaled=Math.round(normal*255);
 
-  if(controls[action])
-    return executeMIDIControl(controls[action],value);
+  if(action==="intensity"){
+    const v=Math.round(normal*100);
+    updateSelectedFixturesState("intensity",v);
+    setControlValue("intensity",v);
+    return;
+  }
+
+  if(action==="hue")
+    return updateMIDIColour(Math.round(normal*360),getCurrentSaturation());
+
+  if(action==="saturation")
+    return updateMIDIColour(getCurrentHue(),Math.round(normal*100));
+
+  if(action==="pan")
+    return MIDI.positionHold?forceHeldPosition():updateMIDIPan(scaled);
+
+  if(action==="tilt")
+    return MIDI.positionHold?forceHeldPosition():updateMIDITilt(scaled);
+
+  if(action==="master"){
+    setControlValue("master",Math.round(normal*100),true);
+    return;
+  }
+
+  if(DIRECT_STATE_TARGETS.has(action)){
+    updateSelectedFixturesState(action,scaled);
+    setControlValue(action,scaled);
+    return;
+  }
 
   if(action==="blackout")return triggerBlackout();
   if(action==="go")return triggerGo();
@@ -848,10 +913,9 @@ function triggerGo(){
 
 function triggerBlackout(){
   const btn=document.querySelector('[data-action="blackout"]');
-  if(!btn)return false;
-  btn.click();
-  midiLog("BLACKOUT");
-  return true;
+  if(btn){btn.click();midiLog("BLACKOUT");return true;}
+  if(typeof window.parseCommand==="function"){window.parseCommand("blackout");midiLog("BLACKOUT");return true;}
+  return false;
 }
 
 /* ---------------------------------------------------------

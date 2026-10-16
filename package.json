@@ -12,9 +12,10 @@
     "build-win": "npx electron-builder --win --publish never"
   },
   "dependencies": {
+    "bonjour-service": "^1.4.4",
+    "iobroker.tapo": "^0.6.12",
     "serialport": "^12.0.0",
     "tp-link-tapo-connect": "^2.0.15",
-    "iobroker.tapo": "^0.6.12",
     "ws": "^8.18.1"
   },
   "devDependencies": {
@@ -24,7 +25,9 @@
   "build": {
     "appId": "com.olivergrainger.lightingconsole",
     "productName": "Lighting Console",
-    "directories": {"output": "Build"},
+    "directories": {
+      "output": "Build"
+    },
     "asar": true,
     "afterPack": "scripts/after-pack-mac.js",
     "mac": {
@@ -34,12 +37,24 @@
       "gatekeeperAssess": false,
       "entitlements": "config/entitlements.mac.plist",
       "entitlementsInherit": "config/entitlements.mac.plist",
-      "extendInfo": {"NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab."}
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab."
+      }
     },
     "win": {
       "target": [
-        {"target": "nsis", "arch": ["x64"]},
-        {"target": "portable", "arch": ["x64"]}
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "Lighting-Console-${version}-${arch}.${ext}"
     },

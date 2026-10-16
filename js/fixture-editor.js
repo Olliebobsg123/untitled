@@ -7,7 +7,7 @@
  */
 (function installFixtureEditorModule() {
   const STORE = "lx-custom-fixtures";
-  const ATTRS = ["dimmer","intensity","strobe","r","g","b","w","uv","a","l","c","pan","panf","tilt","tiltf","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","iris","frost","colour","colourr","speed","effect","preset","cct","cyan","magenta","yellow","amber","lime","warmWhite","coolWhite","naturalWhite","fog","haze","fana","fluid","control"];
+  const ATTRS = ["dimmer","intensity","strobe","r","g","b","w","uv","a","l","c","pan","panf","tilt","tiltf","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","iris","frost","colour","colourr","speed","effect","preset","cct","cyan","magenta","yellow","amber","lime","warmWhite","coolWhite","naturalWhite","fog","haze","fana","fluid","control","shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate","shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate","shutter1AngleA","shutter1AngleB","shutter2AngleA","shutter2AngleB","shutter3AngleA","shutter3AngleB","shutter4AngleA","shutter4AngleB"];
   const TYPES = ["dimmer","rgb","rgbw","moving","strobe","rgbal","rgbalc","tungsten"];
   let editingName = null;
 

@@ -43,7 +43,7 @@ window.__blindLiveMode = true;
       .safety-blackout{color:#fff;background:#190b0e;border:1px solid #ff5265}
       .safety-blackout.active{background:#ff5265;color:#fff;border-color:#ff8996}
       html.emergency-active,html.emergency-active body{background:!important;color:#171717!important}
-      html.emergency-active .sidebar,html.emergency-active .topbar,html.emergency-active .panel,html.emergency-active .controls,html.emergency-active .bottom-row,html.emergency-active .cmd-line,html.emergency-active .command-line{background:#e9e9e9!important;color:#171717!important;border-color:#c9c9c9!important;box-shadow:0 3px 14px rgba(0,0,0,.07)!important}
+      html.emergency-active .sidebar,html.emergency-active .topbar,html.emergency-active .panel,html.emergency-active .bottom-row,html.emergency-active .cmd-line,html.emergency-active .command-line{background:#e9e9e9!important;color:#171717!important;border-color:#c9c9c9!important;box-shadow:0 3px 14px rgba(0,0,0,.07)!important}
       html.emergency-active .panel-header,html.emergency-active .brand,html.emergency-active .sidebar-footer,html.emergency-active .topbar-divider,html.emergency-active .section-divider{border-color:#c9c9c9!important}
       html.emergency-active .panel-header,html.emergency-active .panel-meta,html.emergency-active .sidebar-section-label,html.emergency-active .brand-sub,html.emergency-active .version,html.emergency-active .toolbar-label,html.emergency-active .toolbar-hint,html.emergency-active .page-kicker,html.emergency-active .top-master span{color:#606060!important}
       html.emergency-active .brand-name,html.emergency-active .page-title strong,html.emergency-active .top-master strong,html.emergency-active .nav-link,html.emergency-active .fixture-item,html.emergency-active .group-item,html.emergency-active .cue-item,html.emergency-active label,html.emergency-active .form-row label{color:#171717!important}
@@ -259,7 +259,18 @@ window.__blindLiveMode = true;
   window.consoleBlackout=blackout;
   window.clearSafetyOverride=clearSafetyOverride;
 
-  window.addEventListener("license-tier-changed",()=>{if(isFreeTier())setMode("BLIND");else updateUI();});
+  // js/modes.js loads before js/license.js (see index.html), so the
+  // very first isFreeTier() call above — the one that decides the
+  // startup mode — always runs before window.__licenseTier exists and
+  // falls back to "FREE", locking mode to "BLIND" regardless of the
+  // real tier. Once license.js determines the actual tier and fires
+  // this event, a non-free tier needs to re-derive mode from the saved
+  // preference (the same check the startup line itself uses) rather
+  // than just calling updateUI() on whatever "BLIND" was wrongly
+  // defaulted to — otherwise every single launch silently starts in
+  // BLIND (no real DMX/Art-Net output at all) until the user notices
+  // and manually clicks LIVE.
+  window.addEventListener("license-tier-changed",()=>{if(isFreeTier())setMode("BLIND");else setMode(localStorage.getItem(MODE_KEY)==="blind"?"BLIND":"LIVE");});
   window.addEventListener("message",event=>{ if(event.data?.type==="VISUALIZER_READY") sendVisualizerMode(); });
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",install,{once:true});
   else install();

@@ -202,7 +202,7 @@
 
   function createUI(){
     if(document.getElementById("targetModal"))return; injectStyles();
-    const quickPanel=document.querySelector("#page-live .quick-panel .panel-body");
+    const quickPanel=document.querySelector("#page-live .groups-panel .panel-body");
     if(quickPanel&&!document.getElementById("targetLaunch")){const button=document.createElement("button");button.type="button";button.id="targetLaunch";button.className="target-launch";button.innerHTML='<span>TARGETS</span><span>AIM / CAPTURE ↗</span>';button.onclick=open;quickPanel.appendChild(button);}
     const modal=document.createElement("div");modal.id="targetModal";modal.className="target-modal";
     modal.innerHTML=`<div class="target-window" role="dialog" aria-modal="true" aria-label="Target library"><div class="target-head"><div class="target-title">TARGET LIBRARY<small>POSITION CONTROL</small></div><button type="button" class="target-close">×</button></div><div class="target-toolbar"><input id="targetNameInput" placeholder="Target name e.g. Centre Stage"><button type="button" id="targetCreateButton">＋ CREATE TARGET</button></div><div class="target-list" data-target-list></div></div>`;

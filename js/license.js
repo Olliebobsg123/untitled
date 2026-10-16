@@ -6,7 +6,7 @@
   const STORAGE_KEY = "lighting-console-license";
   const DEFAULT_API_BASE = "https://api-bice-ten.vercel.app/api/licenses";
   const TIERS = Object.freeze({ FREE: "free", LIVE: "live", PRO: "pro" });
-  const DEFAULT_STATE = Object.freeze({ tier: TIERS.FREE, key: "", token: "", expiresAt: null, machineId: "" });
+  const DEFAULT_STATE = Object.freeze({ tier: TIERS.FREE, key: "", token: "", expiresAt: null, machineId: "", onboarded: false });
 
   const read = key => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
   const write = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
@@ -108,9 +108,21 @@
   }
 
   async function request(path, body) { const response = await fetch(`${apiBase()}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); let data = {}; try { data = await response.json(); } catch (_) {} if (!response.ok) throw new Error(data.error || `License request failed (${response.status})`); return data; }
-  async function activate(key) { const cleanKey = String(key || "").trim(); if (!cleanKey) throw new Error("Enter a license key."); const data = await request("/activate", { key: cleanKey, machineId: machineId() }); if (!data.token) throw new Error("License activation returned no token."); state = { ...state, key: cleanKey, token: data.token, tier: normalizeTier(data.tier), expiresAt: data.expiresAt ?? null }; persist(); return { ...state }; }
-  async function validate() { if (!state.token || !state.machineId) return false; try { const data = await request("/validate", { token: state.token, machineId: state.machineId }); if (!data.valid) throw new Error("License is no longer valid."); state.tier = normalizeTier(data.tier); state.expiresAt = data.expiresAt ?? null; persist(); return true; } catch (_) { state = { ...DEFAULT_STATE, machineId: machineId() }; persist(); return false; } }
+  async function activate(key) { const cleanKey = String(key || "").trim(); if (!cleanKey) throw new Error("Enter a license key."); const data = await request("/activate", { key: cleanKey, machineId: machineId() }); if (!data.token) throw new Error("License activation returned no token."); state = { ...state, key: cleanKey, token: data.token, tier: normalizeTier(data.tier), expiresAt: data.expiresAt ?? null, onboarded: true }; persist(); return { ...state }; }
+  // A failed REQUEST (offline, DNS hiccup, server hiccup, a background
+  // window's timers getting throttled mid-fetch, etc.) is not the same
+  // thing as the server explicitly saying the license is invalid — the
+  // old code treated both identically and wiped the stored license
+  // (including the token) back to Free on ANY failure, so a purely
+  // transient network blip during boot could silently downgrade a
+  // paying Pro user until they re-entered their key. Only an explicit
+  // {valid:false} from the server should ever reset state here.
+  async function validate() { if (!state.token || !state.machineId) return false; let data; try { data = await request("/validate", { token: state.token, machineId: state.machineId }); } catch (_) { return false; } if (!data.valid) { state = { ...DEFAULT_STATE, machineId: machineId() }; persist(); return false; } state.tier = normalizeTier(data.tier); state.expiresAt = data.expiresAt ?? null; persist(); return true; }
   async function deactivate() { if (state.key && state.machineId) { try { await request("/deactivate", { key: state.key, machineId: state.machineId }); } catch (_) {} } state = { ...DEFAULT_STATE, machineId: machineId() }; persist(); }
+  // Same reset showStartupScreen's own "Continue with Free" button does,
+  // pulled out so js/splash.js's inline license step (see boot() below)
+  // can trigger it without needing that overlay at all.
+  function continueFree() { state = { ...DEFAULT_STATE, machineId: machineId() }; persist(); }
 
   function installChangeLicenseButton() {
     if (document.getElementById("changeLicenseButton")) return; const status = document.querySelector(".topbar-status"); if (!status) return;
@@ -127,7 +139,33 @@
     freeButton.onclick = () => { state = { ...DEFAULT_STATE, machineId: machineId() }; persist(); close(); }; keyInput.addEventListener("keydown", event => { if (event.key === "Enter") activateButton.click(); }); document.body.classList.add("license-startup-active"); setTimeout(() => keyInput.focus(), 50);
   }
 
-  async function boot() { installTierThemeStyles(); updateTierTheme(); syncOutputMode(); wireQlabNavigationGuard(); updateQlabLock(); window.addEventListener("license-tier-changed", () => { updateQlabLock(); updateTierTheme(); }); if (state.token) { const valid = await validate(); if (valid) { installChangeLicenseButton(); updateQlabLock(); updateTierTheme(); return; } } showStartupScreen(); }
-  window.License = Object.freeze({ getTier: tier, isLive, isPro, activate, validate, deactivate, getState: () => ({ ...state }), showStartupScreen }); window.getLicenseTier = tier; window.__licenseTier = state.tier;
+  // Check state.token (not validate()'s return value) after calling it:
+  // validate() now only clears the token when the server EXPLICITLY
+  // rejected the license — a request failure leaves the cached token/
+  // tier untouched, so this correctly keeps treating the user as
+  // licensed (under the last confirmed tier) rather than bouncing them
+  // to the startup screen every time validation merely couldn't complete.
+  //
+  // No token at boot means a real, first-run activation prompt is
+  // needed — js/splash.js (loaded first, so window.__licenseNeedsActivation
+  // is always defined by the time this runs, whether boot() fires
+  // immediately or waits for DOMContentLoaded) renders that INSIDE the
+  // splash screen instead of this file's own standalone overlay, so a
+  // new user sees one continuous screen instead of the splash handing
+  // off to a second, visually separate one. showStartupScreen() itself
+  // is unchanged and still used for the "LICENSE" topbar button's
+  // mid-session change flow, where there's no splash to integrate with.
+  //
+  // Deliberately does NOT signal js/splash.js via "license-tier-changed"
+  // — syncOutputMode() (called a few words above, unconditionally,
+  // before the token check even runs) already fires that same event
+  // reflecting whatever stale/default tier state happened to hold at
+  // that moment, which raced the splash straight past its license step
+  // before boot() had actually decided anything. __licenseBootResolved
+  // is a dedicated signal fired only once boot() has genuinely finished
+  // (either a cached token validated, or activation has been handed
+  // off), so there's no ambiguity about what it means.
+  async function boot() { installTierThemeStyles(); updateTierTheme(); syncOutputMode(); wireQlabNavigationGuard(); updateQlabLock(); window.addEventListener("license-tier-changed", () => { updateQlabLock(); updateTierTheme(); }); if (state.token) { await validate(); if (state.token) { installChangeLicenseButton(); updateQlabLock(); updateTierTheme(); window.__licenseBootResolved?.(); return; } } if (typeof window.__licenseNeedsActivation === "function") window.__licenseNeedsActivation(); else showStartupScreen(); }
+  window.License = Object.freeze({ getTier: tier, isLive, isPro, activate, validate, deactivate, continueFree, getState: () => ({ ...state }), showStartupScreen, installChangeLicenseButton }); window.getLicenseTier = tier; window.__licenseTier = state.tier;
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true }); else boot();
 })();

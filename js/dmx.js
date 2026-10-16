@@ -2,8 +2,25 @@
 function $(id){return document.getElementById(id)}
 if(typeof window.log!=="function")window.log=(msg,type="info")=>console.log(`[${type.toUpperCase()}] ${msg}`);
 window.State=window.State||{};
+// Fixtures carry a patch universe (1-10, see MAX_UNIVERSES below) but every
+// live-control read/write used to go through a single 512-channel State.dmx
+// indexed by DMX ADDRESS ALONE, with the universe never factored in. Two
+// fixtures on different universes sharing the same address (completely
+// normal in any rig over ~25-30 fixtures, since that's roughly how many fit
+// in one real 512-channel universe) silently overwrote each other's channel
+// data on every updateDMX() — whichever fixture happened to be processed
+// last in State.fixtures won. A 200+ fixture rig needs several universes,
+// so this was the actual ceiling on "how many fixtures work", not anything
+// about rendering: it looked like only a handful of fixtures worked because
+// only the ones whose addresses never collided with a later-processed
+// fixture were left with correct data by the time DMX was actually sent.
+// State.dmx is now one flat buffer covering all MAX_UNIVERSES, addressed as
+// (universe-1)*DMX_CHANNELS + (address-1) — see getFixtureBaseAddress below.
+const DMX_CHANNELS=512;
+const MAX_UNIVERSES=10;
+const DMX_TOTAL_CHANNELS=DMX_CHANNELS*MAX_UNIVERSES;
 Object.assign(State,{
-dmx:State.dmx instanceof Uint8Array?State.dmx:new Uint8Array(512),
+dmx:State.dmx instanceof Uint8Array&&State.dmx.length===DMX_TOTAL_CHANNELS?State.dmx:new Uint8Array(DMX_TOTAL_CHANNELS),
 liveDMX:State.liveDMX instanceof Uint8Array?State.liveDMX:new Uint8Array(512),
 fixtures:Array.isArray(State.fixtures)?State.fixtures:[],
 cues:Array.isArray(State.cues)?State.cues:[],
@@ -116,7 +133,13 @@ p.set(data.subarray(0,len),18);
 return p;
 },
 send(){
-if(this.enabled&&ws?.readyState===WebSocket.OPEN)ws.send(this.makePacket(State.dmx,this.universe));
+// this.universe is 0-based Art-Net wire numbering; patch universes (fixture.uni)
+// are 1-based, so wire universe N is State.dmx's (N+1)th 512-channel segment —
+// State.dmx now covers every patch universe end-to-end, not just one.
+if(this.enabled&&ws?.readyState===WebSocket.OPEN){
+const start=this.universe*DMX_CHANNELS;
+ws.send(this.makePacket(State.dmx.subarray(start,start+DMX_CHANNELS),this.universe));
+}
 sendVisualizerDMX();
 },
 start(){
@@ -130,7 +153,7 @@ window.ArtNet=ArtNet;
 
 function setDMX(channel,value){
 const ch=Number(channel);
-if(!Number.isFinite(ch)||ch<0||ch>=512)return;
+if(!Number.isFinite(ch)||ch<0||ch>=State.dmx.length)return;
 State.dmx[ch]=Math.max(0,Math.min(255,Math.round(Number(value)||0)));
 }
 
@@ -147,16 +170,36 @@ const key=Object.keys(lib).find(k=>k.toLowerCase()===String(name).toLowerCase())
 return key?lib[key]:null;
 }
 
-function getFixtureBaseAddress(fixture){
+// 0-based address WITHIN a single 512-channel universe (ignores which
+// universe the fixture is patched on) — this is what real DMX/Art-Net/sACN
+// output needs per-universe, and what the patch UI validates against.
+function getFixtureLocalAddress(fixture){
 if(!fixture)return-1;
 const n=Number(fixture.addr??fixture.address??fixture.startAddress??fixture.start??fixture.channel);
-return Number.isFinite(n)&&n>=1&&n<=512?n-1:-1;
+return Number.isFinite(n)&&n>=1&&n<=DMX_CHANNELS?n-1:-1;
 }
+
+function getFixtureUniverse(fixture){
+const n=Number(fixture?.uni??fixture?.universe??1);
+return Number.isInteger(n)&&n>=1&&n<=MAX_UNIVERSES?n:1;
+}
+
+// Global 0-based index into State.dmx (which now spans every patch universe
+// end-to-end) — see the DMX_TOTAL_CHANNELS comment above for why the
+// universe has to be folded in here rather than just using the address.
+function getFixtureBaseAddress(fixture){
+const local=getFixtureLocalAddress(fixture);
+if(local<0)return-1;
+return(getFixtureUniverse(fixture)-1)*DMX_CHANNELS+local;
+}
+window.getFixtureLocalAddress=getFixtureLocalAddress;
+window.getFixtureUniverse=getFixtureUniverse;
+window.getFixtureBaseAddress=getFixtureBaseAddress;
 
 function writeFixtureChannel(base,mapValue,value){
 if(typeof mapValue!=="number")return;
 const ch=base+mapValue;
-if(ch>=0&&ch<512)setDMX(ch,value);
+if(ch>=0&&ch<State.dmx.length)setDMX(ch,value);
 }
 
 function updateDMX(){
@@ -198,7 +241,7 @@ function colourWheelDMX(def,hue,sat){
     return clamp255((best.min+best.max)/2);
 }
 
-function write(base,ch,v){if(!Number.isInteger(ch))return;const a=base+ch;if(a>=0&&a<512)State.dmx[a]=clamp255(v);}
+function write(base,ch,v){if(!Number.isInteger(ch))return;const a=base+ch;if(a>=0&&a<State.dmx.length)State.dmx[a]=clamp255(v);}
 
 State.fixtures.forEach(fixture=>{
 if(!fixture)return;
@@ -215,14 +258,17 @@ const hue=normaliseHue(saved.hue??0),sat=clamp100(saved.sat??100),light=clamp100
 if(typeof map.dimmer==="number")write(base,map.dimmer,255*level);
 
 // Tunable-white fixtures such as the Showtec Performer 1500 Fresnel Tungsten 8ch.
-// These channels are the actual LED engine; the dimmer alone is not enough.
-const hasWhite=typeof map.warmWhite==="number"||typeof map.naturalWhite==="number";
+// warmWhite/naturalWhite/coolWhite are independent LED-array output levels set
+// by the Fresnel controls card (js/fresnel-controls.js), not a copy of the
+// master dimmer — the fixture's own separate dimmer/intensity channel above
+// already carries master*intensity, so these are only ever zeroed by blackout.
+const hasWhite=typeof map.warmWhite==="number"||typeof map.naturalWhite==="number"||typeof map.coolWhite==="number";
 if(hasWhite){
-const whiteLevel=blackout?0:255*level;
-if(typeof map.warmWhite==="number")write(base,map.warmWhite,whiteLevel);
+if(typeof map.warmWhite==="number")write(base,map.warmWhite,blackout?0:(saved.warmWhite??255));
 if(typeof map.warmWhiteFine==="number")write(base,map.warmWhiteFine,0);
-if(typeof map.naturalWhite==="number")write(base,map.naturalWhite,whiteLevel);
+if(typeof map.naturalWhite==="number")write(base,map.naturalWhite,blackout?0:(saved.naturalWhite??0));
 if(typeof map.naturalWhiteFine==="number")write(base,map.naturalWhiteFine,0);
+if(typeof map.coolWhite==="number")write(base,map.coolWhite,blackout?0:(saved.coolWhite??0));
 if(typeof map.cct==="number")write(base,map.cct,blackout?0:clamp255(saved.cct??State.current?.cct??0));
 }
 
@@ -233,17 +279,37 @@ write(base,map.r,rgb[0]*level);
 write(base,map.g,rgb[1]*level);
 write(base,map.b,rgb[2]*level);
 if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)*level);
-if(typeof map.amber==="number")write(base,map.amber,blackout?0:clamp255(saved.amber??0));
-if(typeof map.lime==="number")write(base,map.lime,blackout?0:clamp255(saved.lime??0));
-if(typeof map.cyan==="number")write(base,map.cyan,blackout?0:clamp255(saved.cyan??0));
-if(typeof map.uv==="number")write(base,map.uv,blackout?0:clamp255(saved.uv??0));
 }else if(typeof map.colour==="number"){
+// A fixture with real CMY (cyan/magenta/yellow all present) skips the
+// wheel channel entirely rather than writing any computed value to it
+// — not even a constant "open" placeholder (an earlier version wrote
+// one; even that turned out to visibly interfere in Capture). This
+// app's colour control for such a fixture is exclusively cyan/magenta/
+// yellow below; channel 5 is left untouched (defaults to 0 from the
+// State.dmx.fill(0) at the top of this function) rather than driven
+// by this generic wheel logic at all.
+const hasCMYPrimary=typeof map.cyan==="number"&&typeof map.magenta==="number"&&typeof map.yellow==="number";
+if(!hasCMYPrimary){
 const wVal=blackout?0:colourWheelDMX(def,hue,sat);
 write(base,map.colour,wVal);
 if(typeof map.colourr==="number")write(base,map.colourr,blackout?0:clamp255(saved.colourr??0));
 }
+}
 
-["strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
+// Extra colour-mixing channels some fixtures carry independently of
+// the primary RGB/colour-wheel model above (RGBA/RGBAL/RGBALC extra
+// diodes, or pure CMY+CTO dichroic mixing with no RGB channels at
+// all) — each is only ever zeroed by blackout, driven straight from
+// its own control rather than the primary colour model.
+if(typeof map.amber==="number")write(base,map.amber,blackout?0:clamp255(saved.amber??0));
+if(typeof map.lime==="number")write(base,map.lime,blackout?0:clamp255(saved.lime??0));
+if(typeof map.cyan==="number")write(base,map.cyan,blackout?0:clamp255(saved.cyan??0));
+if(typeof map.uv==="number")write(base,map.uv,blackout?0:clamp255(saved.uv??0));
+if(typeof map.magenta==="number")write(base,map.magenta,blackout?0:clamp255(saved.magenta??0));
+if(typeof map.yellow==="number")write(base,map.yellow,blackout?0:clamp255(saved.yellow??0));
+if(typeof map.cto==="number")write(base,map.cto,blackout?0:clamp255(saved.cto??0));
+
+["strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro","shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate","shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate","shutter1AngleA","shutter1AngleB","shutter2AngleA","shutter2AngleB","shutter3AngleA","shutter3AngleB","shutter4AngleA","shutter4AngleB"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
 
 if(typeof map.pan==="number"){write(base,map.pan,saved.pan??128);if(typeof map.panf==="number")write(base,map.panf,saved.panf??0);}
 if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof map.tiltf==="number")write(base,map.tiltf,saved.tiltf??0);}
@@ -376,8 +442,6 @@ document.addEventListener("DOMContentLoaded",()=>{console.log("DMX controller st
 // uses 1-10. The existing single 512-channel State.dmx remains the programmer
 // buffer; this routing layer copies each fixture's channels into its universe.
 (() => {
-  const MAX_UNIVERSES = 10;
-  const DMX_CHANNELS = 512;
   const activeUniverses = new Set();
 
   function universeForFixture(fixture) {
@@ -394,16 +458,21 @@ document.addEventListener("DOMContentLoaded",()=>{console.log("DMX controller st
   function buildUniverseBuffers() {
     const buffers = new Map();
     const fixtures = Array.isArray(State.fixtures) ? State.fixtures : [];
-    const source = State.dmx instanceof Uint8Array ? State.dmx : new Uint8Array(DMX_CHANNELS);
+    const source = State.dmx instanceof Uint8Array ? State.dmx : new Uint8Array(DMX_TOTAL_CHANNELS);
 
     fixtures.forEach(fixture => {
       const universe = universeForFixture(fixture);
-      const base = getFixtureBaseAddress(fixture);
-      if (universe == null || base < 0) return;
+      // globalBase indexes the full multi-universe source buffer;
+      // localBase (0-511) is this fixture's position within its OWN
+      // universe's own wire frame — they only coincide for universe 1,
+      // so both are needed here, not just one "base".
+      const globalBase = getFixtureBaseAddress(fixture);
+      const localBase = getFixtureLocalAddress(fixture);
+      if (universe == null || globalBase < 0 || localBase < 0) return;
       if (!buffers.has(universe)) buffers.set(universe, new Uint8Array(DMX_CHANNELS));
       const target = buffers.get(universe);
-      const end = Math.min(DMX_CHANNELS, base + channelsForFixture(fixture));
-      for (let i = base; i < end; i++) target[i] = source[i];
+      const end = Math.min(DMX_CHANNELS, localBase + channelsForFixture(fixture));
+      for (let i = localBase, g = globalBase; i < end; i++, g++) target[i] = source[g];
     });
 
     return buffers;

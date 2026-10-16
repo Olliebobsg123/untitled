@@ -4,7 +4,8 @@ const https = require('node:https');
 const showFileApi = {
   save: (filePath, show) => ipcRenderer.invoke('lx-show-save', { filePath, show }),
   load: filePath => ipcRenderer.invoke('lx-show-load', { filePath }),
-  getDefaultDirectory: () => ipcRenderer.invoke('lx-show-default-directory')
+  getDefaultDirectory: () => ipcRenderer.invoke('lx-show-default-directory'),
+  list: () => ipcRenderer.invoke('lx-show-list')
 };
 
 const feedbackApi = {
@@ -157,6 +158,19 @@ try {
   console.error('[SHOW DEBUG] FAILED to expose LXShowDebug bridge:', error);
 }
 
+try {
+  contextBridge.exposeInMainWorld('LXRemote', {
+    getInfo: () => ipcRenderer.invoke('lx-remote-info'),
+    setEnabled: enabled => ipcRenderer.invoke('lx-remote-set-enabled', !!enabled),
+    regeneratePin: () => ipcRenderer.invoke('lx-remote-regen-pin'),
+    publish: snapshot => ipcRenderer.send('lx-remote-snapshot', snapshot),
+    onCommand: cb => { ipcRenderer.on('lx-remote-command', (_e, msg) => cb(msg)); },
+    onInfo: cb => { ipcRenderer.on('lx-remote-info', (_e, info) => cb(info)); }
+  });
+} catch (error) {
+  console.error('[REMOTE] FAILED to expose LXRemote bridge:', error);
+}
+
 const injectRendererScript = (id, src, label) => {
   try {
     if (document.getElementById(id)) return;
@@ -174,16 +188,17 @@ const injectRendererScript = (id, src, label) => {
 const injectShowFileCommands = () => injectRendererScript('lxShowFileCommandsScript', './js/showfile.js', 'showfile.js');
 const injectFresnelControls = () => injectRendererScript('lxFresnelControlsScript', './js/fresnel-controls.js', 'fresnel-controls.js');
 const injectTapoIntegration = () => injectRendererScript('lxTapoIntegrationScript', './js/tapo-integration.js', 'tapo-integration.js');
-const injectShowFileVisualizerFix = () => injectRendererScript('lxShowFileVisualizerFixScript', './js/showfile-visualizer-fix.js', 'showfile-visualizer-fix.js');
+// js/showfile-visualizer-fix.js was deleted (its cross-window position
+// mirroring was superseded by visualizer.html assigning window.opener.S
+// directly), but this injection call was never removed — every launch
+// has been failing a script load for a file that doesn't exist on disk.
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', injectShowFileCommands, { once: true });
   document.addEventListener('DOMContentLoaded', injectFresnelControls, { once: true });
   document.addEventListener('DOMContentLoaded', injectTapoIntegration, { once: true });
-  document.addEventListener('DOMContentLoaded', injectShowFileVisualizerFix, { once: true });
 } else {
   injectShowFileCommands();
   injectFresnelControls();
   injectTapoIntegration();
-  injectShowFileVisualizerFix();
 }

@@ -280,12 +280,23 @@
     scheduleVisualiser();
   }
 
+  // Where each fixture hangs and points in the visualiser, and its toggles: kept
+  // here (State.visualizer) so it's saved with the show (js/showfile.js).
+  function sendVisualiserLayout() {
+    postToVisualiser({ type: "LOAD_LAYOUT", layout: State.visualizer || {} });
+  }
+
   window.addEventListener("message", event => {
-    if (event.data?.type !== "VISUALIZER_READY") return;
-    visualiserWindow = event.source;
-    syncVisualiserPatch(true);
-    postToVisualiser({ type: "CONSOLE_MODE", mode: window.getConsoleMode?.() || "LIVE" });
-    sendVisualiserFrame();
+    const message = event.data;
+    if (message?.type === "VISUALIZER_READY") {
+      visualiserWindow = event.source;
+      sendVisualiserLayout();
+      syncVisualiserPatch(true);
+      postToVisualiser({ type: "CONSOLE_MODE", mode: window.getConsoleMode?.() || "LIVE" });
+      sendVisualiserFrame();
+    } else if (message?.type === "VIZ_LAYOUT" && message.layout && typeof message.layout === "object") {
+      State.visualizer = message.layout;
+    }
   });
 
   // --- Fades ---
@@ -373,6 +384,10 @@
     connectVisualizer: openVisualiser,
     // Called after almost every change: refresh the visualiser (cheap unless the patch changed).
     sendToVisualizer: () => scheduleVisualiser(),
+    sendVisualizerLayout: () => {
+      sendVisualiserLayout();
+      syncVisualiserPatch(true);
+    },
     postToVisualizer: postToVisualiser
   });
 

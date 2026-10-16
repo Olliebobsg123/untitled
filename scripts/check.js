@@ -5,7 +5,7 @@ const path = require("path");
 
 const root = path.join(__dirname, "..");
 const files = ["main.js", "preload.js"];
-for (const dir of ["main", "js", "scripts"]) {
+for (const dir of ["main", "js", "js/visualizer", "scripts"]) {
   for (const name of fs.readdirSync(path.join(root, dir))) if (name.endsWith(".js")) files.push(path.join(dir, name));
 }
 let failed = 0;

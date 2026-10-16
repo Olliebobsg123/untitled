@@ -50,7 +50,8 @@
       fixtureManualRot: Object.entries(layout?.rotations || {}).map(([fixtureId, r]) => ({ fixtureId, fixtureIndex: indexOf(fixtureId), pan: r.pan, tilt: r.tilt })),
       gridOn: layout?.gridOn !== false,
       houseOn: Boolean(layout?.houseOn),
-      workOn: Boolean(layout?.workOn)
+      workOn: Boolean(layout?.workOn),
+      beamsOn: layout?.beamsOn !== false
     };
   }
 
@@ -60,7 +61,7 @@
       const byIndex = fixtures[Number(entry?.fixtureIndex)];
       return byIndex ? String(byIndex.id) : null;
     };
-    const layout = { positions: {}, rotations: {}, gridOn: saved?.gridOn !== false, houseOn: Boolean(saved?.houseOn), workOn: Boolean(saved?.workOn) };
+    const layout = { positions: {}, rotations: {}, gridOn: saved?.gridOn !== false, houseOn: Boolean(saved?.houseOn), workOn: Boolean(saved?.workOn), beamsOn: saved?.beamsOn !== false };
     for (const entry of saved?.fixturePositions || []) {
       const id = idFor(entry);
       const [x, y, z] = [entry.x, entry.y, entry.z].map(Number);

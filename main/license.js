@@ -32,7 +32,10 @@ const normaliseTier = value => (TIERS.includes(String(value || '').toLowerCase()
 const testTier = () => (!app.isPackaged && TIERS.includes(process.env.LIGHT_SPARK_TEST_TIER) ? process.env.LIGHT_SPARK_TEST_TIER : null);
 
 function publicKey() {
-  for (const file of [path.join(__dirname, '..', 'config', 'license-public.pem')]) {
+  const files = [path.join(__dirname, '..', 'config', 'license-public.pem')];
+  // Testing builds only: a key of the tester's own (a packaged app ignores this).
+  if (!app.isPackaged && process.env.LIGHT_SPARK_LICENSE_PUBLIC_KEY_FILE) files.unshift(process.env.LIGHT_SPARK_LICENSE_PUBLIC_KEY_FILE);
+  for (const file of files) {
     try { return crypto.createPublicKey(fs.readFileSync(file, 'utf8')); } catch (_) {}
   }
   return null;
@@ -61,7 +64,10 @@ function load() {
     const saved = JSON.parse(fs.readFileSync(statePath(), 'utf8'));
     state = { ...state, ...saved, tier: normaliseTier(saved.tier) };
   } catch (_) {}
-  if (!state.machineId) state.machineId = crypto.randomUUID();
+  if (!state.machineId) {
+    state.machineId = crypto.randomUUID();
+    save();
+  }
 }
 
 function save() {

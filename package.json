@@ -10,7 +10,8 @@
     "test:syntax": "node scripts/check.js",
     "build-mac": "rm -rf Build && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never",
     "build-win": "npx electron-builder --win --publish never",
-    "format": "prettier --write \"js/**/*.js\" \"main/**/*.js\" main.js preload.js"
+    "format": "prettier --write \"js/**/*.js\" \"main/**/*.js\" main.js preload.js",
+    "test": "npm run test:syntax && node tests/visualizer-decode.test.mjs && node tests/license.test.cjs"
   },
   "dependencies": {
     "iobroker.tapo": "^0.6.12",

@@ -1,10 +1,10 @@
 "use strict";
 
 (() => {
-  if (window.__rdmPatchInstalled) return;
-  window.__rdmPatchInstalled = true;
+  // Patch page → RDM Discovery: which RDM fixtures a node can see on a universe
+  // (main/artnet-monitor.js does the Art-Net side).
 
-  const state = { devices: [], selectedUid: null, scanning: false, ws: null };
+  const state = { devices: [], selectedUid: null, scanning: false };
   const $ = id => document.getElementById(id);
 
   function injectStyles() {
@@ -78,14 +78,16 @@
     state.devices = [];
     renderDevices();
     setStatus(flush ? `Starting full RDM discovery on universe ${universe}…` : `Requesting RDM TOD on universe ${universe}…`);
-    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) { setStatus("RDM transport is not connected."); return; }
-    state.ws.send(JSON.stringify({ type: flush ? "RDM_TOD_FLUSH" : "RDM_TOD_REQUEST", universe }));
+    // Ask the node the Art-Net output for this universe sends to (or everyone, by broadcast).
+    const output = window.LXOutputs?.list().find(o => o.protocol === "artnet" && o.universe === universe);
+    const target = output && !/\.255$/.test(output.target) ? output.target : undefined;
+    if (flush) window.LXArtNet.flushTod(universe, target);
+    else window.LXArtNet.requestTod(universe, target);
     setTimeout(() => { state.scanning = false; if (!state.devices.length) setStatus(`No RDM devices reported on universe ${universe}.`); }, 2500);
   }
 
-  function handleMessage(message) {
-    if (!message || message.type !== "RDM_TOD") return;
-    (Array.isArray(message.devices) ? message.devices : []).forEach(device => {
+  function handleTod(message) {
+    (Array.isArray(message?.devices) ? message.devices : []).forEach(device => {
       if (!device?.uid) return;
       const existing = state.devices.find(d => d.uid === device.uid);
       if (existing) Object.assign(existing, device); else state.devices.push(device);
@@ -94,27 +96,13 @@
     setStatus(`${state.devices.length} RDM device${state.devices.length === 1 ? "" : "s"} discovered.`);
   }
 
-  function connectRelay() {
-    if (state.ws && state.ws.readyState <= WebSocket.OPEN) return;
-    try {
-      const ws = new WebSocket("ws://localhost:8081");
-      state.ws = ws;
-      ws.onopen = () => setStatus("RDM transport connected — ready to discover.");
-      ws.onclose = () => { state.ws = null; setStatus("RDM transport disconnected."); setTimeout(connectRelay, 1500); };
-      ws.onerror = () => setStatus("RDM transport error — check the Art-Net relay.");
-      ws.onmessage = event => {
-        if (typeof event.data !== "string") return;
-        try { handleMessage(JSON.parse(event.data)); } catch (_) {}
-      };
-    } catch (_) { setTimeout(connectRelay, 1500); }
-  }
-
   function install() {
     injectStyles();
     ensurePanel();
     ["patchName", "patchAddr", "patchUni"].forEach(id => $(id)?.addEventListener("input", patchFootprint));
     patchFootprint();
-    connectRelay();
+    window.LXArtNet?.onTod(handleTod);
+    setStatus("Ready to discover RDM devices on the patch universe.");
   }
 
   window.RDMUI = { scan, renderDevices, patchFootprint };

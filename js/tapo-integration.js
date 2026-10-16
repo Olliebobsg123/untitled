@@ -125,42 +125,9 @@
 
   window.sendTapoState = () => getSelected().filter(isTapo).forEach(sendState);
 
-  const installOutputHook = () => {
-    if (typeof window.updateDMX !== "function" || window.updateDMX.__tapoOutputHook) return false;
-    const original = window.updateDMX;
-    const hooked = function tapoOutputHook(...args) {
-      const result = original.apply(this, args);
-      getAllTapoFixtures().forEach(sendState);
-      return result;
-    };
-    hooked.__tapoOutputHook = true;
-    window.updateDMX = hooked;
-    return true;
-  };
-
-  const installDmxGuard = () => {
-    if (typeof window.updateDMX !== "function" || window.updateDMX.__tapoGuard) return false;
-    const original = window.updateDMX;
-    const guarded = function tapoSafeUpdateDMX(...args) {
-      const state = window.State;
-      if (!state?.fixtures?.length) return original.apply(this, args);
-      const all = state.fixtures;
-      const dmxFixtures = all.filter(f => !isTapo(f));
-      if (dmxFixtures.length === all.length) return original.apply(this, args);
-      state.fixtures = dmxFixtures;
-      try { return original.apply(this, args); }
-      finally { state.fixtures = all; }
-    };
-    guarded.__tapoGuard = true;
-    window.updateDMX = guarded;
-    return true;
-  };
-
-  const installOutputIntegration = () => {
-    installDmxGuard();
-    installOutputHook();
-  };
-
+  // Wi-Fi bulbs have no DMX address (the DMX engine skips them); after every DMX
+  // update, each bulb gets its own state over the network if it changed.
+  const installOutputIntegration = () => LXDmx.onFrame(() => getAllTapoFixtures().forEach(sendState));
   const injectSetup = () => {
     const patchPanel = document.querySelector("#page-patch .page-grid .panel:nth-child(2) .panel-body");
     if (!patchPanel || document.getElementById("tapoSetup")) return;

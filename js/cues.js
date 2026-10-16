@@ -104,10 +104,8 @@ function startCueEffectIfNeeded(cue) {
 }
 
 function stopCueFade() {
-    if (State.fading !== null) {
-        cancelAnimationFrame(State.fading);
-        State.fading = null;
-    }
+    if (State.fading != null) LXClock.cancel(State.fading);
+    State.fading = null;
 }
 
 function stopFollow() {
@@ -227,9 +225,9 @@ function fadeLighting(from, to, duration, finished) {
             if (typeof finished === "function") finished();
             return;
         }
-        State.fading = requestAnimationFrame(frame);
+        State.fading = LXClock.frame(frame);
     }
-    State.fading = requestAnimationFrame(frame);
+    State.fading = LXClock.frame(frame);
 }
 
 function renderCues() {
@@ -297,8 +295,20 @@ function goToCue(index, forceFade = null) {
         cueLog("Cue " + (index + 1) + " does not exist", "warn");
         return false;
     }
-    stopCueTimers();
     const cue = State.cues[index];
+    // A cue recorded from a chase (recordChaseToCue) runs that chase.
+    if (cue.chase) {
+        const chaseIndex = Number(cue.chase.index);
+        if (!Number.isInteger(chaseIndex) || !State.chases?.[chaseIndex]) {
+            cueLog("Cue " + (index + 1) + " references a missing chase", "error");
+            return false;
+        }
+        State.currentCue = index;
+        renderCues();
+        cueLog("Cue " + (index + 1) + " → starting Chase " + (chaseIndex + 1));
+        return window.startChase(chaseIndex);
+    }
+    stopCueTimers();
     stopCueEffect();
     const previous = snapshotCurrentLighting();
     const target = getCueTarget(cue);
@@ -317,34 +327,32 @@ function goToCue(index, forceFade = null) {
     return true;
 }
 
+// GO: the next recorded cue. After the last cue it stays put (it never jumps
+// back to cue 1 in the middle of a show).
 function goNextCue(forceFade = null) {
     if (!State.cues.length) {
         cueLog("No cues recorded", "warn");
         return false;
     }
     let next = State.currentCue + 1;
-    let attempts = 0;
-    while (attempts < State.cues.length && !State.cues[next]) {
-        next++;
-        if (next >= State.cues.length) next = 0;
-        attempts++;
+    while (next < State.cues.length && !State.cues[next]) next++;
+    if (next >= State.cues.length) {
+        cueLog("End of the cue list", "warn");
+        return false;
     }
-    if (!State.cues[next]) return false;
     return goToCue(next, forceFade);
 }
 
+// BACK: the previous recorded cue, stopping at the first.
 function goPreviousCue(forceFade = null) {
     if (!State.cues.length) return false;
     stopFollow();
-    let previous = State.currentCue - 1;
-    if (previous < 0) previous = State.cues.length - 1;
-    let attempts = 0;
-    while (attempts < State.cues.length && !State.cues[previous]) {
-        previous--;
-        if (previous < 0) previous = State.cues.length - 1;
-        attempts++;
+    let previous = Math.min(State.currentCue, State.cues.length) - 1;
+    while (previous >= 0 && !State.cues[previous]) previous--;
+    if (previous < 0) {
+        cueLog("Already at the first cue", "warn");
+        return false;
     }
-    if (!State.cues[previous]) return false;
     return goToCue(previous, forceFade);
 }
 

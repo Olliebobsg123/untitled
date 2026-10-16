@@ -2036,3 +2036,175 @@ body:has(.sidebar:hover) .sidebar [class*="icon"] {
     padding .22s ease,
     margin .22s ease;
 }
+/* ===== Licence: tier colours, badge, QLab lock (js/license.js) ===== */
+html[data-license-tier="free"] { --tier-accent: #5ca8ff; --tier-accent-soft: rgba(92,168,255,.14); --tier-accent-glow: rgba(92,168,255,.25); }
+html[data-license-tier="live"] { --tier-accent: #19d6a3; --tier-accent-soft: rgba(25,214,163,.14); --tier-accent-glow: rgba(25,214,163,.25); }
+html[data-license-tier="pro"] { --tier-accent: #c28cff; --tier-accent-soft: rgba(194,140,255,.14); --tier-accent-glow: rgba(194,140,255,.28); }
+html[data-license-tier] .topbar { border-bottom-color: color-mix(in srgb, var(--tier-accent) 32%, transparent); }
+html[data-license-tier] .page-kicker { color: var(--tier-accent); }
+.license-tier-badge { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--tier-accent); border-radius: 7px; background: var(--tier-accent-soft); color: var(--tier-accent); font: 800 11px/1 var(--mono, monospace); letter-spacing: 1px; white-space: nowrap; box-shadow: 0 0 12px var(--tier-accent-glow); }
+.license-tier-badge .tier-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tier-accent); box-shadow: 0 0 7px var(--tier-accent); }
+.change-license-button { height: 30px; padding: 0 11px; border: 1px solid var(--border, #202a30); border-radius: 7px; background: transparent; color: inherit; cursor: pointer; font: 700 11px/1 var(--mono, monospace); letter-spacing: 1px; opacity: .8; }
+.change-license-button:hover { opacity: 1; }
+#page-qlab.qlab-pro-locked { position: relative; overflow: hidden; }
+#page-qlab.qlab-pro-locked > .qlab-pro-lock { position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(5,9,12,.88); backdrop-filter: blur(5px); border: 1px solid rgba(92,168,255,.25); border-radius: 12px; }
+.qlab-pro-lock-card { width: min(430px, calc(100% - 40px)); padding: 30px; text-align: center; border: 1px solid rgba(92,168,255,.35); border-radius: 14px; background: rgba(12,18,23,.98); box-shadow: 0 18px 60px rgba(0,0,0,.4); }
+.qlab-pro-lock-card .lock-icon { font-size: 30px; margin-bottom: 12px; }
+.qlab-pro-lock-card .lock-eyebrow { font: 800 11px/1 var(--mono, monospace); letter-spacing: 2px; color: #5ca8ff; margin-bottom: 10px; }
+.qlab-pro-lock-card h2 { margin: 0 0 10px; font: 800 22px/1.2 var(--mono, monospace); color: #e8f0f2; }
+.qlab-pro-lock-card p { margin: 0 0 20px; color: #8d9a9e; font: 500 13px/1.6 var(--mono, monospace); }
+.qlab-pro-lock-card button { height: 36px; padding: 0 16px; border: 1px solid #5ca8ff; border-radius: 7px; background: #5ca8ff; color: #07111d; cursor: pointer; font: 800 11px/1 var(--mono, monospace); letter-spacing: 1px; }
+.nav-link.qlab-pro-locked-nav { opacity: .55; }
+
+/* ===== Console log and command autocomplete (js/log.js, js/commands.js) ===== */
+
+    /* ---------- Console log ---------- */
+   #termLog {
+  font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
+  font-size: 9px !important;
+  line-height: 1.5 !important;
+  letter-spacing: .025em;
+  font-weight: 800;
+  text-transform: uppercase;
+  overflow-x: hidden;
+}
+#termLog .lx-log-entry {
+  display: grid;
+  grid-template-columns: 58px 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 4px 7px;
+  border-bottom: 1px solid rgba(255,255,255,.035);
+  box-sizing: border-box;
+}
+#termLog .lx-log-time {
+  color: #53615e;
+  font-family: var(--mono, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+#termLog .lx-log-level {
+  font-family: var(--mono, monospace);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+#termLog .lx-log-level.ok {
+  color: #19d6a3;
+}
+#termLog .lx-log-level.info {
+  color: #5ca8ff;
+}
+#termLog .lx-log-level.warn {
+  color: #ffb454;
+}
+#termLog .lx-log-level.error {
+  color: #ff5265;
+}
+#termLog .lx-log-message {
+  min-width: 0;
+  color: #e5ecea;
+  font-weight: 800;
+  /* IMPORTANT: don't cut long messages */
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
+}
+  /* ==============================================
+   COMMAND AUTOCOMPLETE
+   ============================================== */
+.cmd-line {
+  position: relative !important;
+  min-height: 34px !important;
+  height: 34px !important;
+  overflow: visible !important;
+}
+/*
+ * The autocomplete is INSIDE the command line's
+ * positioning context.
+ *
+ * It sits immediately ABOVE the command bar,
+ * without creating another layout row.
+ */
+#cmdAutocompleteList {
+  position: absolute !important;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 2px);
+  height: 24px;
+  min-height: 24px;
+  display: none;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 4px;
+  background: #080b0d;
+  border: 1px solid #252f34;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  z-index: 9999;
+  font-family: var(--mono, monospace);
+}
+#cmdAutocompleteList.is-visible {
+  display: flex;
+}
+/* Individual command */
+#cmdAutocompleteList .cmd-autocomplete-item {
+  flex: 0 0 auto;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid #252d31;
+  color: #eef4f2;
+  font-family: var(--mono, monospace);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  line-height: 22px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* Command name */
+#cmdAutocompleteList .cmd-autocomplete-command {
+  color: #f1f5f4;
+  font-weight: 900;
+}
+/* Parameters / hint */
+#cmdAutocompleteList .cmd-autocomplete-hint {
+  color: rgba(225,233,231,.48);
+  font-weight: 700;
+  letter-spacing: .025em;
+}
+/* Hover */
+#cmdAutocompleteList .cmd-autocomplete-item:hover {
+  background: rgba(255,255,255,.045);
+  color: #ffffff;
+}
+/* Selected */
+#cmdAutocompleteList .cmd-autocomplete-item.is-active {
+  background: rgba(25,214,163,.10);
+  color: #ffffff;
+  box-shadow:
+    inset 0 -2px 0 #19d6a3;
+}
+/* Scrollbar */
+#cmdAutocompleteList::-webkit-scrollbar {
+  height: 3px;
+}
+#cmdAutocompleteList::-webkit-scrollbar-track {
+  background: #080b0d;
+}
+#cmdAutocompleteList::-webkit-scrollbar-thumb {
+  background: #303a3f;
+}
+  

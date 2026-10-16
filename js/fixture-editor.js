@@ -19,17 +19,26 @@
     return out;
   };
 
+  // Custom fixtures belong to the show: they're kept in State.current (so show
+  // files and the autosave carry them) under the key older versions used.
+  const SHOW_KEY = "__lxCustomFixtures";
   const loadCustom = () => {
-    try {
-      const value = JSON.parse(localStorage.getItem(STORE) || "{}");
-      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-    } catch (_) { return {}; }
+    const value = State.current?.[SHOW_KEY];
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   };
 
   const saveCustom = value => {
-    try { localStorage.setItem(STORE, JSON.stringify(value)); return true; }
-    catch (_) { return false; }
+    State.current ||= {};
+    State.current[SHOW_KEY] = value && typeof value === "object" ? value : {};
+    return true;
   };
+
+  // Older versions kept them in this window's storage instead: move them into the show once.
+  try {
+    const legacy = JSON.parse(localStorage.getItem(STORE) || "null");
+    if (legacy && typeof legacy === "object" && Object.keys(legacy).length) saveCustom({ ...loadCustom(), ...legacy });
+    localStorage.removeItem(STORE);
+  } catch (_) {}
 
   const escapeHtml = value => String(value).replace(/[&<>'"]/g, char => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", "\"":"&quot;"
@@ -296,22 +305,8 @@
     return true;
   }
 
-  if (typeof commandDefs !== "undefined" && Array.isArray(commandDefs)) {
-    commandDefs.push(
-      { cmd: "fixture editor", hint: "open custom fixture editor" },
-      { cmd: "fixtureeditor", hint: "open custom fixture editor" }
-    );
-  }
-
-  const previousParseCommand = window.parseCommand || window.__lxOriginalParseCommand;
-  window.parseCommand = function(rawCommand) {
-    const command = String(rawCommand || "").trim().toLowerCase();
-    if (/^(fixture\s+editor|fixtureeditor)$/.test(command)) {
-      openFixtureEditor();
-      return;
-    }
-    return typeof previousParseCommand === "function" ? previousParseCommand.apply(this, arguments) : undefined;
-  };
+  LXCommands.describe("fixture editor", "open custom fixture editor");
+  LXCommands.add(raw => (/^(fixture\s+editor|fixtureeditor)$/i.test(String(raw || "").trim()) ? openFixtureEditor() : LXCommands.NOT_MINE));
 
   window.LXFixtureEditor = Object.freeze({ open: () => openFixtureEditor(), install: installCustomFixtures });
 
@@ -320,6 +315,4 @@
   } else {
     installFixtureEditor();
   }
-  setTimeout(installFixtureEditor, 500);
-  setTimeout(installFixtureEditor, 1500);
 })();

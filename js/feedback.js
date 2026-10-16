@@ -158,33 +158,14 @@
     }
   }
 
-  if (typeof commandDefs !== "undefined" && Array.isArray(commandDefs)) {
-    commandDefs.push(
-      { cmd: "suggestion", hint: "open suggestion menu" },
-      { cmd: "suggestions", hint: "open suggestion menu" },
-      { cmd: "bug report", hint: "open bug report menu" },
-      { cmd: "bugreport", hint: "open bug report menu" }
-    );
-  }
-
-  const previousParseCommand = window.parseCommand || window.__lxOriginalParseCommand;
-  window.parseCommand = function(rawCommand) {
-    const command = String(rawCommand || "").trim().toLowerCase();
-
-    if (/^(suggestion|suggestions)$/.test(command)) {
-      openFeedback("suggestion");
-      return;
-    }
-
-    if (/^(bug\s+report|bugreport)$/.test(command)) {
-      openFeedback("bug");
-      return;
-    }
-
-    return typeof previousParseCommand === "function"
-      ? previousParseCommand.apply(this, arguments)
-      : undefined;
-  };
+  LXCommands.describe("suggestion", "open suggestion menu");
+  LXCommands.describe("bug report", "open bug report menu");
+  LXCommands.add(raw => {
+    const command = String(raw || "").trim().toLowerCase();
+    if (/^(suggestion|suggestions)$/.test(command)) return openFeedback("suggestion");
+    if (/^(bug\s+report|bugreport)$/.test(command)) return openFeedback("bug");
+    return LXCommands.NOT_MINE;
+  });
 
   window.LXFeedback = Object.freeze({
     openSuggestion: () => openFeedback("suggestion"),
@@ -198,10 +179,3 @@
   }
 })();
 
-// The custom fixture editor lives in its own module.
-if (!document.querySelector('script[data-lx-fixture-editor]')) {
-  const script = document.createElement("script");
-  script.src = "js/fixture-editor.js";
-  script.dataset.lxFixtureEditor = "1";
-  document.head.appendChild(script);
-}

@@ -1,12 +1,8 @@
 "use strict";
 
-// main.js historically injected a second blind/live initialiser after the
-// page loaded. modes.js is now the single owner of console mode UI, so mark
-// that legacy hook as already handled before main.js gets to its injection.
-window.__blindLiveMode = true;
-
-// Console mode / safety controls only.
-// DMX output configuration is owned by the multi-universe output service.
+// LIVE / BLIND and the two safety buttons (EMERGENCY WHITE, BLACKOUT).
+// In BLIND the console keeps programming but nothing reaches the lights; the
+// output service (main/dmx-output.js) also refuses LIVE without a LIVE/PRO licence.
 (() => {
   const MODE_KEY = "consoleMode";
 
@@ -15,9 +11,10 @@ window.__blindLiveMode = true;
     localStorage.removeItem("lighting-output-settings");
   } catch (_) {}
 
-  const licenseTier = () => String(window.__licenseTier || window.getLicenseTier?.() || "FREE").toUpperCase();
-  const isFreeTier = () => licenseTier() === "FREE";
-  let mode = isFreeTier() ? "BLIND" : (localStorage.getItem(MODE_KEY) === "blind" ? "BLIND" : "LIVE");
+  const isFreeTier = () => !window.License?.isLive();
+  // What the operator chose; the licence can still force BLIND (Free is visualiser only).
+  let preferred = (() => { try { return localStorage.getItem(MODE_KEY) === "blind" ? "BLIND" : "LIVE"; } catch (_) { return "LIVE"; } })();
+  let mode = "BLIND"; // until the licence is known
   let emergencyActive = false;
   let blackoutActive = false;
   let savedState = null;
@@ -63,9 +60,9 @@ window.__blindLiveMode = true;
     document.head.appendChild(style);
   }
 
-  function sendVisualizerMode() {
-    const viz = window.visualizerWindow;
-    if (viz && !viz.closed) viz.postMessage({type:"CONSOLE_MODE",mode},"*");
+  function sendMode() {
+    window.LXOutput?.setBlind(mode !== "LIVE");
+    window.postToVisualizer?.({ type: "CONSOLE_MODE", mode });
   }
 
   
@@ -89,31 +86,26 @@ window.__blindLiveMode = true;
       title.textContent=title.dataset.liveTitle || "LIVE CONTROL";
     }
  
-    sendVisualizerMode();
+    sendMode();
+  }
+
+  function applyMode() {
+    mode = isFreeTier() ? "BLIND" : preferred;
+    updateUI();
   }
 
   function setMode(next) {
-    if (isFreeTier()) {
-      mode="BLIND";
-      localStorage.setItem(MODE_KEY,"blind");
-      if(window.ArtNet) window.ArtNet.outputMode="BLIND";
-      if(typeof window.__setMultiOutputMode === "function") window.__setMultiOutputMode("BLIND");
-      updateUI();
-      return;
-    }
-    mode=String(next).toUpperCase()==="BLIND" ? "BLIND" : "LIVE";
-    localStorage.setItem(MODE_KEY,mode.toLowerCase());
-    if(window.ArtNet) window.ArtNet.outputMode=mode;
-    if(typeof window.__setMultiOutputMode === "function") window.__setMultiOutputMode(mode);
-    updateUI();
-    console.log(`🎛 Console mode: ${mode}`);
+    preferred = String(next).toUpperCase() === "BLIND" ? "BLIND" : "LIVE";
+    try { localStorage.setItem(MODE_KEY, preferred.toLowerCase()); } catch (_) {}
+    applyMode();
   }
 
+  // Safety overrides stop anything that would keep changing the lights.
   function stopRunningLooks(){
-    if(window.ActiveChase){clearInterval(window.ActiveChase);window.ActiveChase=null;}
-    if(window.State?.fading){cancelAnimationFrame(window.State.fading);window.State.fading=null;}
-    if(typeof window.stopEffects==="function") window.stopEffects();
-    if(typeof window.stopAllEffects==="function") window.stopAllEffects();
+    window.stopEffect?.(true);
+    window.stopChase?.(false);
+    window.stopCueTimers?.();
+    window.stopFade?.();
   }
 
   function snapshotState(){
@@ -203,54 +195,14 @@ window.__blindLiveMode = true;
     wrap.append(emergency,black); status.prepend(wrap);
   }
 
-  function wireChaseButtons(){
-    const save=$("btnSaveChase"), run=$("btnRunChase"), stop=$("btnStopChase"), speed=$("chaseSpeed"), speedVal=$("chaseSpeedVal");
-    if(!save || !run || !stop) return;
-    const state=()=>window.State;
-    save.type="button";
-    run.type="button";
-    stop.type="button";
-    save.onclick=e=>{
-      e.preventDefault();
-      const s=state();
-      if(!s || !Array.isArray(s.cues) || !s.cues.length){window.log?.("Add at least one cue before creating a chase","warn");return;}
-      const indices=s.cues.map((_,i)=>i+1);
-      if(typeof window.saveChase==="function") window.saveChase(`Chase ${(s.chases?.length||0)+1}`,indices,true);
-    };
-    run.onclick=e=>{
-      e.preventDefault();
-      const s=state();
-      if(!s || !Array.isArray(s.chases) || !s.chases.length){window.log?.("No chases available","warn");return;}
-      const active=Number.isInteger(s.currentChase)&&s.currentChase>=0?s.currentChase:0;
-      if(typeof window.startChase==="function") window.startChase(active);
-    };
-    stop.onclick=e=>{
-      e.preventDefault();
-      window.stopChase?.();
-    };
-    if(speed && speedVal){
-      speed.oninput=()=>{
-        const s=state();
-        const percent=Math.max(10,Math.min(100,Number(speed.value)||50));
-        speed.value=String(percent);
-        speedVal.textContent=String(percent);
-        if(s) s.chaseWait=Math.max(100,Math.round(2000-(percent/100)*1900));
-      };
-      speed.oninput();
-    }
-  }
-
   function install(){
     const live=$("consoleModeLive"), blind=$("consoleModeBlind");
     if(!live || !blind) return;
     installModeStyles();
     installSafetyControls();
-    live.onclick=()=>{if(isFreeTier()){setMode("BLIND");return;}if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
+    live.onclick=()=>{if(isFreeTier())return;if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
     blind.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("BLIND");};
     updateUI();
-    sendVisualizerMode();
-    if(typeof window.__setMultiOutputMode === "function") window.__setMultiOutputMode(mode);
-    wireChaseButtons();
   }
 
   window.setConsoleMode=setMode;
@@ -259,8 +211,7 @@ window.__blindLiveMode = true;
   window.consoleBlackout=blackout;
   window.clearSafetyOverride=clearSafetyOverride;
 
-  window.addEventListener("license-tier-changed",()=>{if(isFreeTier())setMode("BLIND");else updateUI();});
-  window.addEventListener("message",event=>{ if(event.data?.type==="VISUALIZER_READY") sendVisualizerMode(); });
+  window.addEventListener("license-tier-changed", applyMode);
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",install,{once:true});
   else install();
 })();

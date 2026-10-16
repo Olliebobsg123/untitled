@@ -55,147 +55,67 @@
   };
 
   const clamp255 = value => Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
-  const clamp100 = value => Math.max(0, Math.min(100, Number(value) || 0));
 
-  function installProfile() {
-    if (!window.FixtureLibrary || typeof window.FixtureLibrary !== "object") return false;
-    window.FixtureLibrary[NAME] = profile;
-    return true;
-  }
+  const rgbFromHsl = (h, s, l) => window.hslToRgb(h, s, l).map(v => v / 255);
 
-  function getBase(fixture) {
-    const n = Number(fixture?.addr ?? fixture?.address ?? fixture?.startAddress ?? fixture?.start ?? fixture?.channel);
-    return Number.isFinite(n) && n >= 1 && n <= 512 ? n - 1 : -1;
-  }
+  // Writes one ColorWash's channels (called by the DMX engine, js/dmx.js).
+  function writeColorWash({ state: fixtureState, current, level, blackout, write }) {
+    write(profile.map.pan, fixtureState.pan ?? current.pan ?? 128);
+    write(profile.map.panf, fixtureState.panf ?? current.panf ?? 0);
+    write(profile.map.tilt, fixtureState.tilt ?? current.tilt ?? 128);
+    write(profile.map.tiltf, fixtureState.tiltf ?? current.tiltf ?? 0);
+    write(profile.map.speed, fixtureState.speed ?? current.speed ?? 0);
+    write(profile.map.control, fixtureState.control ?? current.control ?? 0);
+    write(profile.map.macro, fixtureState.macro ?? current.macro ?? 0);
+    write(profile.map.macroSpeed, fixtureState.macroSpeed ?? current.macroSpeed ?? 0);
 
-  function getState(fixture) {
-    if (typeof window.ensureFixtureState === "function") return window.ensureFixtureState(fixture.id);
-    return window.State?.fixtureStates?.get(fixture.id) || null;
-  }
+    // Mode 1 colour control is CMY, not RGB and not the colour wheels.
+    // The normal colour picker is converted to CMY when explicit CMY
+    // values have not been supplied by the user.
+    const cyan = fixtureState.cyan ?? current.cyan;
+    const magenta = fixtureState.magenta ?? current.magenta;
+    const yellow = fixtureState.yellow ?? current.yellow;
 
-  function write(base, channel, value) {
-    if (!Number.isInteger(channel)) return;
-    const index = base + channel;
-    if (index >= 0 && index < 512 && window.State?.dmx) {
-      window.State.dmx[index] = clamp255(value);
-    }
-  }
-
-  function rgbFromHsl(h, s, l) {
-    h = ((Number(h) || 0) % 360 + 360) % 360 / 60;
-    s = clamp100(s) / 100;
-    l = clamp100(l) / 100;
-    if (s === 0) return [l, l, l];
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs((h % 2) - 1));
-    const m = l - c / 2;
-    let r = 0, g = 0, b = 0;
-    if (h < 1) { r = c; g = x; }
-    else if (h < 2) { r = x; g = c; }
-    else if (h < 3) { g = c; b = x; }
-    else if (h < 4) { g = x; b = c; }
-    else if (h < 5) { r = x; b = c; }
-    else { r = c; b = x; }
-    return [r + m, g + m, b + m];
-  }
-
-  function applyToColorWash() {
-    const state = window.State;
-    if (!state || !Array.isArray(state.fixtures) || !state.dmx) return;
-
-    for (const fixture of state.fixtures) {
-      if (fixture?.name !== NAME) continue;
-      const base = getBase(fixture);
-      if (base < 0) continue;
-
-      const fixtureState = getState(fixture);
-      if (!fixtureState) continue;
-
-      const current = state.current || {};
-      const master = clamp100(fixtureState.master ?? current.master ?? 100) / 100;
-      const intensity = clamp100(fixtureState.intensity ?? current.intensity ?? 100) / 100;
-      const level = state.blackout ? 0 : master * intensity;
-
-      write(base, profile.map.pan, fixtureState.pan ?? current.pan ?? 128);
-      write(base, profile.map.panf, fixtureState.panf ?? current.panf ?? 0);
-      write(base, profile.map.tilt, fixtureState.tilt ?? current.tilt ?? 128);
-      write(base, profile.map.tiltf, fixtureState.tiltf ?? current.tiltf ?? 0);
-      write(base, profile.map.speed, fixtureState.speed ?? current.speed ?? 0);
-      write(base, profile.map.control, fixtureState.control ?? current.control ?? 0);
-      write(base, profile.map.macro, fixtureState.macro ?? current.macro ?? 0);
-      write(base, profile.map.macroSpeed, fixtureState.macroSpeed ?? current.macroSpeed ?? 0);
-
-      // Mode 1 colour control is CMY, not RGB and not the colour wheels.
-      // The normal colour picker is converted to CMY when explicit CMY
-      // values have not been supplied by the user.
-      const cyan = fixtureState.cyan ?? current.cyan;
-      const magenta = fixtureState.magenta ?? current.magenta;
-      const yellow = fixtureState.yellow ?? current.yellow;
-
-      if (cyan != null || magenta != null || yellow != null) {
-        write(base, profile.map.cyan, state.blackout ? 0 : cyan ?? 0);
-        write(base, profile.map.magenta, state.blackout ? 0 : magenta ?? 0);
-        write(base, profile.map.yellow, state.blackout ? 0 : yellow ?? 0);
-      } else {
-        const rgb = rgbFromHsl(
-          fixtureState.hue ?? current.hue ?? 0,
-          fixtureState.sat ?? current.sat ?? 100,
-          fixtureState.light ?? current.light ?? 50
-        );
-        write(base, profile.map.cyan, (1 - rgb[0]) * 255);
-        write(base, profile.map.magenta, (1 - rgb[1]) * 255);
-        write(base, profile.map.yellow, (1 - rgb[2]) * 255);
-      }
-
-      // CTO: 0 = 5600 K / no correction, 255 = 3200 K.
-      write(base, profile.map.cto, state.blackout ? 0 : fixtureState.cto ?? current.cto ?? 0);
-
-      // Keep the fixture's physical dimmer open independently of the
-      // shutter/strobe control. The previous implementation calculated
-      // 'level' but never wrote it to the DMX dimmer channel.
-      write(base, profile.map.dimmer, state.blackout ? 0 : level * 255);
-
-      // Strobe UI semantics: 0 means OPEN/no strobe, rather than the ROBE
-      // shutter-closed DMX range 0-31. Values above zero enter the strobe
-      // range 64-95 and therefore do not prevent the dimmer from working.
-      const strobe = clamp255(fixtureState.strobe ?? current.strobe ?? 0);
-      const strobeDMX = strobe === 0
-        ? 63
-        : 64 + Math.round((strobe / 255) * 31);
-      write(base, profile.map.strobe, state.blackout ? 0 : strobeDMX);
-
-      // Zoom is a single 8-bit proportional channel in Mode 1.
-      write(base, profile.map.zoom, fixtureState.zoom ?? current.zoom ?? 0);
-
-      // Fresnel opening: 85 DMX is the LightMax/high-intensity spot point.
-      write(base, profile.map.fresnel, fixtureState.fresnel ?? current.fresnel ?? 0);
-
-      // Effect speed is channel 13 in Mode 1.
-      write(base, profile.map.effectSpeed, fixtureState.effectSpeed ?? current.effectSpeed ?? 0);
-    }
-  }
-
-  function install() {
-    if (!installProfile()) return false;
-    if (window.__robeColorWash1200ECompat) return true;
-    window.__robeColorWash1200ECompat = true;
-
-    const originalUpdateDMX = window.updateDMX;
-    if (typeof originalUpdateDMX === "function") {
-      window.updateDMX = function robeColorWashCompatibleUpdateDMX() {
-        originalUpdateDMX.apply(this, arguments);
-        applyToColorWash();
-      };
+    if (cyan != null || magenta != null || yellow != null) {
+      write(profile.map.cyan, blackout ? 0 : cyan ?? 0);
+      write(profile.map.magenta, blackout ? 0 : magenta ?? 0);
+      write(profile.map.yellow, blackout ? 0 : yellow ?? 0);
+    } else {
+      const rgb = rgbFromHsl(
+        fixtureState.hue ?? current.hue ?? 0,
+        fixtureState.sat ?? current.sat ?? 100,
+        fixtureState.light ?? current.light ?? 50
+      );
+      write(profile.map.cyan, (1 - rgb[0]) * 255);
+      write(profile.map.magenta, (1 - rgb[1]) * 255);
+      write(profile.map.yellow, (1 - rgb[2]) * 255);
     }
 
-    window.renderLibrary?.();
-    window.renderFixtures?.();
-    window.updateControlVisibility?.();
-    return true;
+    // CTO: 0 = 5600 K / no correction, 255 = 3200 K.
+    write(profile.map.cto, blackout ? 0 : fixtureState.cto ?? current.cto ?? 0);
+
+    // The dimmer carries the level; the shutter channel only strobes.
+    write(profile.map.dimmer, blackout ? 0 : level * 255);
+
+    // Strobe UI semantics: 0 means OPEN/no strobe, rather than the ROBE
+    // shutter-closed DMX range 0-31. Values above zero enter the strobe
+    // range 64-95 and therefore do not prevent the dimmer from working.
+    const strobe = clamp255(fixtureState.strobe ?? current.strobe ?? 0);
+    const strobeDMX = strobe === 0
+      ? 63
+      : 64 + Math.round((strobe / 255) * 31);
+    write(profile.map.strobe, blackout ? 0 : strobeDMX);
+
+    // Zoom is a single 8-bit proportional channel in Mode 1.
+    write(profile.map.zoom, fixtureState.zoom ?? current.zoom ?? 0);
+
+    // Fresnel opening: 85 DMX is the LightMax/high-intensity spot point.
+    write(profile.map.fresnel, fixtureState.fresnel ?? current.fresnel ?? 0);
+
+    // Effect speed is channel 13 in Mode 1.
+    write(profile.map.effectSpeed, fixtureState.effectSpeed ?? current.effectSpeed ?? 0);
   }
 
-  const attempts = setInterval(() => {
-    if (install()) clearInterval(attempts);
-  }, 100);
-  install();
+  window.FixtureLibrary[NAME] = profile;
+  LXDmx.registerProfileWriter(NAME, writeColorWash);
 })();

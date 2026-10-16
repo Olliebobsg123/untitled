@@ -1,150 +1,252 @@
 "use strict";
 
+// Settings → DMX Outputs: up to 10 outputs, each sending one patch universe over
+// Art-Net, sACN or a USB interface. The sending itself is main/dmx-output.js.
+// Saved in this window's storage (and in show files, js/showfile.js).
 (() => {
-  if (window.__multiOutputUI) return;
-  window.__multiOutputUI = true;
+  const STORAGE_KEY = "lighting-multi-outputs";
+  const TARGET_KEY = "lighting-network-target";
   const MAX_OUTPUTS = 10;
   const USB_RATES = [10, 15, 20, 25, 30, 35, 40];
+  const DEFAULT_TARGET = "192.168.1.1";
   const $ = id => document.getElementById(id);
-  const clamp = (v, min, max, fallback) => { const n = Number(v); return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback; };
-  const DEFAULT_NETWORK_TARGET = "192.168.1.1";
-  let socket = null, reconnectTimer = null, usbPorts = [], outputs = [];
+  const clamp = (value, min, max, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
+  };
+  const escape = value => String(value ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const newId = () => `output-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+  let outputs = [];
+  let statuses = new Map();
+  let usbPorts = [];
+  let nodes = [];
+
+  const networkTarget = () => {
+    try { return localStorage.getItem(TARGET_KEY) || outputs.find(o => o.protocol !== "usb" && o.target)?.target || DEFAULT_TARGET; } catch (_) { return DEFAULT_TARGET; }
+  };
+
+  function normalise(list) {
+    return (Array.isArray(list) ? list : []).slice(0, MAX_OUTPUTS).map(raw => {
+      const protocol = ["artnet", "sacn", "usb"].includes(String(raw?.protocol).toLowerCase()) ? String(raw.protocol).toLowerCase() : "artnet";
+      return {
+        id: String(raw?.id || newId()),
+        protocol,
+        universe: protocol === "sacn" ? clamp(raw?.universe, 1, 63999, 1) : clamp(raw?.universe, 0, 32767, 1),
+        target: String(raw?.target || networkTarget()),
+        enabled: Boolean(raw?.enabled),
+        multicast: protocol === "sacn" && Boolean(raw?.multicast),
+        priority: clamp(raw?.priority ?? 100, 0, 200, 100),
+        usbDevice: String(raw?.usbDevice || ""),
+        usbDriver: ["open-dmx", "dmx-usb-pro"].includes(raw?.usbDriver) ? raw.usbDriver : "auto",
+        refreshRate: USB_RATES.includes(Number(raw?.refreshRate)) ? Number(raw.refreshRate) : 25
+      };
+    });
+  }
 
   function load() {
     try {
-      const saved = JSON.parse(localStorage.getItem("lighting-multi-outputs") || "[]");
-      if (Array.isArray(saved) && saved.length) return saved.slice(0, MAX_OUTPUTS);
-      const old = JSON.parse(localStorage.getItem("lighting-output-settings") || "{}");
-      const target = String(old.target || localStorage.getItem("lighting-network-target") || DEFAULT_NETWORK_TARGET);
-      return [{ id: crypto.randomUUID?.() || `output-${Date.now()}`, protocol: String(old.protocol || "artnet").toLowerCase().includes("sacn") ? "sacn" : "artnet", universe: Number.isFinite(Number(old.universe)) ? Number(old.universe) : 0, target, usbDevice: "", refreshRate: 25, enabled: false, multicast: String(old.protocol || "").toLowerCase().includes("sacn"), priority: 100 }];
-    } catch (_) { return [{ id: `output-${Date.now()}`, protocol: "artnet", universe: 0, target: DEFAULT_NETWORK_TARGET, usbDevice: "", refreshRate: 25, enabled: false, multicast: false, priority: 100 }]; }
-  }
-  outputs = load();
-  outputs.forEach(o => { o.id ||= `output-${Date.now()}-${Math.random().toString(36).slice(2,7)}`; o.protocol = ["artnet","sacn","usb"].includes(String(o.protocol).toLowerCase()) ? String(o.protocol).toLowerCase() : "artnet"; o.universe = o.protocol === "sacn" ? clamp(o.universe,1,63999,1) : clamp(o.universe,0,32767,0); o.refreshRate = clamp(o.refreshRate ?? 25,10,40,25); o.target ||= DEFAULT_NETWORK_TARGET; o.usbDevice ||= ""; o.enabled = Boolean(o.enabled); o.multicast = o.protocol === "sacn" ? Boolean(o.multicast) : false; o.priority = clamp(o.priority ?? 100,0,200,100); });
-  const save = () => { try { localStorage.setItem("lighting-multi-outputs", JSON.stringify(outputs)); } catch (_) {} };
-  const getNetworkTarget = () => String(localStorage.getItem("lighting-network-target") || outputs.find(o => o.protocol !== "usb" && o.target)?.target || DEFAULT_NETWORK_TARGET);
-  const setNetworkTarget = value => { const target = String(value || "").trim(); if (!target) return; try { localStorage.setItem("lighting-network-target", target); } catch (_) {} };
-  const send = m => { if (!socket || socket.readyState !== WebSocket.OPEN) return false; try { socket.send(JSON.stringify(m)); return true; } catch (_) { return false; } };
-  const sendConfig = () => send({ type:"MULTI_OUTPUT_CONFIG", outputs:outputs.slice(0,MAX_OUTPUTS) });
-  const requestUsbPorts = () => send({ type:"MULTI_USB_PORTS" });
-  const sendMode = mode => send({ type:"MULTI_OUTPUT_MODE", mode: canPhysicalOutput() ? (String(mode).toUpperCase() === "BLIND" ? "BLIND" : "LIVE") : "BLIND" });
-  window.__setMultiOutputMode = sendMode;
-
-  function normalizeOutputs(next) {
-    return (Array.isArray(next) ? next : []).slice(0, MAX_OUTPUTS).map((raw, index) => {
-      const o = { ...raw };
-      o.id ||= `output-${Date.now()}-${index}-${Math.random().toString(36).slice(2,7)}`;
-      o.protocol = ["artnet","sacn","usb"].includes(String(o.protocol).toLowerCase()) ? String(o.protocol).toLowerCase() : "artnet";
-      o.universe = o.protocol === "sacn" ? clamp(o.universe,1,63999,1) : clamp(o.universe,0,32767,0);
-      o.target = String(o.target || getNetworkTarget());
-      o.usbDevice = String(o.usbDevice || "");
-      o.refreshRate = clamp(o.refreshRate ?? 25,10,40,25);
-      o.enabled = Boolean(o.enabled);
-      o.multicast = o.protocol === "sacn" ? Boolean(o.multicast) : false;
-      o.priority = clamp(o.priority ?? 100,0,200,100);
-      return o;
-    });
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      if (Array.isArray(saved) && saved.length) return normalise(saved);
+    } catch (_) {}
+    return normalise([{ protocol: "artnet", universe: 1, target: networkTarget(), enabled: false }]);
   }
 
-  function connect() {
-    clearTimeout(reconnectTimer);
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
-    try {
-      socket = new WebSocket("ws://127.0.0.1:8084");
-      socket.onopen = () => {
-        sendConfig();
-        requestUsbPorts();
-        sendMode(window.getConsoleMode?.() || (window.__licenseTier === "free" ? "BLIND" : "LIVE"));
-      };
-      socket.onmessage = e => {
-        try {
-          const m = JSON.parse(e.data);
-          if (m.type === "MULTI_USB_PORTS") { usbPorts = Array.isArray(m.ports) ? m.ports : []; render(); }
-          if (m.type === "MULTI_OUTPUT_STATUS") {
-            const byId = new Map((m.outputs || []).map(o => [o.id, o]));
-            outputs.forEach(o => { const s = byId.get(o.id); if (s) o.__status = s; });
-            renderStatuses();
-            window.dispatchEvent(new CustomEvent("multi-output-status", { detail: m }));
-          }
-        } catch (_) {}
-      };
-      socket.onclose = () => { socket = null; reconnectTimer = setTimeout(connect, 1500); };
-      socket.onerror = () => {};
-    } catch (_) { reconnectTimer = setTimeout(connect, 1500); }
+  function save() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(outputs)); } catch (_) {}
   }
 
-  function canPhysicalOutput() {
-    const tier = String(window.__licenseTier || window.getLicenseTier?.() || "FREE").toUpperCase();
-    return tier === "LIVE" || tier === "PRO";
-  }
-
-  function sendDMX() {
-    if (!canPhysicalOutput()) return;
-    if (!outputs.some(o=>o.enabled)) return;
-    const universes = patchUniverseFrames();
-    for (const output of outputs) {
-      if (!output.enabled) continue;
-      const u=Number(output.universe);
-      if (!Number.isInteger(u)) continue;
-      if (!Object.prototype.hasOwnProperty.call(universes,u)) universes[u]=new Array(512).fill(0);
-    }
-    send({type:"MULTI_DMX_UPDATE",universes});
-  }
-
-  function patchUniverseFrames() {
-    const frames = {};
-    const fixtures = Array.isArray(window.State?.fixtures) ? window.State.fixtures : [];
-    const dmx = window.State?.dmx;
-    if (!(dmx instanceof Uint8Array) && !Array.isArray(dmx)) return frames;
-    const getDef = window.getFixtureDefinition || (f => window.FixtureLibrary?.[f?.name]);
-    for (const fixture of fixtures) {
-      const universe = Number(fixture?.uni ?? fixture?.universe);
-      if (!Number.isInteger(universe) || universe < 0 || universe > 32767) continue;
-      const base = Number(fixture?.addr ?? fixture?.address ?? fixture?.startAddress ?? fixture?.channel) - 1;
-      if (!Number.isInteger(base) || base < 0 || base >= 512) continue;
-      const def = getDef?.(fixture);
-      const channels = Math.max(1, Math.min(512, Number(def?.channels || def?.channelCount || 1)));
-      if (!frames[universe]) frames[universe] = new Array(512).fill(0);
-      for (let i=0;i<channels && base+i<512;i++) frames[universe][base+i]=Number(dmx[base+i])&255;
-    }
-    return frames;
-  }
-
-  function usbOptions(current){const a=[`<option value="">— Select USB device —</option>`];for(const p of usbPorts){const label=[p.manufacturer,p.product].filter(Boolean).join(" ")||"USB serial DMX";const value=String(p.path||"");const safe=value.replace(/&/g,"&amp;").replace(/"/g,"&quot;");a.push(`<option value="${safe}" ${value===String(current||"")?"selected":""}>${label} — ${value}</option>`);}return a.join("");}
-  function statusText(o){const s=o.__status;if(!o.enabled)return "Disabled";if(s?.error)return `Error: ${s.error}`;if(o.protocol==="usb")return s?.connected?`Connected · ${o.usbDevice} · ${o.refreshRate} Hz`:"USB device not connected";return s?.connected?`Online · ${o.protocol==="sacn"?"sACN":"Art-Net"} DMX universe ${o.universe}`:"Waiting for network output";}
-  function renderStatuses(){document.querySelectorAll(".multi-output-card").forEach(c=>{const o=outputs.find(x=>x.id===c.dataset.outputId);const s=c.querySelector(".multi-status");if(o&&s)s.textContent=statusText(o);});}
-
-  function render(){
-    const host=$("multiOutputHost"); if(!host)return; host.innerHTML="";
-    outputs.forEach((output,index)=>{
-      const card=document.createElement("div"); card.className="multi-output-card"; card.dataset.outputId=output.id; card.style.cssText="border:1px solid var(--border,#333);border-radius:10px;padding:12px;margin:10px 0;background:rgba(255,255,255,.025);";
-      const isUsb=output.protocol==="usb", isSacn=output.protocol==="sacn";
-      card.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;"><strong>Output ${index+1}</strong><button type="button" class="btn-danger-soft multi-remove">Remove</button></div><div class="form-grid"><div class="form-row"><label>Protocol</label><select class="multi-protocol"><option value="artnet">Art-Net</option><option value="sacn">sACN</option><option value="usb">USB DMX</option></select></div><div class="form-row"><label>DMX Universe</label><input class="multi-universe" type="number" min="${isSacn?1:0}" max="${isSacn?63999:32767}" step="1" value="${output.universe}"></div><div class="form-row multi-network-row"><label>${isSacn?"Target IP / Multicast":"Target IP"}</label><input class="multi-target" value="${String(output.target||getNetworkTarget()).replace(/"/g,"&quot;")}"></div><div class="form-row multi-multicast-row"><label>Use sACN Multicast</label><input class="multi-multicast" type="checkbox" ${output.multicast?"checked":""}></div><div class="form-row multi-priority-row"><label>sACN Priority</label><input class="multi-priority" type="number" min="0" max="200" step="1" value="${output.priority}"></div><div class="form-row multi-usb-row"><label>USB Device</label><select class="multi-usb">${usbOptions(output.usbDevice)}</select></div><div class="form-row multi-rate-row"><label>USB Refresh Rate</label><select class="multi-rate">${USB_RATES.map(h=>`<option value="${h}">${h} Hz</option>`).join("")}</select></div><div class="form-row"><label>Enabled</label><input class="multi-enabled" type="checkbox" ${output.enabled?"checked":""}></div></div><small class="multi-status" style="display:block;margin-top:7px;opacity:.7;"></small>`;
-      const protocol=card.querySelector(".multi-protocol"), universe=card.querySelector(".multi-universe"), target=card.querySelector(".multi-target"), multicast=card.querySelector(".multi-multicast"), priority=card.querySelector(".multi-priority"), usb=card.querySelector(".multi-usb"), rate=card.querySelector(".multi-rate"), enabled=card.querySelector(".multi-enabled"); protocol.value=output.protocol; rate.value=String(output.refreshRate);
-      const sync=()=>{const old=output.protocol;output.protocol=protocol.value;output.universe=output.protocol==="sacn"?clamp(universe.value,1,63999,1):clamp(universe.value,0,32767,0);output.target=target.value.trim()||getNetworkTarget();output.usbDevice=usb.value;output.refreshRate=clamp(rate.value,10,40,25);output.enabled=enabled.checked;output.multicast=output.protocol==="sacn"?multicast.checked:false;output.priority=clamp(priority.value,0,200,100);if(output.protocol!=="usb")setNetworkTarget(output.target);if(old!==output.protocol&&output.protocol==="sacn")output.multicast=true;if(old!==output.protocol){universe.min=output.protocol==="sacn"?"1":"0";universe.max=output.protocol==="sacn"?"63999":"32767";}delete output.__status;save();sendConfig();render();};
-      [protocol,universe,target,multicast,priority,usb,rate,enabled].forEach(el=>el.addEventListener("change",sync));
-      card.querySelector(".multi-remove").onclick=()=>{outputs=outputs.filter(o=>o.id!==output.id);save();sendConfig();render();};
-      card.querySelector(".multi-usb-row").style.display=isUsb?"":"none";card.querySelector(".multi-rate-row").style.display=isUsb?"":"none";card.querySelector(".multi-network-row").style.display=isUsb?"none":"";card.querySelector(".multi-multicast-row").style.display=isSacn?"":"none";card.querySelector(".multi-priority-row").style.display=isSacn?"":"none";host.appendChild(card);
-    });
-    const add=$("multiOutputAdd");if(add)add.disabled=outputs.length>=MAX_OUTPUTS;const count=$("multiOutputCount");if(count)count.textContent=`${outputs.length}/${MAX_OUTPUTS}`;const defaultTarget=$("multiDefaultTarget");if(defaultTarget)defaultTarget.value=getNetworkTarget();renderStatuses();
-  }
-
-  function installUI(){
-    const outMode=$("outMode"),oldPanel=outMode?.closest(".panel");if(!oldPanel||$("multiOutputPanel"))return;oldPanel.style.display="none";
-    const panel=document.createElement("section");panel.className="panel";panel.id="multiOutputPanel";panel.innerHTML=`<div class="panel-header"><div><span class="eyebrow">OUTPUT</span> DMX Outputs</div><span class="panel-meta" id="multiOutputCount">0/10</span></div><div class="panel-body"><p style="opacity:.7;margin-top:0;">Network output stays active while the console is idle. Set the destination IP here; it is saved for future Art-Net and sACN outputs. sACN supports unicast or multicast.</p><div class="form-row" style="margin-bottom:12px;"><label>Default Network Target IP</label><input id="multiDefaultTarget" value="${getNetworkTarget().replace(/"/g,"&quot;")}" placeholder="192.168.1.1" spellcheck="false" autocomplete="off"></div><div id="multiOutputHost"></div><div class="action-row"><button class="btn-primary" id="multiOutputAdd">＋ Add Output</button><button class="btn-secondary" id="multiOutputRefreshUsb">↻ Refresh USB Devices</button></div></div>`;oldPanel.parentElement?.insertBefore(panel,oldPanel);
-    $("multiDefaultTarget").addEventListener("change",()=>{const target=$("multiDefaultTarget").value.trim();if(!target)return;setNetworkTarget(target);outputs.forEach(o=>{if(o.protocol!=="usb")o.target=target;});save();sendConfig();render();});
-    $("multiOutputAdd").onclick=()=>{if(outputs.length>=MAX_OUTPUTS)return;outputs.push({id:`output-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,protocol:"artnet",universe:outputs.length,target:getNetworkTarget(),usbDevice:"",refreshRate:25,enabled:false,multicast:false,priority:100});save();sendConfig();render();};
-    $("multiOutputRefreshUsb").onclick=requestUsbPorts;render();
-  }
-
-  window.addEventListener("show-multi-output-restore", e => {
-    outputs = normalizeOutputs(e.detail?.outputs);
+  async function apply() {
     save();
-    sendConfig();
+    try {
+      showStatus(await window.LXOutput.configure(outputs));
+    } catch (err) {
+      window.log?.(`Output settings could not be applied: ${err.message}`, "error");
+    }
+  }
+
+  // --- Status ---
+
+  function statusText(output) {
+    const status = statuses.get(output.id);
+    if (!output.enabled) return "Off";
+    if (status?.error) return `Problem: ${status.error}`;
+    if (!window.License?.isLive()) return "Visualiser only: live output needs a LIVE or PRO licence";
+    if (window.getConsoleMode?.() === "BLIND") return "Blind: nothing is sent until you switch to LIVE";
+    if (output.protocol === "usb") return status?.connected ? `Sending · ${status.driver === "dmx-usb-pro" ? "DMX USB Pro" : "Open DMX"} · ${output.refreshRate} Hz` : "USB interface not connected";
+    return status?.connected ? `Sending universe ${output.universe} to ${output.multicast ? "multicast" : output.target} · ${status.tx} packets` : "Starting…";
+  }
+
+  function showStatus(status) {
+    statuses = new Map((status?.outputs || []).map(o => [o.id, o]));
+    document.querySelectorAll(".multi-output-card").forEach(card => {
+      const output = outputs.find(o => o.id === card.dataset.outputId);
+      const line = card.querySelector(".multi-status");
+      if (!output || !line) return;
+      line.textContent = statusText(output);
+      line.dataset.state = statuses.get(output.id)?.error ? "error" : output.enabled && status?.live ? "on" : "off";
+    });
+  }
+
+  // --- Rendering ---
+
+  function usbOptions(current) {
+    const options = ['<option value="">— Select USB device —</option>'];
+    for (const port of usbPorts) {
+      const label = [port.manufacturer, port.product].filter(Boolean).join(" ") || port.name || "USB serial DMX";
+      options.push(`<option value="${escape(port.path)}" ${port.path === current ? "selected" : ""}>${escape(label)} — ${escape(port.path)}</option>`);
+    }
+    if (current && !usbPorts.some(port => port.path === current)) options.push(`<option value="${escape(current)}" selected>${escape(current)} (not connected)</option>`);
+    return options.join("");
+  }
+
+  function cardHtml(output, index) {
+    const usb = output.protocol === "usb";
+    const sacn = output.protocol === "sacn";
+    const option = (value, label, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`;
+    const network = `
+      <div class="form-row form-span"><label>${sacn ? "Target IP (unicast)" : "Target IP (the node, or a broadcast address)"}</label><input class="multi-target" value="${escape(output.target)}" spellcheck="false" ${sacn && output.multicast ? "disabled" : ""}></div>
+      ${sacn ? `<div class="form-row"><label class="multi-toggle"><input class="multi-multicast" type="checkbox" ${output.multicast ? "checked" : ""}> Multicast</label></div>
+      <div class="form-row"><label>Priority</label><input class="multi-priority" type="number" min="0" max="200" value="${output.priority}"></div>` : ""}`;
+    const usbRows = `
+      <div class="form-row form-span"><label>USB interface</label><select class="multi-usb">${usbOptions(output.usbDevice)}</select></div>
+      <div class="form-row"><label>Interface type</label><select class="multi-driver">
+        ${option("auto", "Detect", output.usbDriver)}${option("open-dmx", "Open DMX / FTDI", output.usbDriver)}${option("dmx-usb-pro", "DMX USB Pro / DMXking", output.usbDriver)}</select></div>
+      <div class="form-row"><label>Refresh rate</label><select class="multi-rate">${USB_RATES.map(hz => `<option value="${hz}" ${hz === output.refreshRate ? "selected" : ""}>${hz} Hz</option>`).join("")}</select></div>`;
+    return `
+      <div class="multi-output-head">
+        <strong>Output ${index + 1}</strong>
+        <label class="multi-toggle"><input class="multi-enabled" type="checkbox" ${output.enabled ? "checked" : ""}> On</label>
+        <button type="button" class="btn-danger-soft multi-remove">Remove</button>
+      </div>
+      <div class="form-grid">
+        <div class="form-row"><label>Protocol</label><select class="multi-protocol">
+          ${option("artnet", "Art-Net", output.protocol)}${option("sacn", "sACN", output.protocol)}${option("usb", "USB DMX", output.protocol)}</select></div>
+        <div class="form-row"><label>Universe (patch &amp; network)</label><input class="multi-universe" type="number" min="${sacn ? 1 : 0}" max="${sacn ? 63999 : 32767}" step="1" value="${output.universe}"></div>
+        ${usb ? usbRows : network}
+      </div>
+      <small class="multi-status"></small>`;
+  }
+
+  function readCard(card, output) {
+    const read = selector => card.querySelector(selector);
+    output.protocol = read(".multi-protocol").value;
+    output.enabled = read(".multi-enabled").checked;
+    output.universe = clamp(read(".multi-universe").value, output.protocol === "sacn" ? 1 : 0, output.protocol === "sacn" ? 63999 : 32767, 1);
+    if (read(".multi-target")) {
+      output.target = read(".multi-target").value.trim() || networkTarget();
+      try { localStorage.setItem(TARGET_KEY, output.target); } catch (_) {}
+    }
+    if (read(".multi-multicast")) output.multicast = read(".multi-multicast").checked;
+    if (read(".multi-priority")) output.priority = clamp(read(".multi-priority").value, 0, 200, 100);
+    if (read(".multi-usb")) output.usbDevice = read(".multi-usb").value;
+    if (read(".multi-driver")) output.usbDriver = read(".multi-driver").value;
+    if (read(".multi-rate")) output.refreshRate = Number(read(".multi-rate").value);
+  }
+
+  function render() {
+    const host = $("multiOutputHost");
+    if (!host) return;
+    host.replaceChildren();
+    outputs.forEach((output, index) => {
+      const card = document.createElement("div");
+      card.className = "multi-output-card";
+      card.dataset.outputId = output.id;
+      card.innerHTML = cardHtml(output, index);
+      card.addEventListener("change", event => {
+        const previousProtocol = output.protocol;
+        readCard(card, output);
+        if (previousProtocol !== output.protocol) {
+          output.multicast = output.protocol === "sacn";
+          if (output.protocol === "sacn" && output.universe < 1) output.universe = 1;
+          if (output.protocol === "usb") refreshUsb();
+        }
+        if (previousProtocol !== output.protocol || event.target.matches(".multi-multicast")) render();
+        apply();
+      });
+      card.querySelector(".multi-remove").addEventListener("click", () => {
+        outputs = outputs.filter(o => o.id !== output.id);
+        render();
+        apply();
+      });
+      host.appendChild(card);
+    });
+    $("multiOutputAdd").disabled = outputs.length >= MAX_OUTPUTS;
+    $("multiOutputCount").textContent = `${outputs.length}/${MAX_OUTPUTS}`;
+    window.LXOutput?.status().then(showStatus).catch(() => {});
+  }
+
+  function renderNodes() {
+    const list = $("artnetNodeList");
+    if (!list) return;
+    list.innerHTML = nodes.length
+      ? nodes.map(node => `<button type="button" class="artnet-node" data-ip="${escape(node.ip)}" title="Send the Art-Net outputs to this node"><strong>${escape(node.shortName || node.longName || "Art-Net node")}</strong><span>${escape(node.ip)}${node.universes?.length ? ` · universe ${node.universes.join(", ")}` : ""}</span></button>`).join("")
+      : '<span class="artnet-node-empty">No nodes found. Check the node is powered and on the same network as this computer.</span>';
+  }
+
+  async function refreshUsb() {
+    try {
+      usbPorts = await window.LXOutput.usbPorts();
+    } catch (err) {
+      usbPorts = [];
+      window.log?.(`Could not list USB interfaces: ${err.message}`, "warn");
+    }
     render();
-    console.log(`✅ Multi Output restored from show: ${outputs.length} universes`);
+  }
+
+  async function findNodes() {
+    $("artnetNodeList").innerHTML = '<span class="artnet-node-empty">Looking…</span>';
+    await window.LXArtNet.poll();
+    setTimeout(async () => {
+      nodes = await window.LXArtNet.nodes();
+      renderNodes();
+    }, 1500);
+  }
+
+  function install() {
+    if (!$("multiOutputHost") || !window.LXOutput) return;
+    outputs = load();
+    $("multiOutputAdd").addEventListener("click", () => {
+      if (outputs.length >= MAX_OUTPUTS) return;
+      const used = new Set(outputs.map(o => o.universe));
+      let universe = 1;
+      while (used.has(universe)) universe++;
+      outputs.push(normalise([{ protocol: "artnet", universe, target: networkTarget(), enabled: false }])[0]);
+      render();
+      apply();
+    });
+    $("multiOutputRefreshUsb").addEventListener("click", refreshUsb);
+    $("artnetFindNodes").addEventListener("click", findNodes);
+    $("artnetNodeList").addEventListener("click", event => {
+      const ip = event.target.closest("[data-ip]")?.dataset.ip;
+      if (!ip) return;
+      outputs.filter(o => o.protocol === "artnet").forEach(o => { o.target = ip; });
+      try { localStorage.setItem(TARGET_KEY, ip); } catch (_) {}
+      render();
+      apply();
+      window.log?.(`Art-Net outputs now send to ${ip}`, "ok");
+    });
+    window.LXOutput.onStatus(showStatus);
+    window.LXArtNet.onNode(node => {
+      nodes = [...nodes.filter(n => n.ip !== node.ip), node];
+      renderNodes();
+    });
+    window.addEventListener("license-tier-changed", () => window.LXOutput.status().then(showStatus));
+    render();
+    apply();
+    if (outputs.some(o => o.protocol === "usb")) refreshUsb();
+  }
+
+  // A show file brings its own outputs.
+  window.addEventListener("show-multi-output-restore", event => {
+    outputs = normalise(event.detail?.outputs);
+    render();
+    apply();
+    window.log?.(`Outputs restored from show: ${outputs.length}`, "ok");
   });
 
-  function install(){try{window.ArtNet?.stop?.();}catch(_){}installUI();connect();setInterval(sendDMX,40);window.addEventListener("beforeunload",()=>{try{socket?.close();}catch(_){}});}
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
+  window.LXOutputs = Object.freeze({ list: () => outputs.map(o => ({ ...o })) });
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true });
+  else install();
 })();

@@ -1,6 +1,6 @@
 "use strict";
 
-/* Palette UI + command bridge. Loaded by index.html after the core console scripts. */
+/* Palettes: saved looks (colour, intensity, position, beam) recalled on the selection, from the library window or the command line. */
 (function () {
   const FIELD_GROUPS = {
     Colour: ["hue", "sat", "amber", "uv"],
@@ -253,43 +253,35 @@
     render();
   }
 
-  function installNumericCommandSupport() {
-    if (window.__paletteNumericCommandsInstalled) return;
-    const previous = window.parseCommand;
-    if (typeof previous !== "function") return;
-    window.parseCommand = function (raw) {
-      const command = clean(raw);
-      let match;
-      if ((match = command.match(/^palette\s+(\d+)$/i))) {
-        const result = apply(Number(match[1]));
-        if (!result.ok) window.log?.(result.message, "warn");
-        return result;
-      }
-      if ((match = command.match(/^update\s+palette\s+(\d+)$/i))) {
-        const result = update(Number(match[1]));
-        if (!result.ok) window.log?.(result.message, "warn");
-        return result;
-      }
-      if ((match = command.match(/^delete\s+palette\s+(\d+)$/i))) {
-        const result = remove(Number(match[1]));
-        if (!result.ok) window.log?.(result.message, "warn");
-        return result;
-      }
-      return previous.apply(this, arguments);
+  // palette [number|name], record/update/delete palette [number|name], list palettes
+  LXCommands.add(raw => {
+    const command = clean(raw);
+    let match;
+    const report = result => {
+      if (!result.ok) window.log?.(result.message, "warn");
+      else if (result.palette) window.log?.(`Palette "${result.palette.name}" ${/^delete/i.test(command) ? "deleted" : "saved"}`, "ok");
+      return result;
     };
-    window.__paletteNumericCommandsInstalled = true;
-  }
+    if ((match = command.match(/^(?:record|update)\s+palette\s+(.+)$/i))) return report(find(match[1]) ? update(match[1]) : record(match[1], "General"));
+    if ((match = command.match(/^delete\s+palette\s+(.+)$/i))) return report(remove(match[1]));
+    if ((match = command.match(/^palette\s+(.+)$/i))) {
+      const result = apply(match[1]);
+      if (!result.ok) window.log?.(result.message, "warn");
+      return result;
+    }
+    if (/^list\s+palettes$/i.test(command)) {
+      return window.log?.(state().palettes.length ? state().palettes.map((p, i) => `${i + 1}: ${p.name}`).join(", ") : "No palettes saved", "ok");
+    }
+    return LXCommands.NOT_MINE;
+  });
+  [["record palette", "[name] — save the current look"], ["update palette", "[number|name]"], ["palette", "[number|name] — apply"], ["delete palette", "[number|name]"], ["list palettes", ""]]
+    .forEach(([cmd, hint]) => LXCommands.describe(cmd, hint));
 
   window.Palettes = { record, apply, update, delete: remove, list: () => state().palettes, refresh: render, open: openModal };
 
   function boot() {
     state();
     createUI();
-    installNumericCommandSupport();
-    setInterval(() => {
-      if (!document.getElementById("paletteModal")) createUI();
-      installNumericCommandSupport();
-    }, 500);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });

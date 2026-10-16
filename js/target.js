@@ -219,48 +219,22 @@
     ["targets","List targets"]
   ];
 
-  function installCommands(){
-    const current=window.parseCommand; if(typeof current!=="function")return;
-    if(window.__targetWrappedParseCommand===current)return;
-    const previous=current;
-    window.parseCommand=function(raw){
-      const command=clean(raw);
-      const parsed=splitTargetCommand(command);
-      if(parsed){
-        if(parsed.selector){const selection=selectFixturesForCommand(parsed.selector);if(!selection.ok){window.log?.(selection.message,"warn");return selection;}}
-        const fn=parsed.action==="create"?create:parsed.action==="aim"?aim:parsed.action==="capture"?capture:parsed.action==="release"?release:remove;
-        const r=fn(parsed.name); if(!r.ok)window.log?.(r.message,"warn"); return r;
-      }
-      if(/^targets$/i.test(command)){const items=list();return window.log?.(items.length?items.map((t,i)=>`${i+1}: ${t.name}`).join(", "):"No targets saved","ok");}
-      return previous.apply(this,arguments);
-    };
-    window.__targetWrappedParseCommand=window.parseCommand;
-    if(Array.isArray(window.commandDefs)) TARGET_COMMANDS.forEach(([cmd,hint])=>{if(!window.commandDefs.some(x=>x&&x.cmd===cmd))window.commandDefs.push({cmd,hint});});
-  }
-
-  function installCommandSuggestions(){
-    if(window.__targetCommandSuggestionsInstalled)return;
-    window.__targetCommandSuggestionsInstalled=true;
-    const attach=()=>{
-      const input=document.querySelector("#commandInput, #commandLine, input[data-command-input], textarea[data-command-input]");
-      if(!input||input.dataset.targetSuggestionsBound)return;
-      input.dataset.targetSuggestionsBound="1";
-      const menu=document.createElement("div");menu.className="target-command-menu";menu.id="targetCommandMenu";input.parentElement?.appendChild(menu);
-      input.addEventListener("input",()=>{
-        const value=clean(input.value); if(!/^target\b/i.test(value)){menu.classList.remove("open");return;}
-        const query=value.toLowerCase();
-        const matches=TARGET_COMMANDS.filter(([cmd])=>cmd.toLowerCase().startsWith(query)||query.startsWith(cmd.toLowerCase().trim()));
-        menu.innerHTML="";
-        matches.slice(0,8).forEach(([cmd,hint])=>{const item=document.createElement("button");item.type="button";item.className="target-command-item";item.textContent=`${cmd} — ${hint}`;item.onclick=()=>{input.value=cmd;input.focus();menu.classList.remove("open");input.dispatchEvent(new Event("input",{bubbles:true}));};menu.appendChild(item);});
-        menu.classList.toggle("open",matches.length>0);
-      });
-    };
-    attach();
-    let attempts=0; const wait=()=>{attach();if(++attempts<150&&!document.querySelector("#commandInput[data-target-suggestions-bound]"))setTimeout(wait,100);}; setTimeout(wait,100);
-  }
+  // target create/aim/capture/release/delete [name] [fixtures], targets
+  LXCommands.add(raw=>{
+    const command=clean(raw);
+    const parsed=splitTargetCommand(command);
+    if(parsed){
+      if(parsed.selector){const selection=selectFixturesForCommand(parsed.selector);if(!selection.ok){window.log?.(selection.message,"warn");return selection;}}
+      const fn=parsed.action==="create"?create:parsed.action==="aim"?aim:parsed.action==="capture"?capture:parsed.action==="release"?release:remove;
+      const r=fn(parsed.name); if(!r.ok)window.log?.(r.message,"warn"); return r;
+    }
+    if(/^targets$/i.test(command)){const items=list();return window.log?.(items.length?items.map((t,i)=>`${i+1}: ${t.name}`).join(", "):"No targets saved","ok");}
+    return LXCommands.NOT_MINE;
+  });
+  TARGET_COMMANDS.forEach(([cmd,hint])=>LXCommands.describe(cmd.trim(),hint));
 
   window.Targets={create,aim,capture,release,delete:remove,list,open,refresh:render,parseFixtureSelector,selectFixturesForCommand};
 
-  function boot(){state();createUI();installCommands();installCommandSuggestions();setInterval(()=>{if(!document.getElementById("targetModal"))createUI();installCommands();installCommandSuggestions();},500);}
+  function boot(){state();createUI();}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot,{once:true});else boot();
 })();

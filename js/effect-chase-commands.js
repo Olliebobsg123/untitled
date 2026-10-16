@@ -1,7 +1,6 @@
 "use strict";
 
-// Extra command/button layer for effect + chase programming.
-// Kept separate so the existing engines remain untouched.
+// Effect and chase commands for the command line, and the Delete Chase button.
 (function installEffectChaseCommands() {
   function log(message, type = "info") {
     if (typeof window.log === "function") window.log(message, type);
@@ -50,6 +49,14 @@
     if (Number.isInteger(window.State.currentChase) && window.State.currentChase >= n) {
       window.State.currentChase -= 1;
     }
+    // Cues that run a chase point at it by position: keep them pointing at the same chases.
+    for (const cue of window.State.cues || []) {
+      if (!cue?.chase) continue;
+      const index = Number(cue.chase.index);
+      if (index === n - 1) cue.chase.index = -1;
+      else if (index > n - 1) cue.chase.index = index - 1;
+    }
+    window.renderCues?.();
 
     window.renderChases?.();
 
@@ -107,60 +114,36 @@
     return true;
   }
 
-  function installCommandWrapper() {
-    if (window.__effectChaseCommandLayer) return;
-    if (typeof window.parseCommand !== "function") return setTimeout(installCommandWrapper, 50);
+  LXCommands.add(raw => {
+    const c = String(raw || "").trim().toLowerCase();
+    let m;
+    if (c === "new effect") {
+      document.getElementById("btnNewEffect")?.click();
+      return log("New Effect menu opened", "ok");
+    }
+    if (c === "stop effect" || c === "stop effects" || c === "halt effect") return document.getElementById("btnStopEffect")?.click();
+    if ((m = c.match(/^run\s+effect\s+(\d+)$/))) return runEffect(Number(m[1]));
+    if ((m = c.match(/^effect\s+(\d+)$/))) {
+      if (!selectEffectByNumber(Number(m[1]))) return log(`Effect ${m[1]} not found`, "warn");
+      return log(`Selected Effect ${m[1]}`, "ok");
+    }
+    if ((m = c.match(/^delete\s+effect\s+(\d+)$/))) return deleteEffect(Number(m[1]));
+    if ((m = c.match(/^delete\s+effect\s+(.+)$/))) {
+      const name = m[1].trim();
+      const index = Object.values(window.State?.savedEffects || {}).findIndex(effect => String(effect?.name).toLowerCase() === name);
+      if (index < 0) return log(`Effect "${name}" not found`, "warn");
+      return deleteEffect(index + 1);
+    }
+    if ((m = c.match(/^delete\s+chase\s+(\d+)$/))) return deleteChase(Number(m[1]));
+    if ((m = c.match(/^chase\s+(\d+)$/))) {
+      if (!selectChaseByNumber(Number(m[1]))) return log(`Chase ${m[1]} not found`, "warn");
+      return log(`Selected Chase ${m[1]}`, "ok");
+    }
+    return LXCommands.NOT_MINE;
+  });
+  [["new effect", ""], ["run effect", "[number]"], ["stop effect", ""], ["effect", "[number]"], ["delete effect", "[number]"], ["delete chase", "[number]"], ["chase", "[number]"]]
+    .forEach(([cmd, hint]) => LXCommands.describe(cmd, hint));
 
-    const original = window.parseCommand.bind(window);
-    window.parseCommand = function effectChaseCommandWrapper(raw) {
-      const c = String(raw || "").trim().toLowerCase();
-      let m;
-
-      if (c === "new effect") {
-        document.getElementById("btnNewEffect")?.click();
-        log("New Effect menu opened", "ok");
-        return;
-      }
-      if (c === "stop effect" || c === "stop effects" || c === "halt effect") {
-        document.getElementById("btnStopEffect")?.click();
-        return;
-      }
-      if ((m = c.match(/^run\s+effect\s+(\d+)$/))) return runEffect(Number(m[1]));
-      if ((m = c.match(/^effect\s+(\d+)$/))) {
-        if (!selectEffectByNumber(Number(m[1]))) log(`Effect ${m[1]} not found`, "warn");
-        else log(`Selected Effect ${m[1]}`, "ok");
-        return;
-      }
-      if ((m = c.match(/^delete\s+effect\s+(\d+)$/))) return deleteEffect(Number(m[1]));
-      if ((m = c.match(/^delete\s+effect\s+(.+)$/))) {
-        const name = m[1].trim();
-        const index = Object.values(window.State?.savedEffects || {}).findIndex(effect => String(effect?.name).toLowerCase() === name);
-        if (index < 0) return log(`Effect "${name}" not found`, "warn");
-        return deleteEffect(index + 1);
-      }
-
-      if ((m = c.match(/^delete\s+chase\s+(\d+)$/))) return deleteChase(Number(m[1]));
-      if ((m = c.match(/^chase\s+(\d+)$/))) {
-        if (!selectChaseByNumber(Number(m[1]))) log(`Chase ${m[1]} not found`, "warn");
-        else log(`Selected Chase ${m[1]}`, "ok");
-        return;
-      }
-
-      return original(raw);
-    };
-
-    window.__effectChaseCommandLayer = true;
-  }
-
-  function init() {
-    addDeleteChaseButton();
-    installCommandWrapper();
-  }
-
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, { once: true });
-  else init();
-  window.addEventListener("load", init);
-  setTimeout(init, 250);
-  setTimeout(init, 1000);
-  setTimeout(init, 2000);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", addDeleteChaseButton, { once: true });
+  else addDeleteChaseButton();
 })();

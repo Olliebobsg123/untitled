@@ -386,14 +386,6 @@
       });
     }
 
-    let last = "";
-    setInterval(() => {
-      const signature = getFixtures().map(f => String(f.id)).join(",");
-      if (signature !== last) {
-        last = signature;
-        refresh();
-      }
-    }, 150);
   }
 
   if (document.readyState === "loading") {
@@ -401,16 +393,4 @@
   } else {
     install();
   }
-})();
-
-// Load the ROBE ColorWash compatibility layer after the existing fixture
-// capability module. It patches the existing DMX writer without changing
-// the rest of the control system.
-(function loadRobeColorWashCompatibility() {
-  if (document.querySelector('script[data-robe-colorwash-compat]')) return;
-  const script = document.createElement("script");
-  script.src = "js/robe-colorwash-1200e.js";
-  script.dataset.robeColorwashCompat = "1";
-  script.async = false;
-  (document.head || document.documentElement).appendChild(script);
 })();

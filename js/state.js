@@ -1,5 +1,8 @@
 "use strict";
 
+// The console's state, shared by every module: patch, selection, groups, cues,
+// chases, palettes, targets and each fixture's programmer values. Loaded first.
+
 (function initialiseState() {
   const DEFAULT_FIXTURE_STATE = Object.freeze({
     hue: 0, sat: 100, light: 50, intensity: 100, master: 100,
@@ -49,14 +52,4 @@
     State.fixtures.forEach(fixture => { if (fixture && fixture.id != null) window.ensureFixtureState(fixture.id); });
   };
 
-  function loadFeature(src, marker, globalName) {
-    if (window[globalName] || document.querySelector(`script[${marker}]`)) return;
-    const script = document.createElement('script'); script.src = src; script.setAttribute(marker, '1'); script.defer = true; document.head.appendChild(script);
-  }
-  function loadFeatures() {
-    loadFeature('js/palette.js', 'data-palette-feature', 'Palettes');
-    loadFeature('js/target.js', 'data-target-feature', 'Targets');
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadFeatures, { once: true });
-  else loadFeatures();
 })();

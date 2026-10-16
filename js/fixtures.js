@@ -1,6 +1,8 @@
 
 "use strict";
 
+const $ = id => document.getElementById(id);
+
 /*
  * ============================================================
  * FIXTURE LIBRARY
@@ -2936,6 +2938,8 @@ function renderLibrary(filter = "") {
  */
 
 function renderFixtures() {
+
+    window.normaliseFixtureNumbers?.();
 
     const list =
         $("fixtureList");

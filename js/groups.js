@@ -13,6 +13,9 @@
     const fixtures = Array.isArray(State.fixtures) ? State.fixtures : [];
     const wanted = String(value ?? "").trim();
     if (!wanted) return null;
+    // Groups store fixture numbers (what the operator typed), not list positions.
+    const byNumber = fixtures.find(fixture => Number(fixture?.fixtureNumber) === Number(value));
+    if (byNumber) return byNumber;
     const byId = fixtures.find(fixture => fixture?.id != null && String(fixture.id) === wanted);
     if (byId?.id != null) return byId;
     const index = Number(value) - 1;
@@ -106,18 +109,8 @@
     });
   }
 
-  function patchFixtureListOrdering() {
-    if (window.__fixtureNumberRenderPatched) return;
-    if (typeof window.renderFixtures !== "function") return;
-
-    const originalRenderFixtures = window.renderFixtures;
-    window.renderFixtures = function renderFixturesWithNumbers(...args) {
-      normaliseFixtureNumbers();
-      return originalRenderFixtures.apply(this, args);
-    };
-    window.__fixtureNumberRenderPatched = true;
-    normaliseFixtureNumbers();
-  }
+  // The fixture list (renderFixtures in js/fixtures.js) calls this first, so every fixture has a unique number.
+  window.normaliseFixtureNumbers = normaliseFixtureNumbers;
 
   window.renderGroups = function renderGroups() {
     const list = getElement("groupList");
@@ -157,17 +150,9 @@
   function installFixtureNumberSupport() {
     installFixtureNumberField();
     installPatchNumberCapture();
-    patchFixtureListOrdering();
     normaliseFixtureNumbers();
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => {
-      window.setTimeout(installFixtureNumberSupport, 0);
-    }, { once: true });
-  } else {
-    window.setTimeout(installFixtureNumberSupport, 0);
-  }
-
-  window.addEventListener("load", installFixtureNumberSupport, { once: true });
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", installFixtureNumberSupport, { once: true });
+  else installFixtureNumberSupport();
 })();

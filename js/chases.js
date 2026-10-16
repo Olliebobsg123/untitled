@@ -13,7 +13,6 @@
 
   let selectedChase = -1;
   let runToken = 0;
-  let cueBridgeInstalled = false;
 
   function fixtures() { return (S()?.fixtures || []).filter(f => f && f.id != null); }
 
@@ -121,7 +120,7 @@
     s.chaseTimer = null;
     s.currentChase = -1;
     if (typeof window.stopCueTimers === "function") window.stopCueTimers();
-    if (s.fading != null) { cancelAnimationFrame(s.fading); s.fading = null; }
+    window.stopFade();
     renderChases();
     if (message) log("⏹ Chase stopped");
   }
@@ -141,7 +140,7 @@
     if (!cue) return stopChase(false);
     const fade = Math.max(0, Math.min(60000, n(chase.fade, 0)));
     const fixtureIds = chaseFixtureIds(chase);
-    log(`CHASE DEBUG: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
+    console.debug(`[CHASE] sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
     if (fade > 0 && typeof window.fadeTo === "function") {
       const target = clone(cue.globalState || cue.state || {});
       const fixtureTargets = fixtureIds.map(id => [id, cueState(cue, id)]);
@@ -173,7 +172,7 @@
       const cueIndex = steps[(fixtureIndex + rotation) % steps.length];
       const state = cueState(s.cues[cueIndex], fixture.id);
       map.set(fixture.id, state);
-      log(`🌈 CHASE DEBUG: fixture ${fixture.id} ← Cue ${cueIndex + 1}`);
+      console.debug(`[CHASE] fixture ${fixture.id} ← Cue ${cueIndex + 1}`);
     });
     const first = s.cues[steps[rotation % steps.length]];
     pushState(first?.globalState || first?.state || {}, map);
@@ -192,7 +191,7 @@
     const ids = new Set(chaseFixtureIds(chase).map(String));
     const filtered = (snapshot.fixtureStates || []).filter(x => Array.isArray(x) && x.length > 1 && ids.has(String(x[0])));
     applySnapshot({ globalState: snapshot.globalState, fixtureStates: filtered });
-    log(`CHASE DEBUG: recorded look ${step + 1}/${chase.snapshots.length} on ${ids.size} fixture(s)`);
+    console.debug(`[CHASE] recorded look ${step + 1}/${chase.snapshots.length} on ${ids.size} fixture(s)`);
     let next = step + 1;
     if (next >= chase.snapshots.length) {
       if (!chase.loop) return stopChase();
@@ -369,23 +368,6 @@
     if (speed) speed.oninput = () => { if (speedVal) speedVal.textContent = speed.value; const s = S(); const c = s?.chases?.[selectedChase]; if (c) c.speed = n(speed.value, 50); };
   }
 
-  function installCueBridge() {
-    if (cueBridgeInstalled || typeof window.goToCue !== "function") return;
-    const original = window.goToCue;
-    window.goToCue = function bridgedGoToCue(index, forceFade = null, options = {}) {
-      if (options?.fromChase) return original.call(this, index, forceFade);
-      const s = S(); const cue = s?.cues?.[Number(index)];
-      if (!cue?.chase) return original.call(this, index, forceFade);
-      const chaseIndex = Number(cue.chase.index);
-      if (!Number.isInteger(chaseIndex) || !s.chases?.[chaseIndex]) {
-        log(`Cue ${Number(index) + 1} references missing chase`, "error"); return false;
-      }
-      log(`Cue ${Number(index) + 1} → starting Chase ${chaseIndex + 1}`);
-      return startChase(chaseIndex);
-    };
-    cueBridgeInstalled = true;
-  }
-
   window.renderChases = renderChases;
   window.startChase = startChase;
   window.stopChase = stopChase;
@@ -410,6 +392,6 @@
     return true;
   };
 
-  document.addEventListener("DOMContentLoaded", () => { wireButtons(); renderChases(); installCueBridge(); });
-  window.addEventListener("load", () => { wireButtons(); renderChases(); installCueBridge(); });
+  // Cues that run a chase are played by goToCue (js/cues.js).
+  document.addEventListener("DOMContentLoaded", () => { wireButtons(); renderChases(); });
 })();

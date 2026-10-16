@@ -77,7 +77,7 @@ function setIntensityUI(value) {
   const slider = document.getElementById("intensity");
   const label = document.getElementById("intVal") || document.getElementById("intensityVal");
   if (slider) slider.value = value;
-  if (label) label.textContent = `${value}%`;
+  if (label) label.textContent = String(value);
 }
 
 function selectGroup(group) {
@@ -249,7 +249,7 @@ LXCommands.setFallback(raw => {
   }
 
   // Cues
-  if ((m = c.match(new RegExp(`^record\\s+cue\\s+${NUMBER_LIST}(?:\\s+(.+))?$`)))) {
+  if ((m = text.match(new RegExp(`^record\\s+cue\\s+${NUMBER_LIST}(?:\\s+(.+))?$`, "i")))) {
     const numbers = parseSelection(m[1]);
     const name = m[2]?.trim() || "Cue";
     numbers.forEach(n => recordCue(n, numbers.length > 1 ? `${name} ${n}` : name));

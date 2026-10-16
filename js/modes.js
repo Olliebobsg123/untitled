@@ -21,44 +21,6 @@
 
   const $ = id => document.getElementById(id);
 
-  function installModeStyles() {
-    if (document.getElementById("console-mode-styles")) return;
-    const style = document.createElement("style");
-    style.id = "console-mode-styles";
-    style.textContent = `
-      .console-mode-switch{display:flex;align-items:center;gap:3px;padding:3px;border:1px solid var(--border,#202a30);border-radius:9px;background:#080d10}
-      .console-mode-switch button{min-width:64px;height:27px;padding:0 12px;border:1px solid transparent;border-radius:6px;background:transparent;color:#64716f;cursor:pointer;font:800 8px/1 var(--mono,monospace);letter-spacing:1.1px;transition:all .15s ease}
-      .console-mode-switch button:hover{color:#dce7e4;background:rgba(255,255,255,.04)}
-      .console-mode-switch button.live.active{color:#06130e;background:#19d6a3;border-color:#54f2c8;box-shadow:0 0 14px rgba(25,214,163,.22)}
-      .console-mode-switch button.blind.active{color:#07111d;background:#5ca8ff;border-color:#8bc5ff;box-shadow:0 0 14px rgba(92,168,255,.24)}
-      .console-mode-switch button.live:disabled{opacity:.35;cursor:not-allowed;filter:grayscale(1)}
-      .safety-controls{display:flex;align-items:center;gap:5px;margin-left:4px}
-      .safety-control{min-width:78px;height:30px;padding:0 10px;border-radius:7px;cursor:pointer;font:900 8px/1 var(--mono,monospace);letter-spacing:.8px;transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
-      .safety-control:hover{transform:translateY(-1px)}
-      .safety-emergency{color:#111;background:#f5f5f5;border:2px solid #ff5265;box-shadow:0 0 10px rgba(255,255,255,.06)}
-      .safety-emergency.active{background:#e8e8e8;border-color:#111;box-shadow:0 0 12px rgba(255,255,255,.35)}
-      .safety-blackout{color:#fff;background:#190b0e;border:1px solid #ff5265}
-      .safety-blackout.active{background:#ff5265;color:#fff;border-color:#ff8996}
-      html.emergency-active,html.emergency-active body{background:!important;color:#171717!important}
-      html.emergency-active .sidebar,html.emergency-active .topbar,html.emergency-active .panel,html.emergency-active .controls,html.emergency-active .bottom-row,html.emergency-active .cmd-line,html.emergency-active .command-line{background:#e9e9e9!important;color:#171717!important;border-color:#c9c9c9!important;box-shadow:0 3px 14px rgba(0,0,0,.07)!important}
-      html.emergency-active .panel-header,html.emergency-active .brand,html.emergency-active .sidebar-footer,html.emergency-active .topbar-divider,html.emergency-active .section-divider{border-color:#c9c9c9!important}
-      html.emergency-active .panel-header,html.emergency-active .panel-meta,html.emergency-active .sidebar-section-label,html.emergency-active .brand-sub,html.emergency-active .version,html.emergency-active .toolbar-label,html.emergency-active .toolbar-hint,html.emergency-active .page-kicker,html.emergency-active .top-master span{color:#606060!important}
-      html.emergency-active .brand-name,html.emergency-active .page-title strong,html.emergency-active .top-master strong,html.emergency-active .nav-link,html.emergency-active .fixture-item,html.emergency-active .group-item,html.emergency-active .cue-item,html.emergency-active label,html.emergency-active .form-row label{color:#171717!important}
-      html.emergency-active .nav-link:hover,html.emergency-active .fixture-item:hover,html.emergency-active .group-item:hover,html.emergency-active .cue-item:hover{background:#dedede!important;color:#171717!important}
-      html.emergency-active .nav-link.active{color:#171717!important;background:#dedede!important;box-shadow:inset 2px 0 0 #171717!important}
-      html.emergency-active .status-pill,html.emergency-active .console-mode-switch,html.emergency-active .btn-secondary,html.emergency-active .btn-icon,html.emergency-active input,html.emergency-active select,html.emergency-active textarea{background:#dedede!important;color:#171717!important;border-color:#bdbdbd!important}
-      html.emergency-active .btn-primary{background:#171717!important;color:#fff!important}
-      html[data-console-mode="blind"] .topbar{border-color:rgba(92,168,255,.35);box-shadow:0 0 22px rgba(92,168,255,.06)}
-      html[data-console-mode="blind"] .sidebar{border-color:rgba(92,168,255,.28)}
-      html[data-console-mode="blind"] .nav-link.active{color:#8bc5ff;background:linear-gradient(90deg,rgba(92,168,255,.15),rgba(92,168,255,.045));box-shadow:inset 2px 0 0 #5ca8ff}
-      html[data-console-mode="blind"] .nav-link.active span{color:#5ca8ff}
-      html[data-console-mode="blind"] .page-kicker{color:#5ca8ff}
-      html[data-console-mode="blind"] .page-title strong{color:#8bc5ff}
-      html[data-console-mode="blind"] .quick-panel .panel-meta{color:#5ca8ff}
-      @media(max-width:900px){.safety-control{min-width:62px;padding:0 7px}}
-    `;
-    document.head.appendChild(style);
-  }
 
   function sendMode() {
     window.LXOutput?.setBlind(mode !== "LIVE");
@@ -69,7 +31,6 @@
   function updateUI() {
     const live=$("consoleModeLive"), blind=$("consoleModeBlind");
     if (!live || !blind) return;
-    installModeStyles();
     live.classList.toggle("active",mode==="LIVE");
     blind.classList.toggle("active",mode==="BLIND");
     live.disabled = isFreeTier();
@@ -198,7 +159,6 @@
   function install(){
     const live=$("consoleModeLive"), blind=$("consoleModeBlind");
     if(!live || !blind) return;
-    installModeStyles();
     installSafetyControls();
     live.onclick=()=>{if(isFreeTier())return;if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("LIVE");};
     blind.onclick=()=>{if(emergencyActive||blackoutActive) clearSafetyOverride();setMode("BLIND");};

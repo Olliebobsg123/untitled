@@ -172,20 +172,6 @@
     return { action, name, selector };
   }
 
-  function injectStyles(){
-    if(document.getElementById("targetUiStyles"))return;
-    const style=document.createElement("style");style.id="targetUiStyles";style.textContent=`
-      .target-launch{width:100%;margin-top:7px;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #263238;border-radius:8px;background:#10171b;color:#b9c5c2;cursor:pointer;font-size:9px;font-weight:850;letter-spacing:.7px;text-align:left;transition:.14s ease}
-      .target-launch:hover{background:#172026;border-color:rgba(25,214,163,.3);color:#54f2c8;transform:translateY(-1px)}.target-launch span:last-child{color:#4f5d59;font-family:monospace;font-size:8px}
-      .target-modal{position:fixed;inset:0;z-index:100001;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(3,6,8,.76);backdrop-filter:blur(8px)}.target-modal.open{display:flex}
-      .target-window{width:min(760px,94vw);max-height:88vh;overflow:auto;background:#0b1114;border:1px solid #2b383f;border-radius:12px;box-shadow:0 28px 80px rgba(0,0,0,.55)}
-      .target-head{display:flex;align-items:center;justify-content:space-between;padding:15px 17px;border-bottom:1px solid #202a30}.target-title{font-size:12px;font-weight:850;letter-spacing:.7px}.target-title small{display:block;margin-top:3px;color:#596764;font-size:7px;letter-spacing:1px}.target-close{width:30px;height:30px;border:1px solid #202a30;border-radius:7px;background:#10171b;color:#7d8987;cursor:pointer}.target-close:hover{color:#fff;background:#172026}
-      .target-toolbar{display:flex;gap:7px;padding:12px 17px;border-bottom:1px solid #202a30}.target-toolbar input{flex:1;min-width:0;height:36px;padding:0 10px;background:#0d1418;border:1px solid #2b383f;border-radius:7px;color:#edf4f2}.target-toolbar button{height:36px;padding:0 12px;border:1px solid #2b383f;border-radius:7px;background:#10171b;color:#c6d0ce;cursor:pointer;font-weight:800;font-size:8px;letter-spacing:.5px}.target-toolbar button:hover{border-color:#19d6a3;color:#54f2c8}
-      .target-list{padding:15px 17px;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}.target-card{padding:11px;border:1px solid #202a30;border-radius:8px;background:#10171b;color:#b9c5c2}.target-card:hover{border-color:#39474d}.target-card strong{display:block;color:#edf4f2;font-size:10px}.target-coords{margin-top:5px;color:#61706c;font:8px monospace}.target-card-actions{display:flex;gap:5px;margin-top:9px}.target-card-actions button{flex:1;height:28px;border:1px solid #28343a;border-radius:6px;background:#0d1418;color:#9aa7a3;cursor:pointer;font-size:7px;font-weight:850;letter-spacing:.6px}.target-card-actions button:hover{color:#54f2c8;border-color:rgba(25,214,163,.4)}.target-empty{grid-column:1/-1;padding:30px;text-align:center;border:1px dashed #2b383f;color:#53615e;font-size:9px}
-      .target-command-menu{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:100002;display:none;background:#0b1114;border:1px solid #2b383f;border-radius:7px;box-shadow:0 12px 30px rgba(0,0,0,.45);overflow:hidden}.target-command-menu.open{display:block}.target-command-item{display:block;width:100%;padding:8px 10px;background:none;border:0;border-bottom:1px solid #202a30;color:#aebbb7;text-align:left;font:8px monospace;cursor:pointer}.target-command-item:last-child{border-bottom:0}.target-command-item:hover{background:#172026;color:#54f2c8}
-      @media(max-width:650px){.target-modal{padding:10px}.target-window{max-height:94vh}.target-toolbar{flex-wrap:wrap}.target-toolbar input{flex-basis:100%}}
-    `;document.head.appendChild(style);
-  }
 
   function open(){document.getElementById("targetModal")?.classList.add("open");render();}
   function close(){document.getElementById("targetModal")?.classList.remove("open");}
@@ -201,8 +187,7 @@
   }
 
   function createUI(){
-    if(document.getElementById("targetModal"))return; injectStyles();
-    const quickPanel=document.querySelector("#page-live .quick-panel .panel-body");
+    if(document.getElementById("targetModal"))return; const quickPanel=document.querySelector("#page-live .quick-panel .panel-body");
     if(quickPanel&&!document.getElementById("targetLaunch")){const button=document.createElement("button");button.type="button";button.id="targetLaunch";button.className="target-launch";button.innerHTML='<span>TARGETS</span><span>AIM / CAPTURE ↗</span>';button.onclick=open;quickPanel.appendChild(button);}
     const modal=document.createElement("div");modal.id="targetModal";modal.className="target-modal";
     modal.innerHTML=`<div class="target-window" role="dialog" aria-modal="true" aria-label="Target library"><div class="target-head"><div class="target-title">TARGET LIBRARY<small>POSITION CONTROL</small></div><button type="button" class="target-close">×</button></div><div class="target-toolbar"><input id="targetNameInput" placeholder="Target name e.g. Centre Stage"><button type="button" id="targetCreateButton">＋ CREATE TARGET</button></div><div class="target-list" data-target-list></div></div>`;

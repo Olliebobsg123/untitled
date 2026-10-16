@@ -137,7 +137,7 @@
         const intensityInput = getElement("intensity");
         const intensityValue = getElement("intVal");
         if (intensityInput) intensityInput.value = intensity;
-        if (intensityValue) intensityValue.textContent = `${intensity}%`;
+        if (intensityValue) intensityValue.textContent = String(intensity);
         if (typeof window.renderFixtures === "function") window.renderFixtures();
         if (typeof window.updateControlVisibility === "function") window.updateControlVisibility();
         if (typeof window.updateDMX === "function") window.updateDMX();

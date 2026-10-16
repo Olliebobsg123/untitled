@@ -95,55 +95,6 @@
 
   const clamp255 = value => Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
 
-  function injectStyles() {
-    if ($("fixtureCapabilityStyles")) return;
-    const style = document.createElement("style");
-    style.id = "fixtureCapabilityStyles";
-    style.textContent = `
-      #fixtureDynamicControls,
-      #fresnelControlsHost { display:grid; gap:10px; }
-      #fixtureDynamicControls { margin-top:10px; }
-      .fixture-dynamic-card,
-      .fresnel-control {
-        padding:11px 12px;
-        border:1px solid var(--border,#223038);
-        border-radius:10px;
-        background:rgba(255,255,255,.018);
-      }
-      .fixture-dynamic-card .fader,
-      .fresnel-control .fader { width:100%; }
-      .fixture-capability-title,
-      .fresnel-title {
-        display:flex;
-        align-items:baseline;
-        justify-content:space-between;
-        gap:10px;
-        margin-bottom:7px;
-      }
-      .fixture-capability-title strong,
-      .fresnel-title strong {
-        letter-spacing:.08em;
-        text-transform:uppercase;
-        font-size:13px;
-      }
-      .fixture-capability-title small,
-      .fresnel-title small,
-      .fresnel-note {
-        color:var(--text-muted);
-        font-size:9px;
-        letter-spacing:.12em;
-        text-transform:uppercase;
-      }
-      .fresnel-controls {
-        display:grid;
-        gap:10px;
-        padding-top:12px;
-        border-top:1px solid var(--border,#223038);
-      }
-      .fresnel-note { line-height:1.4; letter-spacing:.02em; text-transform:none; }
-    `;
-    document.head?.appendChild(style);
-  }
 
   function setGroupVisibility(id, visible) {
     const group = $(id);
@@ -372,7 +323,6 @@
   }
 
   function install() {
-    injectStyles();
     refresh();
 
     const list = $("fixtureList");

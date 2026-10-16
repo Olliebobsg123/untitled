@@ -13,24 +13,24 @@
 
 <aside class="sidebar">
   <div class="brand">
-    <div class="brand-mark">LC</div>
+    <div class="brand-mark">LS</div>
     <div class="brand-copy">
-      <div class="brand-name">LIGHTING</div>
-      <div class="brand-sub">CONTROL CONSOLE</div>
+      <div class="brand-name">LIGHT SPARK</div>
+      <div class="brand-sub">LIGHTING CONSOLE</div>
     </div>
   </div>
   <div class="sidebar-section-label">Workspace</div>
   <nav class="nav">
-    <button class="nav-link active" data-page="live"><span class="nav-icon">✦</span><span class="nav-text">Live Control</span><b>01</b></button>
-    <button class="nav-link" data-page="patch"><span class="nav-icon">▦</span><span class="nav-text">Patch</span><b>02</b></button>
-    <button class="nav-link" data-page="inspector"><span class="nav-icon">◫</span><span class="nav-text">Cue Inspector</span><b>03</b></button>
-    <button class="nav-link" data-page="chases"><span class="nav-icon">≋</span><span class="nav-text">Chases</span><b>04</b></button>
-    <button class="nav-link" data-page="effects"><span class="nav-icon">✹</span><span class="nav-text">Effects</span><b>05</b></button>
-    <button class="nav-link" data-page="qlab"><span class="nav-icon">♫</span><span class="nav-text">QLab</span><b>06</b></button>
-    <button class="nav-link" data-page="settings"><span class="nav-icon">⚙</span><span class="nav-text">Settings</span><b>07</b></button>
+    <button class="nav-link active" data-page="live" data-short="Live"><span class="nav-icon">✦</span><span class="nav-text">Live Control</span><b>01</b></button>
+    <button class="nav-link" data-page="patch" data-short="Patch"><span class="nav-icon">▦</span><span class="nav-text">Patch</span><b>02</b></button>
+    <button class="nav-link" data-page="inspector" data-short="Cues"><span class="nav-icon">◫</span><span class="nav-text">Cue Inspector</span><b>03</b></button>
+    <button class="nav-link" data-page="chases" data-short="Chases"><span class="nav-icon">≋</span><span class="nav-text">Chases</span><b>04</b></button>
+    <button class="nav-link" data-page="effects" data-short="Effects"><span class="nav-icon">✹</span><span class="nav-text">Effects</span><b>05</b></button>
+    <button class="nav-link" data-page="qlab" data-short="QLab"><span class="nav-icon">♫</span><span class="nav-text">QLab</span><b>06</b></button>
+    <button class="nav-link" data-page="settings" data-short="Settings"><span class="nav-icon">⚙</span><span class="nav-text">Settings</span><b>07</b></button>
   </nav>
   <div class="sidebar-spacer"></div>
-  <div class="sidebar-footer"><div class="mini-status"><span class="status-dot online"></span><span class="nav-text">Engine Ready</span></div><div class="version nav-text">LIGHTING CONSOLE · V2</div></div>
+  <div class="sidebar-footer"><div class="mini-status"><span class="status-dot online"></span><span class="nav-text">Engine Ready</span></div><div class="version nav-text">LIGHT SPARK</div></div>
 </aside>
 <header class="topbar">
   <div class="page-title"><span class="page-kicker">SHOW CONTROL</span><strong id="topPageTitle">LIVE CONTROL</strong></div>
@@ -72,7 +72,7 @@
     <div class="action-row"><button class="btn-secondary" id="btnSaveShow" type="button">💾 Save Show</button><button class="btn-secondary" id="btnLoadShow" type="button">📂 Load Show</button><input type="file" id="showFileInput" accept=".json" hidden></div>
     <p class="helper">Your show is also kept automatically and comes back when Light Spark restarts. On the command line: <b>save my-show.json</b> / <b>load my-show.json</b> (Documents/LX Console Shows).</p>
   </div>
-</section><section class="panel"><div class="panel-header"><div><span class="eyebrow">MIDI</span> Controller</div><span class="panel-meta">INPUT</span></div><div class="panel-body"><div class="form-row"><label>Device</label><select id="midiDevice"><option value="">No MIDI device selected</option></select></div><div class="action-row"><button class="btn-primary" id="midiConnect">Connect MIDI</button><button class="btn-secondary" id="midiDisconnect">Disconnect</button><button class="btn-secondary" id="midiRefresh">Refresh</button></div><div id="midiStatus" class="inline-status">MIDI: Not connected</div><div class="section-divider"><span>MAPPING</span></div><div class="form-grid"><div class="form-row"><label>Control</label><select id="midiMappingControl"><option value="knob1">KNOB 1</option><option value="knob2">KNOB 2</option><option value="knob3">KNOB 3</option><option value="knob4">KNOB 4</option><option value="knob5">KNOB 5</option><option value="knob6">KNOB 6</option><option value="knob7">KNOB 7</option><option value="knob8">KNOB 8</option><option value="pad1">PAD 1</option><option value="pad2">PAD 2</option><option value="pad3">PAD 3</option><option value="pad4">PAD 4</option><option value="pad5">PAD 5</option><option value="pad6">PAD 6</option><option value="pad7">PAD 7</option><option value="pad8">PAD 8</option><option value="button1">BUTTON 1</option><option value="button2">BUTTON 2</option></select></div><div class="form-row"><label>Action</label><select id="midiMappingAction"><option value="intensity">Intensity</option><option value="master">Master</option><option value="hue">Hue</option><option value="saturation">Saturation</option><option value="pan">Pan</option><option value="tilt">Tilt</option><option value="zoom">Zoom</option><option value="focus">Focus</option><option value="speed">Speed</option><option value="go">GO</option><option value="blackout">Blackout</option><option value="cue1">Cue 1</option><option value="cue2">Cue 2</option><option value="cue3">Cue 3</option><option value="cue4">Cue 4</option><option value="cueBack">Cue Back</option><option value="cueGo">Cue Go</option><option value="none">Unassigned</option></select></div><div class="form-row form-span"><label>MIDI Channel</label><select id="midiChannel"><option value="0">Omni</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option></select></div></div><div class="action-row"><button class="btn-primary" id="midiLearn">🎛 Learn Control</button><button class="btn-secondary" id="midiSaveMapping">Save Mapping</button><button class="btn-secondary" id="midiClearMapping">Clear Mapping</button></div><div id="midiLearnStatus" class="inline-status">Select a control and action, then press Learn Control.</div><div class="section-divider"><span>CURRENT MAPPING</span></div><div id="midiMappingList" class="item-list"></div><div class="action-row"><button class="btn-secondary" id="midiResetMappings">Reset Mappings</button><button class="btn-secondary" id="midiSaveSettings">Save MIDI Settings</button></div></div></section></div></div>
+</section></div></div>
 </main>
 <aside class="controls" id="controlPanel"><div class="control-deck-header"><div><span class="eyebrow">CONTROL DECK</span><strong>LIVE PARAMETERS</strong></div><span class="deck-led"></span></div><div class="master-card control-group"><div class="control-heading"><div><span class="control-label">Master Level</span><small>OUTPUT</small></div><strong class="big-value"><span id="masterVal">100</span><em>%</em></strong></div><div class="fader master-fader"><input type="range" id="master" min="0" max="100" value="100"></div></div><div id="dynamicControls" class="dynamic-controls"><div class="selection-empty"><div class="empty-icon">◇</div><strong>Select a fixture</strong><p>Choose a patched fixture to expose its parameters.</p></div></div><div class="control-group parameter-card"><div class="control-heading"><div><span class="control-label">Intensity</span><small>DIMMER</small></div><strong class="fader-val"><span id="intVal">100</span>%</strong></div><div class="fader"><input type="range" id="intensity" min="0" max="100" value="100"></div></div>
 <div class="control-group parameter-card" id="strobeGroup"><div class="control-heading"><div><span class="control-label">Strobe</span><small>SHUTTER</small></div><strong class="fader-val"><span id="strobeVal">0</span></strong></div><div class="fader"><input type="range" id="strobe" min="0" max="255" step="1" value="0"></div></div>

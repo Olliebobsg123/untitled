@@ -1152,16 +1152,16 @@ function createMIDIPanel(){
   panel.id="midiSettingsPanel";
 
   panel.innerHTML=`
-    <div class="panel-header">MIDI Controller</div>
+    <div class="panel-header"><div><span class="eyebrow">MIDI</span> Controller</div><span class="panel-meta">INPUT</span></div>
     <div class="panel-body">
       <div class="form-row">
         <label>Device</label>
         <select id="midiDevice"></select>
       </div>
 
-      <div id="midiStatus" style="margin:8px 0">Detecting MIDI...</div>
+      <div id="midiStatus" class="midi-status">Detecting MIDI...</div>
 
-      <div style="font-size:12px;margin:8px 0 12px;opacity:.8;line-height:1.5">
+      <div class="helper midi-help">
         MIDI Learn = physical control<br>
         Dropdown = what the control does<br><br>
         PAD 8 = Record Next Cue<br>
@@ -1171,28 +1171,27 @@ function createMIDIPanel(){
 
       <div id="midiMappings"></div>
 
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <div class="midi-actions">
         <button class="btn-secondary" id="midiReset">Reset MIDI Mappings</button>
         <button class="btn-secondary" id="midiInvertJoystick">Invert Joystick Y</button>
       </div>
     </div>
   `;
 
-  settings.appendChild(panel);
+  (settings.querySelector(".page-grid")||settings).appendChild(panel);
 
   const mappings=document.getElementById("midiMappings");
 
   MIDI_CONTROLS.forEach(([id,label])=>{
     const row=document.createElement("div");
-    row.style.cssText="display:flex;align-items:center;gap:8px;margin-bottom:5px";
+    row.className="midi-row";
 
     const name=document.createElement("span");
-    name.style.width="95px";
+    name.className="midi-name";
     name.textContent=label;
 
     const select=document.createElement("select");
-    select.style.flex="1";
-
+    
     TARGETS.forEach(([value,text])=>{
       const o=document.createElement("option");
       o.value=value;

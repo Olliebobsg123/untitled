@@ -234,26 +234,23 @@ function renderCues() {
     const list = document.getElementById("cueList");
     if (!list) return;
     list.replaceChildren();
+    const next = State.currentCue + 1;
     State.cues.forEach((cue, index) => {
         if (!cue) return;
         const el = document.createElement("div");
-        el.className = "cue-item" + (index === State.currentCue ? " active" : "");
-        const title = String(cue.name || "Cue " + (index + 1));
-        const fade = num(cue.fade, 800);
-        let info = "(" + fade + "ms";
-        if (cue.followEnabled === true) info += " · Follow " + num(cue.follow, 0) + "s";
-        info += ")";
+        el.className = "cue-item" + (index === State.currentCue ? " active" : "") + (index === next ? " next" : "");
+        const number = document.createElement("span");
+        number.className = "cue-number";
+        number.textContent = index + 1;
         const strong = document.createElement("strong");
-        strong.textContent = (index + 1) + ". " + title;
+        strong.textContent = String(cue.name || "Cue " + (index + 1));
+        const parts = [(num(cue.fade, 800) / 1000).toFixed(1) + "s"];
+        if (cue.followEnabled === true) parts.push("follow " + num(cue.follow, 0) + "s");
+        if (cue.effect && cue.effect.type) parts.push("✦ " + (cue.effect.name || cue.effect.type));
+        if (cue.chase) parts.push("≋ chase");
         const small = document.createElement("small");
-        small.textContent = info;
-        el.appendChild(strong);
-        el.appendChild(small);
-        if (cue.effect && cue.effect.type) {
-            const effect = document.createElement("small");
-            effect.textContent = " ✦ " + (cue.effect.name || cue.effect.type);
-            el.appendChild(effect);
-        }
+        small.textContent = parts.join(" · ");
+        el.append(number, strong, small);
         el.onclick = event => {
             event.preventDefault();
             event.stopPropagation();
@@ -261,6 +258,7 @@ function renderCues() {
         };
         list.appendChild(el);
     });
+    list.querySelector(".cue-item.active")?.scrollIntoView({ block: "nearest" });
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
 }
 

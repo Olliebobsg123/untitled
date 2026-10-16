@@ -819,7 +819,7 @@ function parseCommand(cmd){
       return log('Chase stopped', 'ok');
     }
     const rec=c.match(/^record\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))(?:\s+(.+))?$/);
-    if(rec){const cues=parseSelection(rec[1]),nm=rec[3]?.trim()||'Cue';cues.forEach((n)=>recordCue(n,cues.length>1?`${nm} ${n}`:nm));return log(`Recorded: ${cues.join(', ')}`,'ok');}
+    if(rec){const cues=parseSelection(rec[1]),nm=rec[3]?String(cmd).trim().slice(-rec[3].trim().length):'Cue';/* name as typed, not lowercased */cues.forEach((n)=>recordCue(n,cues.length>1?`${nm} ${n}`:nm));return log(`Recorded: ${cues.join(', ')}`,'ok');}
     const delcue=c.match(/^delete\s+cue\s+((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/);
     if(delcue){const nums=parseSelection(delcue[1]);nums.forEach(n=>deleteCue(n));return log(`Deleted cues: ${nums.join(', ')}`,'ok');}
 
@@ -828,8 +828,8 @@ function parseCommand(cmd){
     const quickfade=c.match(/^fade\s+(\d+)$/);
     if(quickfade){const n=Number(quickfade[1]),idx=n-1;if(!State.cues[idx])return log(`Cue ${n} not found`,'warn');goToCue(idx);return log(`Fading to Cue ${n} (${State.cues[idx].fade??800}ms)`,'ok');}
     if(/^go\s+(\d+)$/.test(c)){const n=Number(RegExp.$1),idx=n-1;if(!State.cues[idx])return log(`Cue ${n} not found`,'warn');goToCue(idx);return;}
-    if(/^(go|next)$/.test(c)){if(!State.cues.length)return log('No cues saved','warn');const nxt=(State.currentCue<0||State.currentCue>=State.cues.length-1)?0:State.currentCue+1;goToCue(nxt);return;}
-    if(/^(back|previous|prev)$/.test(c)){if(!State.cues.length)return log('No cues saved','warn');const prv=State.currentCue<=0?State.cues.length-1:State.currentCue-1;goToCue(prv);return;}
+    if(/^(go|next)$/.test(c)){if(!State.cues.length)return log('No cues saved','warn');goNextCue();return;}
+    if(/^(back|previous|prev)$/.test(c)){if(!State.cues.length)return log('No cues saved','warn');goPreviousCue();return;}
 
     const selm=c.match(/^((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/);
     if(selm){const count=selectFixtureNumbers(parseSelection(selm[1]));if(count){renderFixtures?.();return log(`Selected ${count} fixture(s)`,'ok');}}

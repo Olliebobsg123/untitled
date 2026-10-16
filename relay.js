@@ -24,7 +24,7 @@ const cid = crypto.randomBytes(16);
 
 const output = {
   protocol: 'artnet',
-  enabled: true,
+  enabled: false, // off until OUTPUT_CONFIG turns it on; js/multi-output.js does the real output
   mode: 'LIVE',
   target: ARTNET_TARGET,
   universe: 0,

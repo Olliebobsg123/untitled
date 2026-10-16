@@ -322,14 +322,13 @@ function goNextCue(forceFade = null) {
         cueLog("No cues recorded", "warn");
         return false;
     }
+    // Stop at the end of the list instead of jumping back to the first cue.
     let next = State.currentCue + 1;
-    let attempts = 0;
-    while (attempts < State.cues.length && !State.cues[next]) {
-        next++;
-        if (next >= State.cues.length) next = 0;
-        attempts++;
+    while (next < State.cues.length && !State.cues[next]) next++;
+    if (!State.cues[next]) {
+        cueLog("End of the cue list", "warn");
+        return false;
     }
-    if (!State.cues[next]) return false;
     return goToCue(next, forceFade);
 }
 
@@ -337,14 +336,11 @@ function goPreviousCue(forceFade = null) {
     if (!State.cues.length) return false;
     stopFollow();
     let previous = State.currentCue - 1;
-    if (previous < 0) previous = State.cues.length - 1;
-    let attempts = 0;
-    while (attempts < State.cues.length && !State.cues[previous]) {
-        previous--;
-        if (previous < 0) previous = State.cues.length - 1;
-        attempts++;
+    while (previous >= 0 && !State.cues[previous]) previous--;
+    if (previous < 0) {
+        cueLog("Already at the first cue", "warn");
+        return false;
     }
-    if (!State.cues[previous]) return false;
     return goToCue(previous, forceFade);
 }
 
@@ -431,17 +427,21 @@ function updateCue(number, options = {}) {
         ? options.followEnabled === true
         : existing.followEnabled === true;
 
-    const globalState = clone(State.current || {});
-    const fixtureStates = snapshotFixtureStates();
+    // Changing only the name, fade or follow keeps the cue's recorded look;
+    // anything else (e.g. a plain "update cue N") re-records it from stage.
+    const keys = Object.keys(options);
+    const keepLook = keys.length > 0 && keys.every(key => ["name", "fade", "follow", "followEnabled"].includes(key));
+    const globalState = keepLook ? existing.globalState : clone(State.current || {});
+    const fixtureStates = keepLook ? existing.fixtureStates : snapshotFixtureStates();
     const effect = Object.prototype.hasOwnProperty.call(options, "effect")
         ? clone(options.effect)
-        : snapshotCueEffect();
+        : keepLook ? existing.effect : snapshotCueEffect();
 
     State.cues[number - 1] = {
         ...existing,
         name,
         globalState,
-        state: clone(globalState),
+        state: keepLook ? existing.state : clone(globalState),
         fixtureStates,
         fade,
         follow,
@@ -451,7 +451,7 @@ function updateCue(number, options = {}) {
 
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
-    cueLog("Updated Cue " + number + ": " + name + " - " + fixtureStates.length + " fixtures saved", "ok");
+    cueLog("Updated Cue " + number + ": " + name + (keepLook ? "" : " - " + (fixtureStates?.length || 0) + " fixtures saved"), "ok");
     return true;
 }
 

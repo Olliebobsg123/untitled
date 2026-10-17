@@ -1216,21 +1216,13 @@ function createMIDIPanel(){
   panel.id="midiSettingsPanel";
 
   panel.innerHTML=`
-    <div class="panel-header">MIDI Controller</div>
+    <div class="panel-header"><div><span class="eyebrow">MIDI</span> Control Mapping</div><span class="panel-meta">LEARN</span></div>
     <div class="panel-body">
-      <div class="form-row">
-        <label>Device</label>
-        <select id="midiDevice"></select>
-      </div>
-
-      <div id="midiStatus" style="margin:8px 0">Detecting MIDI...</div>
-
-      <div style="font-size:12px;margin:8px 0 12px;opacity:.8;line-height:1.5">
-        MIDI Learn = physical control<br>
-        Dropdown = what the control does<br><br>
-        PAD 8 = Record Next Cue<br>
-        PAD 10 = Hold Position<br>
-        PAD 11 = Release Position
+      <!-- The device picker and status are on the MIDI Controller panel
+           (#midiDevice, #midiStatus); this panel is the full mapping list. -->
+      <div style="font-size:11px;margin:0 0 12px;color:#7d8987;line-height:1.5">
+        <b>Learn</b> links a knob, pad or joystick on your controller; the dropdown sets what it does.
+        By default Pad 8 records the next cue, Pad 10 holds position and Pad 11 releases it.
       </div>
 
       <div id="midiMappings"></div>

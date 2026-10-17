@@ -64,7 +64,7 @@ window.ensureFixtureState=fixtureState;
 
 window.connectVisualizer=()=>{
 if(visualizerWindow&&!visualizerWindow.closed){visualizerWindow.focus();sendToVisualizer();return;}
-visualizerWindow=window.open("visualizer.html","visualizer","width=1200,height=800");
+visualizerWindow=window.open("visualizer.html","visualizer","width=1440,height=900");
 if(!visualizerWindow)console.error("Visualizer popup blocked");
 };
 window.sendToVisualizer=()=>{
@@ -72,12 +72,21 @@ if(!visualizerWindow||visualizerWindow.closed)return;
 visualizerWindow.postMessage({type:"SYNC_FIXTURES",fixtures:Array.isArray(State.fixtures)?State.fixtures:[],fixtureLibrary:window.FixtureLibrary||{}},"*");
 sendVisualizerDMX();
 };
+// At most one frame every 25ms, and only when something changed.
+let lastVisualizerDMX=null,visualizerDMXTimer=null;
 function sendVisualizerDMX(){
+if(!visualizerWindow||visualizerWindow.closed||visualizerDMXTimer)return;
+visualizerDMXTimer=setTimeout(()=>{
+visualizerDMXTimer=null;
 if(!visualizerWindow||visualizerWindow.closed)return;
-visualizerWindow.postMessage({type:"DMX_UPDATE",dmx:Array.from(State.dmx)},"*");
+const dmx=State.dmx;
+if(lastVisualizerDMX&&lastVisualizerDMX.length===dmx.length&&lastVisualizerDMX.every((v,i)=>v===dmx[i]))return;
+lastVisualizerDMX=dmx.slice();
+visualizerWindow.postMessage({type:"DMX_UPDATE",dmx:lastVisualizerDMX.slice()},"*");
+},25);
 }
 window.addEventListener("message",e=>{
-if(e.data?.type==="VISUALIZER_READY"){visualizerWindow=e.source;sendToVisualizer();}
+if(e.data?.type==="VISUALIZER_READY"){visualizerWindow=e.source;window.visualizerWindow=e.source;lastVisualizerDMX=null;sendToVisualizer();}
 });
 
 function connectArtNet(){

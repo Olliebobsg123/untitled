@@ -755,7 +755,7 @@ function parseCommand(cmd){
   return log('New Chase menu opened', 'ok');
 }
 
-  if(/^(visualizer|viz)$/.test(c)){window.open('visualizer.html','_blank','width=1280,height=800,menubar=no,toolbar=no');return log('Visualizer opened in new window','ok');}
+  if(/^(visualizer|viz)$/.test(c)){window.connectVisualizer?.();return log('Visualizer opened','ok');}
   if(c==='artnet'){document.querySelectorAll('.nav-link').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.querySelector('[data-page="settings"]')?.classList.add('active');document.getElementById('page-settings')?.classList.add('active');return log('Opened Art-Net Settings','ok');}
   if(/^(clear|release)$/.test(c)){State.selected.clear();renderFixtures?.();return log('Cleared selection','ok');}
   // MIDI position hold (js/midi.js) is normally toggled from a MIDI pad and

@@ -406,7 +406,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return log("Fixture extends beyond DMX address 512", "warn");
     }
 
-    const overlap = State.fixtures.some(fixture => {
+    const overlapping = State.fixtures.filter(fixture => {
       if (Number(fixture.uni) !== uni) return false;
 
       const existing = FixtureLibrary[fixture.name];
@@ -418,10 +418,15 @@ document.addEventListener("DOMContentLoaded", () => {
       return addr <= finish && end >= start;
     });
 
-    if (
-      overlap &&
-      !confirm(`DMX ${addr}-${end} is already used. Overwrite?`)
-    ) return;
+    if (overlapping.length) {
+      const names = overlapping.map(f => `#${f.fixtureNumber ?? "?"} ${f.name}`).join(", ");
+      if (!confirm(`DMX ${addr}-${end} is already used by ${names}. Replace ${overlapping.length === 1 ? "it" : "them"}?`)) return;
+      // Replace means unpatch: two fixtures on the same channels fight over them.
+      const removed = new Set(overlapping.map(f => f.id));
+      for (let i = State.fixtures.length - 1; i >= 0; i--) if (removed.has(State.fixtures[i]?.id)) State.fixtures.splice(i, 1);
+      removed.forEach(id => { State.fixtureStates.delete(id); State.selected?.delete(id); });
+      log(`Unpatched ${names}`, "info");
+    }
 
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 

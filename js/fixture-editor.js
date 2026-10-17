@@ -168,7 +168,7 @@
     const indexValue = index == null ? rows.length : index;
     const row = document.createElement("div");
     row.className = "lx-channel-row";
-    row.innerHTML = `<input value="${indexValue + 1}" disabled><select>${ATTRS.map(item => `<option value="${item}" ${item === attribute ? "selected" : ""}>${item}</option>`).join("")}<option value="">— Unassigned —</option></select><button type="button" title="Remove">×</button>`;
+    row.innerHTML = `<input value="${indexValue + 1}" disabled><select><option value="" ${attribute ? "" : "selected"}>— Unassigned —</option>${ATTRS.map(item => `<option value="${item}" ${item === attribute ? "selected" : ""}>${item}</option>`).join("")}</select><button type="button" title="Remove">×</button>`;
     row.querySelector("button")?.addEventListener("click", () => { row.remove(); renumberRows(); });
     box.appendChild(row);
     if (!silent) renumberRows();
@@ -211,10 +211,15 @@
     const channels = Math.max(1, Math.min(512, Number(document.getElementById("lxFxChannels")?.value) || 1));
     if (!name) { setFxStatus("Enter a fixture name.", true); return; }
     const map = {};
+    const duplicates = new Set();
     document.querySelectorAll("#lxFxChannelList .lx-channel-row").forEach((row, index) => {
       const attribute = String(row.querySelector("select")?.value || "").trim();
-      if (attribute && !Object.prototype.hasOwnProperty.call(map, attribute)) map[attribute] = index;
+      if (!attribute) return;
+      if (Object.prototype.hasOwnProperty.call(map, attribute)) duplicates.add(attribute);
+      else map[attribute] = index;
     });
+    // Each attribute drives one channel; a second "red" row would silently do nothing.
+    if (duplicates.size) { setFxStatus(`Each attribute can only be used once: ${[...duplicates].join(", ")}`, true); return; }
     if (!Object.keys(map).length) { setFxStatus("Assign at least one DMX channel.", true); return; }
     const beam = document.getElementById("lxFxBeam")?.value;
     const definition = {

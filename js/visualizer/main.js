@@ -288,7 +288,7 @@ function update() {
 
   for (const model of fixtures.values()) {
     const base = baseAddress(model.fixture);
-    const state = decodeFixture(model.def, dmx, base, model.fixture.name, model.fixture.manualShutters);
+    const state = decodeFixture(model.def, dmx, base, model.fixture.name, model.fixture.manualShutters, model.fixture.beamAngle);
     if (base < 0) state.intensity = 0;
     const fog = model.update(state, time, dt, s);
     if (model.onFloor) {

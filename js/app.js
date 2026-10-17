@@ -14,6 +14,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // The fixture number is the console channel/fader number. It is deliberately
   // separate from the DMX start address and can be chosen by the programmer.
+  const nextFixtureNumber = () => {
+    const used = new Set((State.fixtures || []).map(f => Number(f?.fixtureNumber)).filter(Number.isInteger));
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  };
+
   function ensureFixtureNumberField() {
     if ($("patchFixtureNumber")) return;
     const patchButton = $("btnPatch");
@@ -26,13 +33,6 @@ document.addEventListener("DOMContentLoaded", () => {
     row.innerHTML = '<label>Fixture Number</label><input type="number" id="patchFixtureNumber" min="1" step="1">';
     const addrRow = $("patchAddr")?.closest(".form-row");
     grid.insertBefore(row, addrRow || null);
-
-    const nextFixtureNumber = () => {
-      const used = new Set((State.fixtures || []).map(f => Number(f?.fixtureNumber)).filter(Number.isInteger));
-      let n = 1;
-      while (used.has(n)) n++;
-      return n;
-    };
 
     const input = $("patchFixtureNumber");
     if (input) input.value = String(nextFixtureNumber());
@@ -371,12 +371,36 @@ document.addEventListener("DOMContentLoaded", () => {
      PATCH
   ========================================================== */
 
+  // The beam angle box shows the library's range for the chosen fixture, and
+  // is turned off for fixtures whose zoom is on a DMX channel.
+  let lastBeamHintName = null;
+  function refreshPatchBeamHint() {
+    const name = $("patchName")?.value || "";
+    if (name === lastBeamHintName) return;
+    lastBeamHintName = name;
+    const input = $("patchBeamAngle"), hint = $("patchBeamHint");
+    if (!input || !hint) return;
+    const def = FixtureLibrary?.[name];
+    const info = def ? window.LXBeamAngle?.info(def) : null;
+    input.value = "";
+    input.disabled = Boolean(info?.zoom);
+    input.placeholder = info?.zoom ? "Set by zoom" : info?.text ? `Library ${info.text}` : "Library angle";
+    hint.textContent = info?.zoom ? "(DMX zoom)" : "(optional)";
+  }
+  $("patchName")?.addEventListener("input", refreshPatchBeamHint);
+  $("patchName")?.addEventListener("change", refreshPatchBeamHint);
+  // The library list fills the name in by code, which fires no event.
+  document.addEventListener("click", () => setTimeout(refreshPatchBeamHint, 0));
+  $("patchBeamAngle")?.addEventListener("focus", refreshPatchBeamHint);
+
   button("btnPatch", () => {
     ensureFixtureNumberField();
     const name = $("patchName")?.value;
     const uni = Number($("patchUni")?.value || 1);
     const addr = Number($("patchAddr")?.value || 1);
     const fixtureNumber = Number($("patchFixtureNumber")?.value || 0);
+    // Optional: the angle this light's lens or manual zoom is actually set to.
+    const beamAngle = window.LXBeamAngle?.parse($("patchBeamAngle")?.value) ?? null;
 
     if (!name || !FixtureLibrary?.[name]) {
       return log("Select a valid fixture first", "warn");
@@ -430,7 +454,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    State.fixtures.push({ id, name, uni, addr, fixtureNumber });
+    const fixture = { id, name, uni, addr, fixtureNumber };
+    if (beamAngle != null && !window.LXBeamAngle?.info(definition).zoom) fixture.beamAngle = beamAngle;
+    State.fixtures.push(fixture);
 
     const initialState = {
       ...(State.current || {}),
@@ -458,7 +484,9 @@ document.addEventListener("DOMContentLoaded", () => {
     updateDMX?.();
     sendToVisualizer?.();
 
-    log(`Patched: #${fixtureNumber} ${name} → Uni ${uni} Addr ${addr}`, "ok");
+    // Ready for the next one: the next free fixture number.
+    if ($("patchFixtureNumber")) $("patchFixtureNumber").value = String(nextFixtureNumber());
+    log(`Patched: #${fixtureNumber} ${name} → Uni ${uni} Addr ${addr}${fixture.beamAngle ? ` · ${fixture.beamAngle}°` : ""}`, "ok");
     ensureFixtureNumberField();
   });
 

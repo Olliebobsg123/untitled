@@ -101,4 +101,12 @@ s = decodeFixture(spot, frame({ 0: 255, 1: 40, 2: 60, 3: 200, 4: 200, 5: 150, 6:
 assert.equal(s.gobo, 3); assert.ok(s.gobo2 > 0); assert.ok(s.gobo2Rotation.speed !== 0);
 assert.ok(s.prism); assert.ok(s.prismRotation.speed > 0); assert.ok(s.colourScroll > 0);
 
+// A beam angle chosen on the fixture (manual zoom / lens choice) is used,
+// unless the fixture has a DMX zoom channel, which drives it instead.
+const profile = { type: "dimmer", map: { dimmer: 0 }, photometrics: { beamAngleMin: 15, beamAngleMax: 30 } };
+assert.equal(decodeFixture(profile, frame({ 0: 255 }), 0, "Profile", null, 22).beamAngle, 22);
+assert.equal(decodeFixture(profile, frame({ 0: 255 }), 0, "Profile").beamAngle, 30);
+const zoomHead = { type: "moving", map: { dimmer: 0, zoom: 1 }, photometrics: { beamAngleMin: 10, beamAngleMax: 40 } };
+assert.equal(decodeFixture(zoomHead, frame({ 0: 255, 1: 0 }), 0, "Zoomer", null, 22).beamAngle, 10);
+
 console.log("visualiser decode tests passed");

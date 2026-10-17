@@ -162,14 +162,18 @@ const DEFAULT_ANGLE = { moving: 16, wash: 25, beam: 4, strobe: 110, blinder: 60,
 
 // Beam spread in degrees: zoom moves between the fixture's narrowest and widest
 // angles; fixed-lens fixtures use their beam angle; iris narrows it.
-export function decodeBeamAngle(def, read, name = "") {
+// `chosen` is the angle set on this fixture in the console (patch or the
+// Beam Angle card): for lights with a manual zoom or a choice of lenses.
+// A DMX zoom channel still wins, since the console drives that live.
+export function decodeBeamAngle(def, read, name = "", chosen = null) {
   const p = def?.photometrics || {};
   const narrow = Number(p.beamAngleMin) > 0 ? Number(p.beamAngleMin) : null;
   const wide = Number(p.beamAngleMax) > 0 ? Number(p.beamAngleMax) : null;
   const fixed = Number(p.beamAngle) > 0 ? Number(p.beamAngle) : null;
   const zoom = read("zoom");
   let angle;
-  if (zoom != null && narrow && wide) angle = narrow + (wide - narrow) * zoom;
+  if (zoom == null && Number(chosen) > 0) angle = Number(chosen);
+  else if (zoom != null && narrow && wide) angle = narrow + (wide - narrow) * zoom;
   else if (zoom != null) angle = /wash/i.test(name) || def?.type === "wash" ? 15 + zoom * 45 : 8 + zoom * 42;
   else angle = fixed || wide || narrow || (/wash/i.test(name) ? 30 : /\bbeam\b/i.test(name) ? 4 : null) || DEFAULT_ANGLE[def?.type] || 25;
   const iris = read("iris");
@@ -224,7 +228,7 @@ export function decodeFraming(read, manual) {
 const goboSlot = value => (value > 7 ? 1 + (Math.floor((value - 8) / 16) % 8) : 0);
 
 // Everything the visualiser needs for one fixture, from the console's buffer.
-export function decodeFixture(def, frame, base, name = "", manualShutters = null) {
+export function decodeFixture(def, frame, base, name = "", manualShutters = null, beamAngle = null) {
   const map = def?.map || {};
   const read = reader(frame, base, map);
   const colour = decodeColour(def, read, name);
@@ -242,7 +246,7 @@ export function decodeFixture(def, frame, base, name = "", manualShutters = null
     intensity: clamp01(intensity),
     rgb: colour.rgb,
     strobeRate: strobe.rate,
-    beamAngle: decodeBeamAngle(def, read, name),
+    beamAngle: decodeBeamAngle(def, read, name, beamAngle),
     // Edge softness 0 (hard) - 1 (very soft). Focus sharpens; frost softens.
     softness: Math.min(1, (read("focus") == null ? 0.35 : 0.15 + (1 - read("focus")) * 0.5) + (read("frost") ?? 0) * 0.6),
     // Radians from the centre of travel; null for fixtures that don't move.

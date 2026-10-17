@@ -224,6 +224,130 @@
     return field;
   }
 
+  // Beam angle chosen for a fixture: for lights with a manual zoom or a
+  // choice of lenses (a 15-30 degree profile, a par with different lamps).
+  // Stored on the fixture like the barn doors, saved with the show, and
+  // used by the visualiser. A DMX zoom channel drives the angle instead.
+  function beamAngleInfo(def) {
+    const p = def?.photometrics || {};
+    const min = Number(p.beamAngleMin) > 0 ? Number(p.beamAngleMin) : null;
+    const max = Number(p.beamAngleMax) > 0 ? Number(p.beamAngleMax) : null;
+    const fixed = Number(p.beamAngle) > 0 ? Number(p.beamAngle) : null;
+    const zoom = typeof def?.map?.zoom === "number";
+    const text = min && max && min !== max ? `${min}–${max}°` : fixed || min || max ? `${fixed || min || max}°` : "";
+    return { min, max, fixed, zoom, text };
+  }
+  window.LXBeamAngle = Object.freeze({
+    info: beamAngleInfo,
+    // A typed angle, or null for "use the library". Clamped to 1-150°.
+    parse(value) {
+      const number = Number(String(value ?? "").replace("°", "").trim());
+      return String(value ?? "").trim() && Number.isFinite(number) && number > 0 ? Math.max(1, Math.min(150, Math.round(number * 10) / 10)) : null;
+    }
+  });
+
+  function applyBeamAngle(fixtures, angle) {
+    for (const fixture of fixtures) {
+      if (angle == null) delete fixture.beamAngle;
+      else fixture.beamAngle = angle;
+    }
+    window.sendToVisualizer?.();
+  }
+
+  function renderBeamAngle(container, fixtures) {
+    const settable = fixtures.filter(f => !beamAngleInfo(getDefinition(f)).zoom);
+    const zoomOnly = fixtures.length && !settable.length;
+    if (!fixtures.length) return;
+    const representative = settable.length ? settable[settable.length - 1] : fixtures[0];
+    const info = beamAngleInfo(getDefinition(representative));
+
+    const card = document.createElement("div");
+    card.className = "control-group parameter-card dynamic-parameter-card";
+    const heading = document.createElement("div");
+    heading.className = "dynamic-group-heading";
+    heading.textContent = "Beam Angle";
+    card.appendChild(heading);
+
+    const note = document.createElement("div");
+    note.style.cssText = "color:var(--text-muted,#7c8a92);font-size:9px;letter-spacing:.06em;text-transform:uppercase;padding:4px 2px 0;line-height:1.4;";
+
+    if (zoomOnly) {
+      note.textContent = "Set by the Zoom control on this fixture.";
+      card.appendChild(note);
+      container.appendChild(card);
+      return;
+    }
+
+    const lo = Math.max(1, Math.floor(info.min ? info.min * 0.5 : 1));
+    const hi = Math.min(150, Math.ceil(info.max ? Math.max(info.max * 1.5, info.max + 10) : 90));
+    const current = representative.beamAngle ?? info.fixed ?? info.min ?? 25;
+
+    const field = document.createElement("div");
+    field.className = "dynamic-field";
+    const label = document.createElement("span");
+    label.className = "dynamic-field-label";
+    label.textContent = "Angle";
+    const range = document.createElement("input");
+    range.type = "range";
+    range.min = String(lo);
+    range.max = String(hi);
+    range.step = "0.5";
+    range.value = String(current);
+    range.className = "dynamic-mini-fader";
+    const number = document.createElement("input");
+    number.type = "number";
+    number.min = "1";
+    number.max = "150";
+    number.step = "0.5";
+    number.placeholder = info.text || "auto";
+    number.value = representative.beamAngle != null ? String(representative.beamAngle) : "";
+    number.title = "Degrees. Leave empty to use the library angle.";
+    number.style.cssText = "width:58px;";
+    field.append(label, range, number);
+
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "btn-secondary";
+    reset.textContent = "Library";
+    reset.title = info.text ? `Back to the library angle (${info.text})` : "Back to the library angle";
+    reset.style.cssText = "margin-left:6px;padding:2px 8px;font-size:10px;";
+    field.appendChild(reset);
+
+    const describe = () => {
+      const chosen = representative.beamAngle;
+      const library = info.text ? `Library ${info.text}` : "No library angle";
+      const zoomNote = settable.length < fixtures.length ? " · zoom fixtures use their Zoom control" : "";
+      note.textContent = (chosen != null ? `Set to ${chosen}° · ${library}` : `${library} (in use)`) + zoomNote;
+    };
+    range.addEventListener("input", () => {
+      const angle = window.LXBeamAngle.parse(range.value);
+      number.value = String(angle);
+      applyBeamAngle(settable, angle);
+      describe();
+    });
+    number.addEventListener("change", () => {
+      const angle = window.LXBeamAngle.parse(number.value);
+      if (angle != null) range.value = String(angle);
+      number.value = angle != null ? String(angle) : "";
+      applyBeamAngle(settable, angle);
+      describe();
+    });
+    reset.addEventListener("click", () => {
+      number.value = "";
+      range.value = String(info.fixed ?? info.min ?? 25);
+      applyBeamAngle(settable, null);
+      describe();
+    });
+
+    const row = document.createElement("div");
+    row.className = "dynamic-row";
+    row.appendChild(field);
+    card.appendChild(row);
+    describe();
+    card.appendChild(note);
+    container.appendChild(card);
+  }
+
   function renderManualBarnDoors(container, fixtures) {
     const eligible = manualShutterFixtures(fixtures);
     if (!eligible.length) return;
@@ -824,6 +948,7 @@
       if (fragments[tab].childNodes.length) containers[tab].appendChild(fragments[tab]);
     }
 
+    renderBeamAngle(containers.beam, fixtures);
     renderManualBarnDoors(containers.beam, fixtures);
 
     for (const key of activeKeys) {

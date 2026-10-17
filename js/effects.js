@@ -73,6 +73,12 @@ function fxGetFixtures(options = {}) {
   const all = fxAllFixtures();
   const ids = fxResolveTargetIds(options);
   if (!ids.length) return [];
+  // An "ordered" effect runs through its fixtures in the order it lists them
+  // (e.g. left to right across the stage); otherwise patch order.
+  if (options.ordered) {
+    const byId = new Map(all.map(f => [fxGetFixtureId(f), f]));
+    return ids.map(id => byId.get(id)).filter(Boolean);
+  }
   const wanted = new Set(ids);
   return all.filter(f => wanted.has(fxGetFixtureId(f)));
 }
@@ -164,7 +170,7 @@ function stopEffect(silent = false) {
 function fxStart(type, options = {}, renderFrame, filter) {
   stopEffect(true);
   const targetInfo = fxCaptureEffectTargets(options);
-  const fixtures = fxGetFixtures(targetInfo).filter(filter || (() => true));
+  const fixtures = fxGetFixtures({ ...targetInfo, ordered: options.ordered }).filter(filter || (() => true));
   if (!fixtures.length) { fxLog("No fixtures selected for this effect", "warn"); return false; }
   const speed = Math.max(type === "strobe" ? 1 : 0.05, fxNumber(options.speed, type === "strobe" ? 8 : 1));
   State.activeEffect = { type, speed, fixtureMode: targetInfo.fixtureMode, fixtureIds: targetInfo.fixtureIds.slice() };
@@ -235,6 +241,117 @@ function startWave(options = {}) {
     });
   });
 }
+// ------------------------------------------------------------------
+// More effect types. Each reads its settings from the effect itself, so a
+// saved effect can carry them (Auto Create makes most of its effects with
+// these):
+//   speed   cycles (or steps) per second
+//   spread  0-1: how far apart in the cycle neighbouring fixtures are
+//   order   "forward" | "reverse" | "centre" (from the middle out)
+//   colours list of hues (0-360); size: movement size in DMX steps (0-255)
+// Movement effects run around wherever each head was pointing when the
+// effect started, so put the heads somewhere (a position palette) first.
+// ------------------------------------------------------------------
+function fxRandom(a, b) {
+  const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+function fxDefinitionMap(fixture) { return fxGetFixtureDefinition(fixture)?.map || {}; }
+function fxCanColour(fixture) {
+  const map = fxDefinitionMap(fixture);
+  return fxHasColour(fixture) || typeof map.colour === "number" || ["cyan", "magenta", "yellow"].every(k => typeof map[k] === "number");
+}
+function fxCanMove(fixture) {
+  const map = fxDefinitionMap(fixture);
+  return typeof map.pan === "number" || typeof map.tilt === "number";
+}
+// Colour by hue for every kind of fixture: RGB and wheels take hue/sat/light;
+// CMY fixtures subtract from white.
+function fxSetColour(fixture, state, hue, sat = 100, light = 50) {
+  state.hue = ((hue % 360) + 360) % 360; state.sat = sat; state.light = light;
+  if ("w" in state) state.w = 0;
+  const map = fxDefinitionMap(fixture);
+  if (typeof map.r !== "number" && ["cyan", "magenta", "yellow"].every(k => typeof map[k] === "number")) {
+    const s = sat / 100, l = light / 100, a = s * Math.min(l, 1 - l);
+    const f = n => { const k = (n + state.hue / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+    const rgb = [f(0), f(8), f(4)], max = Math.max(...rgb) || 1;
+    state.cyan = Math.round((1 - rgb[0] / max) * 255);
+    state.magenta = Math.round((1 - rgb[1] / max) * 255);
+    state.yellow = Math.round((1 - rgb[2] / max) * 255);
+  }
+}
+// Where a fixture sits in the effect's order, 0-1.
+function fxPosition(index, count, order) {
+  const t = count > 1 ? index / (count - 1) : 0;
+  if (order === "reverse") return 1 - t;
+  if (order === "centre") return Math.abs(t - 0.5) * 2;
+  return t;
+}
+function fxSetPanTilt(state, pan, tilt) {
+  const word = v => Math.round(Math.max(0, Math.min(255, v)) * 256) / 256;
+  const p = word(pan), t = word(tilt);
+  state.pan = Math.floor(p); state.panf = Math.round((p - Math.floor(p)) * 255);
+  state.tilt = Math.floor(t); state.tiltf = Math.round((t - Math.floor(t)) * 255);
+}
+const fxWave01 = x => (Math.sin(x * Math.PI * 2 - Math.PI / 2) + 1) / 2; // 0 → 1 → 0 over one cycle
+
+// name: [which fixtures, frame(state, fixture, ctx)]. ctx: t (seconds),
+// speed, phase (0-1 position x spread), index, count, o (options), base.
+const FX_TYPES = {
+  // ---- intensity
+  sparkle: ["all", (st, f, c) => { const k = Math.floor(c.t * c.speed * 8); st.intensity = fxApplyIntensity(fxRandom(c.index + 1, k) < (c.o.density ?? 0.25) ? 100 : 0); }],
+  flicker: ["all", (st, f, c) => { const k = c.t * c.speed * 12; const n = fxRandom(c.index + 1, Math.floor(k)) * 0.6 + fxRandom(c.index + 7, Math.floor(k * 2.3)) * 0.4; st.intensity = fxApplyIntensity(55 + n * 45); }],
+  bounce: ["all", (st, f, c) => { const span = Math.max(1, c.count - 1); const p = (c.t * c.speed) % (span * 2); const at = p <= span ? p : span * 2 - p; st.intensity = fxApplyIntensity(Math.max(0, 100 - Math.abs(c.index - at) * 100)); }],
+  build: ["all", (st, f, c) => { const step = Math.floor(c.t * c.speed) % (c.count + 1); st.intensity = fxApplyIntensity(c.order < step ? 100 : 0); }],
+  ramp: ["all", (st, f, c) => { const x = (c.t * c.speed + c.phase) % 1; st.intensity = fxApplyIntensity((c.o.direction === "down" ? 1 - x : x) * 100); }],
+  sine: ["all", (st, f, c) => { const lo = c.o.min ?? 0; st.intensity = fxApplyIntensity(lo + fxWave01(c.t * c.speed + c.phase) * (100 - lo)); }],
+  random: ["all", (st, f, c) => { st.intensity = fxApplyIntensity(Math.round(fxRandom(c.index + 3, Math.floor(c.t * c.speed)) * 100)); }],
+  heartbeat: ["all", (st, f, c) => { const x = (c.t * c.speed + c.phase) % 1; const beat = Math.exp(-Math.pow((x - 0.1) / 0.05, 2)) + 0.7 * Math.exp(-Math.pow((x - 0.32) / 0.05, 2)); st.intensity = fxApplyIntensity(8 + Math.min(1, beat) * 92); }],
+  alternate: ["all", (st, f, c) => { const on = (Math.floor(c.t * c.speed) + c.index) % 2 === 0; st.intensity = fxApplyIntensity(on ? 100 : 0); }],
+  lightning: ["all", (st, f, c) => { const k = Math.floor(c.t * 20); const strike = fxRandom(Math.floor(c.t * c.speed), 9) < 0.35 && fxRandom(k, c.index + 1) < 0.5 && (k % 7) < 3; st.intensity = fxApplyIntensity(strike ? 100 : 0); if (fxCanColour(f)) fxSetColour(f, st, 220, 25, 90); }],
+  // ---- colour (keeps the light up)
+  colourfade: ["colour", (st, f, c) => { const hues = c.o.colours?.length ? c.o.colours : [0, 240]; const x = (c.t * c.speed + c.phase) * hues.length; const i = Math.floor(x), m = x - i; const a = hues[i % hues.length], b = hues[(i + 1) % hues.length]; let d = b - a; if (d > 180) d -= 360; if (d < -180) d += 360; const blend = (1 - Math.cos(m * Math.PI)) / 2; fxSetColour(f, st, a + d * blend); st.intensity = fxGetLiveIntensity(); }],
+  colourstep: ["colour", (st, f, c) => { const hues = c.o.colours?.length ? c.o.colours : [0, 120, 240]; const i = Math.floor(c.t * c.speed + c.phase * hues.length); fxSetColour(f, st, hues[((i % hues.length) + hues.length) % hues.length]); st.intensity = fxGetLiveIntensity(); }],
+  fire: ["colour", (st, f, c) => { const k = c.t * c.speed * 10; const n = fxRandom(c.index + 1, Math.floor(k)) * 0.5 + fxRandom(c.index + 5, Math.floor(k * 1.7)) * 0.5; fxSetColour(f, st, 4 + n * 30); st.intensity = fxApplyIntensity(50 + n * 50); }],
+  water: ["colour", (st, f, c) => { const w = fxWave01(c.t * c.speed + c.phase); fxSetColour(f, st, 185 + w * 50, 100, 45 + w * 15); st.intensity = fxApplyIntensity(55 + w * 45); }],
+  police: ["colour", (st, f, c) => { const flash = Math.floor(c.t * c.speed * 6) % 6; const half = c.index < c.count / 2; const redTurn = Math.floor(c.t * c.speed) % 2 === 0; fxSetColour(f, st, half ? 0 : 230); st.intensity = fxApplyIntensity(half === redTurn && flash % 2 === 0 && flash < 4 ? 100 : 0); }],
+  disco: ["colour", (st, f, c) => { const k = Math.floor(c.t * c.speed); fxSetColour(f, st, Math.floor(fxRandom(c.index + 1, k) * 12) * 30); st.intensity = fxGetLiveIntensity(); }],
+  // ---- movement (around where each head was when the effect started)
+  circle: ["move", (st, f, c) => { const a = (c.t * c.speed + c.phase) * Math.PI * 2 * (c.o.direction === "reverse" ? -1 : 1); const r = c.o.size ?? 12; fxSetPanTilt(st, c.base.pan + Math.cos(a) * r, c.base.tilt + Math.sin(a) * r); fxKeepLit(st); }],
+  figure8: ["move", (st, f, c) => { const a = (c.t * c.speed + c.phase) * Math.PI * 2; const r = c.o.size ?? 14; fxSetPanTilt(st, c.base.pan + Math.sin(a) * r, c.base.tilt + Math.sin(a * 2) * r * 0.5); fxKeepLit(st); }],
+  pansweep: ["move", (st, f, c) => { const r = c.o.size ?? 20; fxSetPanTilt(st, c.base.pan + Math.sin((c.t * c.speed + c.phase) * Math.PI * 2) * r, c.base.tilt); fxKeepLit(st); }],
+  tiltsweep: ["move", (st, f, c) => { const r = c.o.size ?? 15; fxSetPanTilt(st, c.base.pan, c.base.tilt + Math.sin((c.t * c.speed + c.phase) * Math.PI * 2) * r); fxKeepLit(st); }],
+  ballyhoo: ["move", (st, f, c) => { const x = c.t * c.speed + c.phase; const r = c.o.size ?? 22; fxSetPanTilt(st, c.base.pan + Math.sin(x * Math.PI * 2) * r, c.base.tilt + Math.sin(x * Math.PI * 2 * 1.37 + 1) * r * 0.6); fxKeepLit(st); }],
+  fan: ["move", (st, f, c) => { const r = c.o.size ?? 18; const side = c.count > 1 ? (c.index / (c.count - 1)) * 2 - 1 : 0; fxSetPanTilt(st, c.base.pan + side * r * fxWave01(c.t * c.speed), c.base.tilt); fxKeepLit(st); }],
+  search: ["move", (st, f, c) => { const k = c.t * c.speed; const i = Math.floor(k), m = (1 - Math.cos((k - i) * Math.PI)) / 2; const r = c.o.size ?? 25; const p = n => (fxRandom(c.index + 1, n) - 0.5) * 2 * r, q = n => (fxRandom(c.index + 11, n) - 0.5) * r; fxSetPanTilt(st, c.base.pan + p(i) + (p(i + 1) - p(i)) * m, c.base.tilt + q(i) + (q(i + 1) - q(i)) * m); fxKeepLit(st); }],
+  // ---- beam
+  zoompulse: ["zoom", (st, f, c) => { st.zoom = Math.round(fxWave01(c.t * c.speed + c.phase) * 255); }],
+  irispulse: ["iris", (st, f, c) => { st.iris = Math.round(fxWave01(c.t * c.speed + c.phase) * 200); }]
+};
+// Movement effects bring a dark head up so you can see it move.
+function fxKeepLit(state) { if (!(Number(state.intensity) > 0)) state.intensity = fxGetLiveIntensity(); }
+
+function startTypedEffect(type, options = {}) {
+  const [needs, frame] = FX_TYPES[type];
+  const filter = needs === "colour" ? fxCanColour : needs === "move" ? fxCanMove
+    : needs === "zoom" ? (f => typeof fxDefinitionMap(f).zoom === "number")
+    : needs === "iris" ? (f => typeof fxDefinitionMap(f).iris === "number") : null;
+  const base = new Map();
+  return fxStart(type, options, (now, elapsed, fixtures) => {
+    const speed = Math.max(0.01, fxNumber(options.speed, 1));
+    const spread = Math.max(0, Math.min(1, fxNumber(options.spread, 0)));
+    const count = fixtures.length;
+    // For "build": the order fixtures come on in.
+    const ranked = fixtures.map((f, i) => [i, fxPosition(i, count, options.order)]).sort((a, b) => a[1] - b[1]).map(([i]) => i);
+    fixtures.forEach((fixture, index) => {
+      const state = fxGetState(fixture); if (!state) return;
+      if (!base.has(fixture.id)) base.set(fixture.id, { pan: fxNumber(state.pan, 128) + fxNumber(state.panf, 0) / 256, tilt: fxNumber(state.tilt, 128) + fxNumber(state.tiltf, 0) / 256 });
+      state.master = 100;
+      frame(state, fixture, { t: elapsed, speed, phase: fxPosition(index, count, options.order) * spread, index, count, order: ranked.indexOf(index), o: options, base: base.get(fixture.id) });
+    });
+  }, filter);
+}
+
 function startEffect(type, options = {}) {
   switch (type) {
     case "rainbow": return startRainbow(options);
@@ -242,14 +359,16 @@ function startEffect(type, options = {}) {
     case "pulse": return startPulse(options);
     case "chase": return startChaseEffect(options);
     case "wave": return startWave(options);
-    default: fxLog(`Unknown effect: ${type}`, "warn"); return false;
+    default:
+      if (FX_TYPES[type]) return startTypedEffect(type, options);
+      fxLog(`Unknown effect: ${type}`, "warn"); return false;
   }
 }
 function createCustomEffect() {
   const type = prompt("Effect type:\n\nrainbow\nstrobe\npulse\nchase\nwave", "rainbow");
   if (type === null) return false;
   const clean = String(type).trim().toLowerCase();
-  if (!["rainbow","strobe","pulse","chase","wave"].includes(clean)) { fxLog("Unknown custom effect", "warn"); return false; }
+  if (!["rainbow","strobe","pulse","chase","wave", ...Object.keys(FX_TYPES)].includes(clean)) { fxLog("Unknown custom effect", "warn"); return false; }
   const speed = Number(prompt("Speed:", clean === "strobe" ? "8" : "1"));
   return startEffect(clean, { speed: Number.isFinite(speed) ? speed : 1 });
 }
@@ -445,7 +564,7 @@ Object.assign(window, {
   createCustomEffect, startCueEffect, fxGetFixtureDefinition, attachEffectToCue,
   setIntensity, fxApplyIntensity, fxGetLiveIntensity,
   fxGetFixtures, fxSetEffectTargets, fxCaptureEffectTargets, saveEffect, applySavedEffect, applyEffectToFixtures,
-  renderEffectsList
+  renderEffectsList, FX_TYPES
 });
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initEffects, { once: true });

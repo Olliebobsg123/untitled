@@ -206,26 +206,104 @@
     return palettes;
   }
 
-  function makeEffects(rig) {
-    const lights = rig.filter(r => r.light);
-    const colourful = lights.filter(r => r.rgb);
+  // Left to right as the audience sees it (stage right, -x, first).
+  const leftToRight = (list, pos) => [...list].sort((a, b) => (pos.get(a.fixture.id)?.x ?? 0) - (pos.get(b.fixture.id)?.x ?? 0));
+
+  // Effects run live on the effects engine (js/effects.js), so they can be
+  // smooth, random or continuous. Named "Kind: Effect" so the list sorts
+  // into intensity, colour, movement and beam.
+  function makeEffects(rig, pos) {
+    const lights = leftToRight(rig.filter(r => r.light), pos);
+    const colourful = lights.filter(r => r.colour);
+    const movers = lights.filter(r => r.moving);
     const effects = [];
-    const add = (key, name, type, speed, list) => {
-      if (list.length) effects.push({ autoKey: key, name, type, speed, fixtureMode: "custom", fixtureIds: list.map(r => String(r.fixture.id)) });
+    const add = (kind, name, type, options, list) => {
+      if (!list.length) return;
+      effects.push({ autoKey: `fx:${kind}:${name}`, name: `${kind}: ${name}`, type, speed: options.speed ?? 1, ordered: true, ...options, fixtureMode: "custom", fixtureIds: list.map(r => String(r.fixture.id)) });
     };
-    add("fx:rainbow", "Rainbow (All Colour)", "rainbow", 0.12, colourful);
-    add("fx:pulse", "Pulse (All)", "pulse", 1, lights);
-    if (lights.length >= 3) {
-      add("fx:wave", "Wave (All)", "wave", 0.5, lights);
-      add("fx:chase", "Chase (All)", "chase", 4, lights);
+    const reversed = list => [...list].reverse();
+    const RAINBOW = [0, 30, 55, 120, 180, 235, 290];
+
+    // Intensity
+    const I = "Intensity";
+    add(I, "Pulse Slow", "sine", { speed: 0.25 }, lights);
+    add(I, "Pulse Fast", "sine", { speed: 1.5 }, lights);
+    add(I, "Breathe", "sine", { speed: 0.15, min: 15 }, lights);
+    add(I, "Heartbeat", "heartbeat", { speed: 1.1 }, lights);
+    add(I, "Candle Flicker", "flicker", { speed: 1 }, lights);
+    add(I, "Sparkle", "sparkle", { speed: 1, density: 0.25 }, lights);
+    add(I, "Strobe Fast", "strobe", { speed: 12 }, lights);
+    add(I, "Strobe Slow", "strobe", { speed: 3 }, lights);
+    add(I, "Lightning", "lightning", { speed: 1 }, lights);
+    if (lights.length >= 2) {
+      add(I, "Odd / Even", "alternate", { speed: 2 }, lights);
+      add(I, "Random", "random", { speed: 3 }, lights);
+      add(I, "Sparkle Fast", "sparkle", { speed: 2.5, density: 0.15 }, lights);
     }
-    add("fx:strobe", "Strobe (All)", "strobe", 8, lights);
+    if (lights.length >= 3) {
+      add(I, "Wave Left → Right", "sine", { speed: 0.5, spread: 0.8, order: "reverse" }, lights);
+      add(I, "Wave Right → Left", "sine", { speed: 0.5, spread: 0.8 }, lights);
+      add(I, "Wave Centre Out", "sine", { speed: 0.5, spread: 0.7, order: "centre" }, lights);
+      add(I, "Chase Left → Right", "chase", { speed: 4 }, lights);
+      add(I, "Chase Right → Left", "chase", { speed: 4 }, reversed(lights));
+      add(I, "Bounce", "bounce", { speed: 4 }, lights);
+      add(I, "Build Left → Right", "build", { speed: 3 }, lights);
+      add(I, "Build Centre Out", "build", { speed: 3, order: "centre" }, lights);
+      add(I, "Ramp Up", "ramp", { speed: 0.5, spread: 0.5 }, lights);
+      add(I, "Ramp Down", "ramp", { speed: 0.5, spread: 0.5, direction: "down" }, lights);
+    }
+
+    // Colour
+    const C = "Colour";
+    add(C, "Rainbow", "rainbow", { speed: 0.1 }, colourful.filter(r => r.rgb));
+    add(C, "Rainbow Fast", "rainbow", { speed: 0.5 }, colourful.filter(r => r.rgb));
+    add(C, "Rainbow Spread", "colourfade", { speed: 0.1, spread: 1, colours: RAINBOW }, colourful);
+    add(C, "Red / Blue Fade", "colourfade", { speed: 0.2, colours: [0, 235] }, colourful);
+    add(C, "Warm Fade", "colourfade", { speed: 0.15, spread: 0.3, colours: [0, 20, 38, 55] }, colourful);
+    add(C, "Cool Fade", "colourfade", { speed: 0.15, spread: 0.3, colours: [180, 210, 240, 270] }, colourful);
+    add(C, "Pink / Purple Fade", "colourfade", { speed: 0.15, spread: 0.3, colours: [300, 330, 270] }, colourful);
+    add(C, "Sunset", "colourfade", { speed: 0.05, spread: 0.2, colours: [0, 22, 38, 330, 280] }, colourful);
+    add(C, "Aurora", "colourfade", { speed: 0.08, spread: 0.6, colours: [120, 170, 280, 190] }, colourful);
+    add(C, "RGB Step", "colourstep", { speed: 1, colours: [0, 120, 240] }, colourful);
+    add(C, "Colour Chase", "colourstep", { speed: 3, spread: 1, colours: RAINBOW }, colourful);
+    add(C, "Christmas", "colourstep", { speed: 1, spread: 0.5, colours: [0, 120] }, colourful);
+    add(C, "Neon", "colourstep", { speed: 2, spread: 0.5, colours: [300, 180] }, colourful);
+    add(C, "Candy", "colourstep", { speed: 1.5, spread: 0.34, colours: [330, 180, 55] }, colourful);
+    add(C, "Fire", "fire", { speed: 1 }, colourful);
+    add(C, "Water", "water", { speed: 0.3, spread: 0.6 }, colourful);
+    add(C, "Police", "police", { speed: 1 }, colourful);
+    add(C, "Disco", "disco", { speed: 3 }, colourful);
+
+    // Movement (around wherever the heads are pointing)
+    const M = "Movement";
+    add(M, "Circle Small", "circle", { speed: 0.3, size: 8 }, movers);
+    add(M, "Circle Large", "circle", { speed: 0.15, size: 20 }, movers);
+    add(M, "Circle Fast", "circle", { speed: 0.8, size: 10 }, movers);
+    add(M, "Figure 8", "figure8", { speed: 0.2, size: 14 }, movers);
+    add(M, "Pan Sweep", "pansweep", { speed: 0.2, size: 18 }, movers);
+    add(M, "Pan Sweep Wide", "pansweep", { speed: 0.1, size: 35 }, movers);
+    add(M, "Tilt Nod", "tiltsweep", { speed: 0.4, size: 10 }, movers);
+    add(M, "Ballyhoo", "ballyhoo", { speed: 0.25, size: 22 }, movers);
+    add(M, "Ballyhoo Fast", "ballyhoo", { speed: 0.6, size: 18 }, movers);
+    add(M, "Searchlight", "search", { speed: 0.3, size: 25 }, movers);
+    add(M, "Random Search", "search", { speed: 0.8, size: 15 }, movers);
+    if (movers.length >= 2) {
+      add(M, "Circle Ripple", "circle", { speed: 0.25, size: 12, spread: 0.5 }, movers);
+      add(M, "Pan Sweep Alternate", "pansweep", { speed: 0.2, size: 18, spread: 0.5 }, movers);
+      add(M, "Tilt Wave", "tiltsweep", { speed: 0.3, size: 14, spread: 0.7 }, movers);
+      add(M, "Fan", "fan", { speed: 0.2, size: 20 }, movers);
+    }
+
+    // Beam
+    add("Beam", "Zoom Pulse", "zoompulse", { speed: 0.3 }, lights.filter(r => r.zoom));
+    add("Beam", "Iris Pulse", "irispulse", { speed: 0.5 }, lights.filter(r => r.iris));
     return effects;
   }
 
   // Chases are recorded looks (snapshot mode), so they use no cue numbers.
+  // They step from look to look with a fade, like a stack of cues on a loop.
   function makeChases(rig, pos) {
-    const lights = rig.filter(r => r.light);
+    const lights = leftToRight(rig.filter(r => r.light), pos);
     const colourful = lights.filter(r => r.colour);
     const movers = lights.filter(r => r.moving);
     const chases = [];
@@ -240,29 +318,95 @@
     };
     const look = (list, stateFor) => ({ globalState: {}, fixtureStates: list.map((r, i) => [r.fixture.id, { ...base(r), ...stateFor(r, i) }]) });
     const colour = name => COLOURS.find(c => c[0] === name);
-    const colourState = (r, c) => ({ ...colourValues(c), ...(r.cmy ? cmyFor(c) : {}) });
-    const add = (key, name, list, snapshots, speed, fade) => {
-      if (list.length && snapshots.length) chases.push({ autoKey: key, name, mode: "snapshot", steps: [], snapshots, fixtureIds: list.map(r => r.fixture.id), loop: true, speed, fade });
+    const tint = (r, name) => ({ ...colourValues(colour(name)), ...(r.cmy ? cmyFor(colour(name)) : {}) });
+    const add = (kind, name, list, snapshots, speed, fade) => {
+      if (list.length && snapshots.length) chases.push({ autoKey: `ch:${kind}:${name}`, name: `${kind}: ${name}`, mode: "snapshot", steps: [], snapshots, fixtureIds: list.map(r => r.fixture.id), loop: true, speed, fade });
     };
+    const steps = n => [...Array(n).keys()];
 
+    // Colour
     if (colourful.length) {
-      add("ch:rgb", "RGB Colour Chase", colourful, ["Red", "Green", "Blue"].map(n => look(colourful, r => colourState(r, colour(n)))), 40, 400);
-      const wheel = ["Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Magenta"];
-      add("ch:rainbow", "Rainbow Roll", colourful, wheel.map((_, step) => look(colourful, (r, i) => colourState(r, colour(wheel[(step + i) % wheel.length])))), 45, 300);
+      const C = "Colour";
+      const every = names => names.map(n => look(colourful, r => tint(r, n)));
+      add(C, "RGB", colourful, every(["Red", "Green", "Blue"]), 40, 500);
+      add(C, "CMY", colourful, every(["Cyan", "Magenta", "Yellow"]), 40, 500);
+      add(C, "Rainbow", colourful, every(["Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Magenta"]), 45, 600);
+      add(C, "Warm", colourful, every(["Red", "Orange", "Amber", "Yellow"]), 30, 1500);
+      add(C, "Cool", colourful, every(["Blue", "Cyan", "Lavender", "Congo Blue"]), 30, 1500);
+      add(C, "Pastels", colourful, every(["Pink", "Lavender", "Light Blue", "Lime"]), 30, 1500);
+      add(C, "Red White Blue", colourful, every(["Red", "White", "Blue", "White"]), 50, 200);
+      const rolls = { "Rainbow Roll": ["Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Magenta"], "Warm Roll": ["Red", "Orange", "Amber", "Yellow"], "Cool Roll": ["Blue", "Cyan", "Lavender", "Congo Blue"], "RGB Roll": ["Red", "Green", "Blue"] };
+      for (const [name, names] of Object.entries(rolls)) add(C, name, colourful, names.map((_, step) => look(colourful, (r, i) => tint(r, names[(step + i) % names.length]))), 45, 400);
+      if (colourful.length >= 2) {
+        for (const [a, b] of [["Red", "Blue"], ["Red", "White"], ["Blue", "White"], ["Green", "Magenta"], ["Cyan", "Pink"], ["Amber", "Blue"], ["Red", "Green"], ["Lavender", "Yellow"], ["Orange", "Cyan"]]) {
+          add(C, `${a} / ${b} Swap`, colourful, [0, 1].map(step => look(colourful, (r, i) => tint(r, (i + step) % 2 ? b : a))), 50, 300);
+        }
+        for (const [a, b] of [["Red", "Blue"], ["Blue", "Amber"]]) {
+          add(C, `${a} → ${b} Wipe`, colourful, steps(colourful.length + 1).map(step => look(colourful, (r, i) => tint(r, i < step ? b : a))), 70, 200);
+        }
+      }
     }
+
+    // Intensity, left to right
     if (lights.length >= 2) {
-      add("ch:oddeven", "Odd / Even Flash", lights, [0, 1].map(step => look(lights, (r, i) => ({ intensity: i % 2 === step ? 100 : 0 }))), 60, 0);
+      const I = "Intensity";
+      const n = lights.length;
+      const level = fn => steps => steps.map(step => look(lights, (r, i) => ({ intensity: fn(step, i) ? 100 : 0 })));
+      add(I, "Odd / Even", lights, level((s, i) => i % 2 === s)([0, 1]), 60, 0);
+      add(I, "Full / Out", lights, level(s => s === 0)([0, 1]), 60, 0);
+      add(I, "Dim Steps", lights, [100, 60, 30, 60].map(v => look(lights, () => ({ intensity: v }))), 40, 800);
+      add(I, "Halves", lights, level((s, i) => (i < n / 2) === (s === 0))([0, 1]), 55, 0);
+      if (n >= 3) {
+        add(I, "One By One →", lights, level((s, i) => i === s)(steps(n)), 80, 0);
+        add(I, "One By One ←", lights, level((s, i) => n - 1 - i === s)(steps(n)), 80, 0);
+        add(I, "Ping Pong", lights, level((s, i) => i === (s < n ? s : 2 * n - 2 - s))(steps(Math.max(2, 2 * n - 2))), 85, 0);
+        add(I, "Pairs", lights, level((s, i) => Math.floor(i / 2) === s)(steps(Math.ceil(n / 2))), 70, 0);
+        add(I, "Every Third", lights, level((s, i) => i % 3 === s)([0, 1, 2]), 65, 0);
+        add(I, "Build Up", lights, level((s, i) => i <= s)(steps(n)), 75, 150);
+        add(I, "Build & Clear", lights, level((s, i) => (s < n ? i <= s : i > s - n))(steps(2 * n)), 80, 100);
+        const middle = (n - 1) / 2;
+        const rings = Math.ceil(n / 2);
+        add(I, "Centre Out", lights, level((s, i) => Math.round(Math.abs(i - middle) - (n % 2 ? 0 : 0.5)) === s)(steps(rings)), 70, 0);
+        add(I, "Outside In", lights, level((s, i) => Math.round(Math.abs(i - middle) - (n % 2 ? 0 : 0.5)) === rings - 1 - s)(steps(rings)), 70, 0);
+        // Fixed pseudo-random patterns, so the chase looks the same every time.
+        const rnd = (a, b) => { const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return x - Math.floor(x); };
+        add(I, "Random Pops", lights, level((s, i) => rnd(i + 1, s + 1) < 0.3)(steps(8)), 85, 0);
+        add(I, "Twinkle", lights, steps(6).map(s => look(lights, (r, i) => ({ intensity: Math.round(30 + rnd(i + 2, s + 5) * 70) }))), 60, 700);
+      }
     }
-    if (lights.length >= 3 && lights.length <= 48) {
-      add("ch:onebyone", "One By One", lights, lights.map((_, step) => look(lights, (r, i) => ({ intensity: i === step ? 100 : 0 }))), 70, 0);
-    }
+
+    // Movement, aimed at real places on stage (see aim()).
     if (movers.length) {
-      const at = target => look(movers, r => aim(r, pos.get(r.fixture.id) || { x: 0, y: 7.1, z: -1.2 }, target(pos.get(r.fixture.id) || { x: 0 })));
-      add("ch:ballyhoo", "Ballyhoo", movers, [
-        () => ({ x: -4, y: 1, z: -1.5 }), () => ({ x: 4, y: 1, z: -1.5 }), () => ({ x: 4, y: 1, z: -7 }), () => ({ x: -4, y: 1, z: -7 })
-      ].map(at), 25, 900);
-      add("ch:fan", "Fan In / Out", movers, [() => ({ x: 0, y: 1, z: -4 }), from => ({ x: clamp(from.x * 1.8, -5.5, 5.5), y: 1, z: -4 })].map(at), 20, 1200);
+      const M = "Movement";
+      const from = r => pos.get(r.fixture.id) || { x: 0, y: 7.1, z: -1.2 };
+      const at = target => look(movers, (r, i) => aim(r, from(r), target(from(r), i)));
+      const route = points => points.map(p => at(typeof p === "function" ? p : () => p));
+      add(M, "Ballyhoo", movers, route([{ x: -4, y: 1, z: -1.5 }, { x: 4, y: 1, z: -1.5 }, { x: 4, y: 1, z: -7 }, { x: -4, y: 1, z: -7 }]), 25, 900);
+      add(M, "Corners", movers, route([{ x: -5, y: 1, z: -1 }, { x: 5, y: 1, z: -1 }, { x: 5, y: 1, z: -8 }, { x: -5, y: 1, z: -8 }]), 35, 300);
+      add(M, "Diamond", movers, route([{ x: 0, y: 1, z: -1 }, { x: 4.5, y: 1, z: -4.5 }, { x: 0, y: 1, z: -8 }, { x: -4.5, y: 1, z: -4.5 }]), 30, 800);
+      add(M, "Left / Right Sweep", movers, route([{ x: -5, y: 1, z: -4 }, { x: 5, y: 1, z: -4 }]), 25, 1500);
+      add(M, "Up / Downstage", movers, route([{ x: 0, y: 1, z: -1 }, { x: 0, y: 1, z: -8 }]), 25, 1500);
+      add(M, "Fan In / Out", movers, route([() => ({ x: 0, y: 1, z: -4 }), f => ({ x: clamp(f.x * 1.8, -5.5, 5.5), y: 1, z: -4 })]), 20, 1200);
+      add(M, "Cross / Uncross", movers, route([f => ({ x: clamp(-f.x, -5.5, 5.5), y: 1, z: -3 }), f => ({ x: clamp(f.x, -5.5, 5.5), y: 1, z: -3 })]), 25, 1000);
+      add(M, "Stage / Audience", movers, route([{ x: 0, y: 1, z: -4 }, f => ({ x: clamp(f.x, -6, 6), y: 2.5, z: 9 })]), 30, 600);
+      add(M, "Back Wall Sweep", movers, route([{ x: -5, y: 4.5, z: -8.3 }, { x: 5, y: 4.5, z: -8.3 }]), 20, 2000);
+      add(M, "Circle", movers, route(steps(8).map(k => ({ x: Math.cos((k / 8) * Math.PI * 2) * 2.8, y: 1, z: -4 + Math.sin((k / 8) * Math.PI * 2) * 2.2 }))), 60, 500);
+      add(M, "Figure 8", movers, route(steps(8).map(k => { const a = (k / 8) * Math.PI * 2; return { x: Math.sin(a) * 3.5, y: 1, z: -4 + Math.sin(a * 2) * 1.8 }; })), 55, 500);
+      // Moving and colour together.
+      const both = movers.filter(r => r.colour);
+      if (both.length) {
+        const wheel = ["Red", "Yellow", "Green", "Cyan", "Blue", "Magenta"];
+        const points = [{ x: -4, y: 1, z: -1.5 }, { x: 4, y: 1, z: -1.5 }, { x: 4, y: 1, z: -7 }, { x: -4, y: 1, z: -7 }];
+        add(M, "Rainbow Ballyhoo", both, steps(6).map(s => look(both, r => ({ ...aim(r, from(r), points[s % 4]), ...tint(r, wheel[s]) }))), 25, 900);
+        add(M, "Police Sweep", both, [0, 1].map(s => look(both, (r, i) => ({ ...aim(r, from(r), { x: s ? 5 : -5, y: 1, z: -4 }), ...tint(r, (i + s) % 2 ? "Blue" : "Red") }))), 45, 700);
+      }
     }
+
+    // Beam
+    const gobos = lights.filter(r => r.gobo), prisms = lights.filter(r => r.prism), zooms = lights.filter(r => r.zoom);
+    add("Beam", "Gobo Cycle", gobos, steps(6).map(s => look(gobos, () => ({ gobo: (s + 1) * 16 }))), 45, 0);
+    add("Beam", "Prism In / Out", prisms, [0, 1].map(s => look(prisms, () => ({ prism: s ? 128 : 0, prismr: s ? 180 : 0 }))), 40, 0);
+    add("Beam", "Zoom Snap", zooms, [0, 1].map(s => look(zooms, () => ({ zoom: s ? 255 : 0 }))), 45, 0);
     return chases;
   }
 
@@ -311,7 +455,7 @@
       window.Palettes?.refresh?.();
     }
     if (want.effects) {
-      const made = makeEffects(rig);
+      const made = makeEffects(rig, pos);
       const current = Object.values(state.savedEffects || {});
       const merged = merge(current, made);
       state.savedEffects = Object.fromEntries(merged.map(effect => [effect.name, effect]));
@@ -352,8 +496,8 @@
           <div style="padding:0 17px 6px;display:grid;gap:8px;font-size:12px;color:#d9e2e0">
             <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="groups" checked> Groups <small style="color:#66736f">all, by type, by model, odd/even, left/right</small></label>
             <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="palettes" checked> Palettes <small style="color:#66736f">colour, position, beam, intensity</small></label>
-            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="effects" checked> Effects <small style="color:#66736f">rainbow, pulse, wave, chase, strobe</small></label>
-            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="chases" checked> Chases <small style="color:#66736f">colour, rainbow roll, odd/even, one by one, ballyhoo</small></label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="effects" checked> Effects <small style="color:#66736f">intensity, colour, movement and beam effects</small></label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="chases" checked> Chases <small style="color:#66736f">colour, intensity, movement and beam chases</small></label>
           </div>
           <div class="palette-actions-row" style="padding:12px 17px 17px"><button type="button" class="btn-primary" data-auto-go>✨ Create</button><button type="button" class="btn-secondary" data-auto-cancel>Cancel</button></div>
         </div>`;

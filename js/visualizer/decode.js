@@ -62,27 +62,24 @@ export function kelvinToRgb(kelvin) {
 export const isTungsten = (def, name = "") =>
   def?.type === "tungsten" || /tungsten|halogen|incandescent/i.test(`${def?.photometrics?.sourceType || ""} ${name}`);
 
+// Generic colour-macro palette for fixtures whose macro tables we don't have:
+// most LED fixtures step through primaries and mixes in DMX bands.
+const MACRO_PALETTE = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 0.5, 0], [0.5, 0, 1], [1, 1, 1]];
+const MACRO_KEYS = ["colmacro", "colorPreset", "presetColors", "colorMacros"];
+
 // The colour a fixture makes (0-1 per channel, before brightness), and whether
 // that colour also carries the brightness (LED fixtures with no dimmer).
 export function decodeColour(def, read, name = "") {
   const map = def?.map || {};
   const has = key => isChannel(map[key]);
+  const level = key => read.fine(key, `${key}Fine`) ?? 0;
+  const hasEmitters = has("r") || has("g") || has("b");
+  let result;
 
-  if (has("cyan") && has("magenta") && has("yellow")) {
-    // Subtractive CMY (e.g. Robe ColorWash): white minus C/M/Y, warmed by CTO.
-    let rgb = [1 - read("cyan"), 1 - read("magenta"), 1 - read("yellow")];
-    if (has("cto")) {
-      const warm = kelvinToRgb(5600 - read("cto") * 2400);
-      rgb = rgb.map((v, i) => v * warm[i]);
-    }
-    if (has("colour")) {
-      const wheel = wheelColour(def, read.raw("colour"));
-      rgb = rgb.map((v, i) => v * wheel[i]);
-    }
-    return { rgb, carriesLevel: false };
-  }
-
-  if (has("r") && has("g") && has("b")) {
+  if (!hasEmitters && has("cyan") && has("magenta") && has("yellow")) {
+    // Subtractive CMY (e.g. Robe ColorWash): white minus C/M/Y.
+    result = { rgb: [1 - level("cyan"), 1 - level("magenta"), 1 - level("yellow")], carriesLevel: false };
+  } else if (hasEmitters) {
     // Additive LED mixing: each emitter adds its own colour.
     const emitters = [
       ["r", [1, 0, 0]], ["g", [0, 1, 0]], ["b", [0, 0, 1]],
@@ -94,33 +91,55 @@ export function decodeColour(def, read, name = "") {
     for (const [key, colour] of emitters) {
       if (!has(key) || seen.has(map[key])) continue;
       seen.add(map[key]);
-      const level = read(key);
-      colour.forEach((c, i) => { mixed[i] += c * level; });
+      const value = level(key);
+      colour.forEach((c, i) => { mixed[i] += c * value; });
     }
+    // LED fixtures with "magenta"/"yellow" channels use them as virtual CMY
+    // filters over the mix.
+    if (has("magenta") && !seen.has(map.magenta)) mixed[1] *= 1 - level("magenta");
+    if (has("yellow") && !seen.has(map.yellow)) mixed[2] *= 1 - level("yellow");
     const peak = Math.max(...mixed);
-    return { rgb: peak > 0 ? mixed.map(v => v / peak) : [0, 0, 0], carriesLevel: true, level: Math.min(1, peak) };
-  }
-
-  if (has("colour")) return { rgb: wheelColour(def, read.raw("colour")), carriesLevel: false };
-
-  if (has("warmWhite") || has("naturalWhite") || has("coolWhite")) {
-    const warm = has("warmWhite") ? read("warmWhite") : 0;
-    const natural = has("naturalWhite") ? read("naturalWhite") : 0;
-    const cool = has("coolWhite") ? read("coolWhite") : 0;
+    result = { rgb: peak > 0 ? mixed.map(v => v / peak) : [0, 0, 0], carriesLevel: true, level: Math.min(1, peak) };
+  } else if (has("warmWhite") || has("naturalWhite") || has("coolWhite")) {
+    const warm = has("warmWhite") ? level("warmWhite") : 0;
+    const natural = has("naturalWhite") ? level("naturalWhite") : 0;
+    const cool = has("coolWhite") ? level("coolWhite") : 0;
     const total = warm + natural + cool;
     const kelvin = total > 0 ? (warm * 2700 + natural * 4300 + cool * 6500) / total : 3200;
-    return { rgb: kelvinToRgb(kelvin), carriesLevel: !has("dimmer") && !has("intensity"), level: Math.min(1, Math.max(warm, natural, cool)) };
+    result = { rgb: kelvinToRgb(kelvin), carriesLevel: !has("dimmer") && !has("intensity"), level: Math.min(1, Math.max(warm, natural, cool)) };
+  } else if (!has("colour")) {
+    // A plain white source: tungsten glows warm, LED/discharge cooler.
+    result = { rgb: isTungsten(def, name) ? kelvinToRgb(3000) : kelvinToRgb(5600), carriesLevel: false };
+  } else {
+    result = { rgb: [1, 1, 1], carriesLevel: false };
   }
 
-  // A plain white source: tungsten glows warm, LED/discharge cooler.
-  return { rgb: isTungsten(def, name) ? kelvinToRgb(3000) : kelvinToRgb(5600), carriesLevel: false };
+  // Filters that sit in front of any source.
+  const tint = (rgb, filter) => rgb.map((v, i) => v * filter[i]);
+  if (has("colour")) result.rgb = tint(result.rgb, wheelColour(def, read.raw("colour")));
+  if (has("cct") && read.raw("cct") > 0) {
+    // Tunable white: 0 = off/native, then 2700K → 6500K.
+    const kelvin = 2700 + ((read.raw("cct") - 1) / 254) * 3800;
+    result.rgb = hasEmitters ? tint(result.rgb, kelvinToRgb(kelvin).map(v => 0.5 + v / 2)) : kelvinToRgb(kelvin);
+  }
+  if (has("cto")) result.rgb = tint(result.rgb, kelvinToRgb(5600 - level("cto") * 2400));
+  for (const key of MACRO_KEYS) {
+    const value = read.raw(key);
+    if (value != null && value > 10) {
+      result.rgb = MACRO_PALETTE[Math.min(MACRO_PALETTE.length - 1, Math.floor(((value - 11) / 245) * MACRO_PALETTE.length))];
+      if (result.carriesLevel) result.level = Math.max(result.level, 1);
+    }
+  }
+  return result;
 }
 
 // Shutter/strobe: { rate: flashes per second (0 = steady), closed }.
-export function decodeStrobe(def, read) {
+export function decodeStrobe(def, read, name = "") {
   const value = read.raw("strobe") ?? read.raw("shutter");
   if (value == null) return { rate: 0 };
-  if (/robe/i.test(def?.photometrics?.manufacturer || "")) {
+  const map = def?.map || {};
+  const robe = /\brobe\b/i.test(`${def?.photometrics?.manufacturer || ""} ${name}`) || (isChannel(map.shutter) && map.shutter === map.strobe);
+  if (robe) {
     // Robe: 0-31 closed, 32-63 open, 64-95 strobe slow→fast, then effects (shown open).
     if (value < 32) return { rate: 0, closed: true };
     if (value >= 64 && value <= 95) return { rate: 1 + ((value - 64) / 31) * 19 };
@@ -130,11 +149,20 @@ export function decodeStrobe(def, read) {
   return value <= 10 ? { rate: 0 } : { rate: 1 + ((value - 11) / 244) * 24 };
 }
 
+// Rotation channels (gobo, prism, effect): most fixtures index (hold an
+// angle) in the lower half and spin, one way then the other, in the upper.
+export function decodeRotation(value) {
+  if (value == null || value < 5) return { angle: 0, speed: 0 };
+  if (value < 128) return { angle: ((value - 5) / 122) * Math.PI * 2, speed: 0 };
+  if (value < 192) return { angle: 0, speed: ((value - 128) / 63) * 1.5 }; // turns per second
+  return { angle: 0, speed: -((value - 192) / 63) * 1.5 };
+}
+
 const DEFAULT_ANGLE = { moving: 16, wash: 25, beam: 4, strobe: 110, blinder: 60, bar: 40, tungsten: 30, dimmer: 30 };
 
 // Beam spread in degrees: zoom moves between the fixture's narrowest and widest
 // angles; fixed-lens fixtures use their beam angle; iris narrows it.
-export function decodeBeamAngle(def, read) {
+export function decodeBeamAngle(def, read, name = "") {
   const p = def?.photometrics || {};
   const narrow = Number(p.beamAngleMin) > 0 ? Number(p.beamAngleMin) : null;
   const wide = Number(p.beamAngleMax) > 0 ? Number(p.beamAngleMax) : null;
@@ -142,15 +170,15 @@ export function decodeBeamAngle(def, read) {
   const zoom = read("zoom");
   let angle;
   if (zoom != null && narrow && wide) angle = narrow + (wide - narrow) * zoom;
-  else if (zoom != null) angle = 8 + zoom * 42;
-  else angle = fixed || wide || narrow || DEFAULT_ANGLE[def?.type] || 25;
+  else if (zoom != null) angle = /wash/i.test(name) || def?.type === "wash" ? 15 + zoom * 45 : 8 + zoom * 42;
+  else angle = fixed || wide || narrow || (/wash/i.test(name) ? 30 : /\bbeam\b/i.test(name) ? 4 : null) || DEFAULT_ANGLE[def?.type] || 25;
   const iris = read("iris");
   if (iris != null) angle *= 1 - iris * 0.75;
   return Math.max(1, Math.min(150, angle));
 }
 
 // Light output in lumens when the fixture doesn't say: typical for its kind.
-const DEFAULT_LUMENS = { moving: 4000, wash: 6000, beam: 3000, strobe: 20000, blinder: 15000, bar: 2500, tungsten: 9000, dimmer: 6000, rgb: 1200, rgbw: 2000, rgbal: 5000, rgbalc: 5000 };
+const DEFAULT_LUMENS = { moving: 4000, wash: 6000, beam: 3000, strobe: 12000, blinder: 10000, bar: 2500, tungsten: 6000, dimmer: 5000, rgb: 1500, rgbw: 2200, rgbal: 5000, rgbalc: 5000 };
 export function ratedLumens(def) {
   const p = def?.photometrics || {};
   const lumens = Number(p.ratedLumens) > 0 ? Number(p.ratedLumens) : DEFAULT_LUMENS[def?.type] || 2000;
@@ -163,10 +191,15 @@ export function archetype(def, name = "") {
   const map = def?.map || {};
   if (source === "MIRROR_BALL_MOTOR" || /mirror\s*ball/i.test(name)) return "mirrorBall";
   if (source === "ATMOSPHERIC" || isChannel(map.fog) || isChannel(map.haze)) return isChannel(map.haze) ? "hazer" : "fogger";
-  if (isChannel(map.pan) || isChannel(map.tilt)) return def?.type === "beam" ? "movingBeam" : def?.type === "wash" ? "movingWash" : "movingSpot";
-  if (def?.type === "strobe") return "strobe";
-  if (def?.type === "blinder") return "blinder";
-  if (def?.type === "bar") return "bar";
+  // Library types are sometimes generic ("moving", "rgb"), so the name decides too.
+  if (isChannel(map.pan) || isChannel(map.tilt)) {
+    if (def?.type === "beam" || /\bbeam\b/i.test(name)) return "movingBeam";
+    if (def?.type === "wash" || /wash/i.test(name)) return "movingWash";
+    return "movingSpot";
+  }
+  if (def?.type === "strobe" || /strobe|atomic/i.test(name)) return "strobe";
+  if (def?.type === "blinder" || /blinder/i.test(name)) return "blinder";
+  if (def?.type === "bar" || /\bbar\b|batten|sunstrip|strip\b/i.test(name)) return "bar";
   if (/profile|leko|ellipsoidal/i.test(name) || [1, 2, 3, 4].some(n => isChannel(map[`shutter${n}Insert`]))) return "profile";
   if (def?.type === "tungsten" || def?.type === "dimmer" || /fresnel/i.test(name)) return "fresnel";
   return "par";
@@ -177,12 +210,18 @@ export function archetype(def, name = "") {
 // doors set on the fixture in the console (never sent over DMX).
 export function decodeFraming(read, manual) {
   const blades = [1, 2, 3, 4].map(n => read(`shutter${n}Insert`) ?? 0);
+  // Blade angles (e.g. SolaFrame A/B): how far each end of a blade pushes in,
+  // so a blade can sit at a slant. 0.5 = straight.
+  const angles = [1, 2, 3, 4].map(n => [read(`shutter${n}AngleA`) ?? 0.5, read(`shutter${n}AngleB`) ?? 0.5]);
   if (manual) {
     ["b1", "b2", "b3", "b4"].forEach((key, i) => { blades[i] = Math.max(blades[i], clamp01((Number(manual[key]) || 0) / 100)); });
   }
   const rotation = ((Number(manual?.rotate) || 0) * Math.PI) / 180;
-  return { blades, rotation, active: blades.some(b => b > 0.001) };
+  const active = blades.some(b => b > 0.001);
+  return { blades, angles, rotation, active };
 }
+
+const goboSlot = value => (value > 7 ? 1 + (Math.floor((value - 8) / 16) % 8) : 0);
 
 // Everything the visualiser needs for one fixture, from the console's buffer.
 export function decodeFixture(def, frame, base, name = "", manualShutters = null) {
@@ -192,7 +231,7 @@ export function decodeFixture(def, frame, base, name = "", manualShutters = null
   const dimmer = read.fine("dimmer", "dimmerFine") ?? read.fine("intensity", "intensityFine");
   let intensity = dimmer ?? (colour.carriesLevel ? colour.level : 1);
   if (dimmer != null && colour.carriesLevel) intensity *= colour.level;
-  const strobe = decodeStrobe(def, read);
+  const strobe = decodeStrobe(def, read, name);
   if (strobe.closed) intensity = 0;
   const panRange = Number(def?.panRange) || 540;
   const tiltRange = Number(def?.tiltRange) || 270;
@@ -203,19 +242,27 @@ export function decodeFixture(def, frame, base, name = "", manualShutters = null
     intensity: clamp01(intensity),
     rgb: colour.rgb,
     strobeRate: strobe.rate,
-    beamAngle: decodeBeamAngle(def, read),
+    beamAngle: decodeBeamAngle(def, read, name),
     // Edge softness 0 (hard) - 1 (very soft). Focus sharpens; frost softens.
     softness: Math.min(1, (read("focus") == null ? 0.35 : 0.15 + (1 - read("focus")) * 0.5) + (read("frost") ?? 0) * 0.6),
     // Radians from the centre of travel; null for fixtures that don't move.
     pan: pan == null ? null : (pan - 0.5) * (panRange * Math.PI / 180),
     tilt: tilt == null ? null : (tilt - 0.5) * (tiltRange * Math.PI / 180),
-    // Gobo slot: 0 = open, 1+ = a pattern. Most wheels use bands of ~16 values.
-    gobo: goboValue > 7 ? 1 + Math.floor((goboValue - 8) / 16) % 8 : 0,
-    goboSpin: read("gobor") ?? 0,
+    // Gobo slots: 0 = open, 1+ = a pattern. Most wheels use bands of ~16 values.
+    gobo: goboSlot(goboValue),
+    gobo2: goboSlot(read.raw("gobo2") ?? 0),
+    goboRotation: decodeRotation(read.raw("gobor") ?? read.raw("rot")),
+    gobo2Rotation: decodeRotation(read.raw("gobo2r") ?? (isChannel(map.gobor) ? read.raw("rot") : null)),
+    goboShake: (read.raw("shake") ?? 0) > 5 ? read("shake") : 0,
+    effect: (read.raw("effect") ?? 0) > 5 ? read("effect") : 0,
     prism: (read.raw("prism") ?? 0) > 20,
+    prismRotation: decodeRotation(read.raw("prismr")),
+    // Colour wheel scroll: turns the wheel continuously (slots per second).
+    colourScroll: (read.raw("colourr") ?? 0) > 5 ? read("colourr") * 2 : 0,
     framing: decodeFraming(read, manualShutters),
     // Atmosphere and mirror-ball motor, 0-1.
     fog: read("fog") ?? read("haze") ?? 0,
+    fan: read("fana") ?? 1,
     speed: read("speed") ?? 0
   };
 }

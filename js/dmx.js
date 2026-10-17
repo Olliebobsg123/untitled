@@ -320,6 +320,11 @@ if(typeof map.cto==="number")write(base,map.cto,blackout?0:clamp255(saved.cto??0
 
 ["strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro","shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate","shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate","shutter1AngleA","shutter1AngleB","shutter2AngleA","shutter2AngleB","shutter3AngleA","shutter3AngleB","shutter4AngleA","shutter4AngleB"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
 
+// Fixtures whose shutter and strobe share a channel (e.g. Robe) treat low
+// values as SHUTTER CLOSED. The console's strobe 0 means "open, no strobe", so
+// translate: 0 → open (32), 1-255 → strobe slow→fast (64-95).
+if(typeof map.shutter==="number"&&map.shutter===map.strobe){const strobe=Math.max(0,Math.min(255,Number(saved.strobe)||0));write(base,map.strobe,blackout?0:strobe===0?32:64+Math.round((strobe/255)*31));}
+
 if(typeof map.pan==="number"){write(base,map.pan,saved.pan??128);if(typeof map.panf==="number")write(base,map.panf,saved.panf??0);}
 if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof map.tiltf==="number")write(base,map.tiltf,saved.tiltf??0);}
 });

@@ -5,7 +5,7 @@
 import * as THREE from "three";
 
 const SIZE = 256;
-const cache = new Map();
+
 
 // Gobo patterns, drawn white (light passes) on black.
 const PATTERNS = [
@@ -30,57 +30,165 @@ const PATTERNS = [
 
 function dot(g, x, y, radius) { g.beginPath(); g.arc(x, y, radius, 0, Math.PI * 2); g.fill(); }
 
-// key: "gobo|blade1|blade2|blade3|blade4|rotation", rounded so small slider
-// changes reuse textures instead of making hundreds.
-function keyFor(gobo, framing) {
-  const blades = framing?.active ? framing.blades.map(b => Math.round(b * 50)).join(",") : "";
-  const rotation = framing?.active ? Math.round((framing.rotation || 0) * 36) : 0;
-  return `${gobo}|${blades}|${rotation}`;
+// Cache keys are rounded so small slider changes reuse textures instead of
+// making hundreds.
+function framingKey(framing) {
+  if (!framing?.active) return "";
+  const blades = framing.blades.map(b => Math.round(b * 50)).join(",");
+  const angles = (framing.angles || []).map(([a, b]) => `${Math.round(a * 20)}:${Math.round(b * 20)}`).join(",");
+  return `${blades}|${angles}|${Math.round((framing.rotation || 0) * 36)}`;
 }
 
-export function beamMask(gobo, framing) {
-  if (!gobo && !framing?.active) return null;
-  const key = keyFor(gobo, framing);
-  if (cache.has(key)) return cache.get(key);
+// Each fixture draws its own mask: gobo wheel 1 and 2 (or the effect wheel)
+// at their current angles, the framing shutters/barn doors, focus/frost blur,
+// and, for the stage pool, the three images a prism makes. The same picture
+// shapes the beam in the haze and the light on stage, so a spinning gobo
+// spins in both. It's only redrawn when something visibly changes (angles
+// are rounded to 2°).
+const STEP = Math.PI / 90;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = SIZE;
-  const g = canvas.getContext("2d");
+export class FixtureMask {
+  constructor() {
+    this.key = null;
+    this.poolKey = null;
+  }
+
+  canvasTexture(name) {
+    if (!this[name]) {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = SIZE;
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+      this[name] = texture;
+    }
+    return this[name];
+  }
+
+  // Returns { beam, pool } textures, or nulls when the beam is a plain circle.
+  update({ gobo, gobo2, effect, framing, blur, rotation, rotation2, prism, prismAngle }) {
+    if (!gobo && !gobo2 && !effect && !framing?.active) return { beam: null, pool: null };
+    const blurPx = Math.round(blur * 4) * 3;
+    const key = [gobo, gobo2, effect > 0 ? 1 : 0, framingKey(framing), blurPx, Math.round(rotation / STEP), Math.round(rotation2 / STEP)].join("|");
+    const beam = this.canvasTexture("beamTexture");
+    if (key !== this.key) {
+      this.key = key;
+      this.poolKey = null;
+      drawMask(beam.image.getContext("2d"), { gobo, gobo2, effect, framing, blurPx, rotation, rotation2 });
+      beam.needsUpdate = true;
+    }
+    if (!prism) return { beam, pool: beam };
+    const pool = this.canvasTexture("poolTexture");
+    const poolKey = `${key}|${Math.round(prismAngle / STEP)}`;
+    if (poolKey !== this.poolKey) {
+      this.poolKey = poolKey;
+      const g = pool.image.getContext("2d");
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = "source-over";
+      g.fillStyle = "#000";
+      g.fillRect(0, 0, SIZE, SIZE);
+      g.globalCompositeOperation = "lighter";
+      const r = SIZE / 2;
+      const size = SIZE * 0.6;
+      for (let k = 0; k < 3; k++) {
+        const angle = prismAngle + (k * Math.PI * 2) / 3;
+        g.drawImage(beam.image, r + Math.cos(angle) * r * 0.38 - size / 2, r + Math.sin(angle) * r * 0.38 - size / 2, size, size);
+      }
+      g.globalCompositeOperation = "source-over";
+      pool.needsUpdate = true;
+    }
+    return { beam, pool };
+  }
+
+  dispose() {
+    this.beamTexture?.dispose();
+    this.poolTexture?.dispose();
+  }
+}
+
+let secondCanvas = null;
+function secondLayer() {
+  if (!secondCanvas) {
+    secondCanvas = document.createElement("canvas");
+    secondCanvas.width = secondCanvas.height = SIZE;
+  }
+  return secondCanvas;
+}
+
+function drawMask(g, { gobo, gobo2, effect, framing, blurPx, rotation, rotation2 }) {
   const r = SIZE / 2;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.filter = "none";
   g.fillStyle = "#000";
   g.fillRect(0, 0, SIZE, SIZE);
   g.translate(r, r);
+  g.filter = blurPx > 0 ? `blur(${blurPx}px)` : "none";
   g.fillStyle = "#fff";
-
-  const pattern = PATTERNS[gobo % PATTERNS.length];
   g.save();
   g.beginPath();
   g.arc(0, 0, r * 0.98, 0, Math.PI * 2);
   g.clip();
+  // Gobo wheel 1 (or the open aperture).
+  g.save();
+  g.rotate(rotation);
+  const pattern = PATTERNS[gobo % PATTERNS.length];
   if (pattern) pattern(g, r * 0.98);
   else g.fillRect(-r, -r, SIZE, SIZE);
   g.restore();
-
-  // Shutter blades: each pushes in from one side of the (rotated) frame.
+  // Gobo wheel 2 / effect wheel: light only passes where both let it through.
+  const second = gobo2 ? PATTERNS[((gobo2 + 3) % (PATTERNS.length - 1)) + 1] : effect > 0 ? PATTERNS[2] : null;
+  if (second) {
+    // Drawn on its own layer first: "destination-in" keeps only what one
+    // drawing call covers, and patterns are many separate shapes.
+    const layer = secondLayer();
+    const l = layer.getContext("2d");
+    l.setTransform(1, 0, 0, 1, 0, 0);
+    l.clearRect(0, 0, SIZE, SIZE);
+    l.translate(r, r);
+    l.rotate(rotation2);
+    l.fillStyle = l.strokeStyle = "#fff";
+    second(l, r * 0.98);
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = "destination-in";
+    g.drawImage(layer, 0, 0);
+    g.restore();
+    g.globalCompositeOperation = "source-over";
+  }
+  g.restore();
+  // Framing shutters / barn doors: each blade pushes in from its side; A/B
+  // angles let a blade sit at a slant.
   if (framing?.active) {
     g.save();
     g.rotate(framing.rotation || 0);
     g.fillStyle = "#000";
-    const [top, right, bottom, left] = framing.blades;
     const span = SIZE * 1.5;
-    if (top > 0) g.fillRect(-span, -span, span * 2, span - r + top * SIZE);
-    if (bottom > 0) g.fillRect(-span, r - bottom * SIZE, span * 2, span);
-    if (left > 0) g.fillRect(-span, -span, span - r + left * SIZE, span * 2);
-    if (right > 0) g.fillRect(r - right * SIZE, -span, span, span * 2);
+    framing.blades.forEach((insert, i) => {
+      if (insert <= 0) return;
+      const [a, b] = framing.angles?.[i] || [0.5, 0.5];
+      const depthA = -r + insert * SIZE + (a - 0.5) * r * 0.8;
+      const depthB = -r + insert * SIZE + (b - 0.5) * r * 0.8;
+      g.save();
+      g.rotate((i * Math.PI) / 2); // top, right, bottom, left
+      g.beginPath();
+      g.moveTo(-span, -span);
+      g.lineTo(span, -span);
+      g.lineTo(span, depthB);
+      g.lineTo(-span, depthA);
+      g.closePath();
+      g.fill();
+      g.restore();
+    });
     g.restore();
   }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.NoColorSpace;
-  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-  if (cache.size > 200) cache.delete(cache.keys().next().value);
-  cache.set(key, texture);
-  return texture;
+  // Areas the second wheel cleared are transparent: make them black.
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.filter = "none";
+  g.globalCompositeOperation = "destination-over";
+  g.fillStyle = "#000";
+  g.fillRect(0, 0, SIZE, SIZE);
+  g.globalCompositeOperation = "source-over";
 }
 
 // Soft round sprite used for lens glows, mirror-ball spots and glints.

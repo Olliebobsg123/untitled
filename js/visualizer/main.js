@@ -22,6 +22,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildTheatre, defaultHanging, snapToBar, STAGE, STAGE_TOP } from "./theatre.js";
 import { Fixture } from "./fixture-model.js";
+import { LightPool } from "./light-pool.js";
+import { hazeNoiseTexture } from "./beam.js";
 import { MirrorBall } from "./mirror-ball.js";
 import { Atmosphere } from "./atmosphere.js";
 import { archetype, baseAddress, decodeFixture } from "./decode.js";
@@ -31,10 +33,20 @@ const consoleWindow = window.opener;
 const send = message => { try { consoleWindow?.postMessage(message, "*"); } catch (_) {} };
 
 // Brightness calibration: candela → scene units, and beam scattering.
-const LIGHT_SCALE = 0.1;
-const BEAM_SCALE = 0.0007;
-let beamResolution = 0.5; // lowered automatically if the frame rate drops
-const SHADOW_BUDGET = 8;
+const LIGHT_SCALE = 0.08;
+const BEAM_SCALE = 0.0006;
+
+// Quality presets. "Auto" starts at Medium and moves down (or up) with the
+// frame rate. The big costs are pixels (resolution), real stage lights and
+// their shadows, and steps through the haze per beam pixel.
+const QUALITY = {
+  low: { label: "Low", pixelRatio: 0.75, beamResolution: 0.25, steps: 10, pool: 6, shadows: 1, shadowSize: 512, bloom: false },
+  medium: { label: "Medium", pixelRatio: 1, beamResolution: 0.35, steps: 14, pool: 10, shadows: 3, shadowSize: 512, bloom: true },
+  high: { label: "High", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), beamResolution: 0.5, steps: 22, pool: 16, shadows: 6, shadowSize: 1024, bloom: true }
+};
+const LEVELS = ["low", "medium", "high"];
+let quality = "medium";
+let beamResolution = QUALITY.medium.beamResolution;
 
 const VIEWS = {
   foh: { position: [0, 6.2, 15.5], target: [0, 2.4, -4] },
@@ -42,15 +54,15 @@ const VIEWS = {
   top: { position: [0, 21, -3.2], target: [0, 0, -3.4] },
   side: { position: [-8.5, 6, 4], target: [0, 2.8, -4] }
 };
-const DEFAULT_SETTINGS = { house: false, work: false, grid: false, beams: true, haze: 0.55 };
+const DEFAULT_SETTINGS = { house: false, work: false, grid: false, beams: true, haze: 0.55, quality: "auto" };
 
 // --- Renderer and scene -------------------------------------------------
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setPixelRatio(QUALITY.medium.pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.shadowMap.autoUpdate = false; // redrawn only when a light moves (see shadowsDirty)
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1;
@@ -82,12 +94,14 @@ const shared = {
   envMap,
   solids: [],
   shadowsDirty: true,
+  beamSteps: QUALITY.medium.steps,
   lightScale: LIGHT_SCALE,
   beamScale: BEAM_SCALE,
   uniforms: {
     haze: { value: 0.5 },
     time: { value: 0 },
     depth: { value: sceneTarget.depthTexture },
+    noise: { value: hazeNoiseTexture() },
     resolution: { value: new THREE.Vector2(1, 1) },
     projectionInverse: { value: camera.projectionMatrixInverse }
   }
@@ -96,6 +110,7 @@ const shared = {
 const theatre = buildTheatre(scene);
 shared.solids = theatre.solids;
 const atmosphere = new Atmosphere(shared);
+const lightPool = new LightPool(scene);
 
 const composer = new EffectComposer(renderer);
 const composite = new ShaderPass({
@@ -126,7 +141,34 @@ function resize() {
   bloom.setSize(x, y);
   atmosphere.setViewportHeight(y, camera.fov);
 }
-window.addEventListener("resize", resize);
+window.addEventListener("resize", () => { resize(); wake(); });
+
+function applyQuality(level) {
+  const q = QUALITY[level];
+  quality = level;
+  renderer.setPixelRatio(q.pixelRatio);
+  beamResolution = q.beamResolution;
+  shared.beamSteps = q.steps;
+  for (const model of fixtures.values()) model.setBeamSteps(q.steps);
+  lightPool.configure(q);
+  bloom.enabled = q.bloom;
+  shared.shadowsDirty = true;
+  resize();
+  slowSeconds = fastSeconds = 0;
+  showQuality();
+}
+
+function showQuality() {
+  $("quality").value = settings().quality;
+}
+
+// Rendering only when something changes: DMX, the camera, a drag, or
+// anything animating on its own. Otherwise the haze drifts at 10 fps.
+let activeUntil = 0;
+let lastFrame = 0;
+let skippedThisSecond = false;
+const wake = (ms = 400) => { activeUntil = Math.max(activeUntil, performance.now() + ms); };
+controls.addEventListener("change", () => wake());
 
 // --- State ----------------------------------------------------------------
 
@@ -152,6 +194,7 @@ function applySettings() {
   for (const [id, key] of [["house", "house"], ["work", "work"], ["grid", "grid"], ["beams", "beams"]]) $(id).classList.toggle("on", Boolean(s[key]));
   $("haze").value = String(Math.round(s.haze * 100));
   $("hazeValue").textContent = `${Math.round(s.haze * 100)}%`;
+  $("quality").value = s.quality;
 }
 
 // --- Building the rig -----------------------------------------------------
@@ -176,10 +219,6 @@ function rebuild() {
   const entries = patch.map(fixture => ({ fixture, def: definitionOf(fixture) })).filter(e => e.def);
   const hung = entries.filter(e => !["fogger", "hazer", "mirrorBall"].includes(archetype(e.def, e.fixture.name)));
   let floorIndex = 0;
-  let shadows = 0;
-  // Shadows (needed for gobo projection) go to fixtures that can shape light first.
-  const wantsShadow = e => { const m = e.def.map || {}; return Number.isInteger(m.gobo) || Number.isInteger(m.shutter1Insert) || ["profile", "fresnel", "movingSpot"].includes(archetype(e.def, e.fixture.name)); };
-  const shadowed = new Set([...hung.filter(wantsShadow), ...hung.filter(e => !wantsShadow(e))].slice(0, SHADOW_BUDGET).map(e => String(e.fixture.id)));
 
   for (const { fixture, def } of entries) {
     const id = String(fixture.id);
@@ -192,8 +231,7 @@ function rebuild() {
       ball.model.group.traverse(o => { o.userData.fixtureId = id; });
       continue;
     }
-    const model = new Fixture(fixture, def, shared, { castShadow: shadowed.has(id) });
-    if (shadowed.has(id)) shadows++;
+    const model = new Fixture(fixture, def, shared);
     const position = saved || (model.onFloor ? defaultFloorSpot(floorIndex++) : defaultHanging(hung.findIndex(e => e.fixture === fixture), hung.length));
     const aim = layout.aims[id];
     model.target.copy(aim ? new THREE.Vector3(aim.x, aim.y, aim.z) : model.onFloor ? new THREE.Vector3(0, STAGE_TOP, -4) : defaultAim(position));
@@ -201,6 +239,7 @@ function rebuild() {
     fixtures.set(id, model);
   }
   shared.shadowsDirty = true;
+  wake(1000);
   const missing = patch.length - entries.length;
   setStatus(`${fixtures.size + (ball ? 1 : 0)} fixture${fixtures.size + (ball ? 1 : 0) === 1 ? "" : "s"}${missing ? ` · ${missing} without a profile` : ""}`);
 }
@@ -224,7 +263,7 @@ function saveLayout() {
 const clock = new THREE.Clock();
 const stageLight = new THREE.Color();
 let frames = 0;
-let fpsTime = 0;
+let fpsTime = 0; // start of the current one-second fps window
 
 function update() {
   const dt = Math.min(0.1, clock.getDelta());
@@ -259,38 +298,50 @@ function update() {
     const state = decodeFixture(definitionOf(ball.fixture), dmx, baseAddress(ball.fixture), ball.fixture.name);
     ball.model.update(dt, state.speed, lights, haze);
   }
+  if (lightPool.update(fixtures.values(), LIGHT_SCALE)) shared.shadowsDirty = true;
   if (selected) showSelection();
-
-  frames++;
-  fpsTime += dt;
-  if (fpsTime > 1) {
-    const fps = frames / fpsTime;
-    $("fps").textContent = `${Math.round(fps)} fps`;
-    adjustQuality(fps);
-    frames = 0;
-    fpsTime = 0;
-  }
 }
 
-// Keep it smooth: trace beams at a lower resolution when the GPU is struggling,
-// and go back up when there's headroom.
+function animating() {
+  for (const model of fixtures.values()) if (model.animating) return true;
+  return Boolean((ball && (ball.model.spots.count > 0 || ball.model.spinning)) || atmosphere.busy || drag);
+}
+
+// Auto quality: step down after 3 slow seconds, up after 8 fast ones. Only
+// seconds spent drawing continuously count (idle 10 fps isn't "slow").
 let slowSeconds = 0;
 let fastSeconds = 0;
 function adjustQuality(fps) {
-  slowSeconds = fps < 24 ? slowSeconds + 1 : 0;
-  fastSeconds = fps > 50 ? fastSeconds + 1 : 0;
-  let next = beamResolution;
-  if (slowSeconds >= 3 && beamResolution > 0.26) next = beamResolution - 0.12;
-  if (fastSeconds >= 5 && beamResolution < 0.5) next = beamResolution + 0.12;
-  if (next !== beamResolution) {
-    beamResolution = Math.round(next * 100) / 100;
-    slowSeconds = fastSeconds = 0;
-    resize();
+  if (settings().quality !== "auto") return;
+  slowSeconds = fps < 26 ? slowSeconds + 1 : 0;
+  fastSeconds = fps > 55 ? fastSeconds + 1 : 0;
+  const index = LEVELS.indexOf(quality);
+  if (slowSeconds >= 3 && index > 0) applyQuality(LEVELS[index - 1]);
+  else if (fastSeconds >= 8 && index < LEVELS.length - 1) applyQuality(LEVELS[index + 1]);
+}
+
+function countFrame(now) {
+  frames++;
+  if (!fpsTime) fpsTime = now;
+  if (now - fpsTime >= 1000) {
+    const fps = (frames * 1000) / (now - fpsTime);
+    $("fps").textContent = `${Math.round(fps)} fps · ${QUALITY[quality].label}${settings().quality === "auto" ? " (auto)" : ""}`;
+    if (!skippedThisSecond) adjustQuality(fps);
+    frames = 0;
+    fpsTime = now;
+    skippedThisSecond = false;
   }
 }
 
 function render() {
+  const now = performance.now();
   controls.update();
+  if (now > activeUntil && !animating() && now - lastFrame < 100) {
+    skippedThisSecond = true;
+    return;
+  }
+  lastFrame = now;
+  countFrame(now);
   update();
   if (shared.shadowsDirty) {
     renderer.shadowMap.needsUpdate = true;
@@ -330,7 +381,7 @@ function setPointer(event) {
 
 function pickables() {
   const list = [];
-  for (const model of fixtures.values()) list.push(...model.parts, model.lens);
+  for (const model of fixtures.values()) list.push(...model.parts);
   if (ball) list.push(ball.model.ball);
   return list;
 }
@@ -361,6 +412,11 @@ function showSelection() {
   $("selPatch").textContent = baseAddress(fixture) >= 0 ? `Universe ${fixture.uni ?? 1} · address ${fixture.addr}` : "Not on DMX";
   $("selLevel").textContent = level == null ? "" : `${level}%`;
   $("selSwatch").style.background = rgb ? `rgb(${rgb.map(v => Math.round(Math.pow(v, 1 / 2.2) * 255)).join(",")})` : "transparent";
+  const root = model?.root || ball?.model.group;
+  for (const [field, axis] of [["selX", "x"], ["selY", "y"], ["selZ", "z"]]) {
+    const input = $(field);
+    if (document.activeElement !== input && root) input.value = root.position[axis].toFixed(2);
+  }
   if (handle.visible) {
     handle.position.copy(model.target);
     const from = model.head.getWorldPosition(new THREE.Vector3());
@@ -369,11 +425,31 @@ function showSelection() {
   }
 }
 
+// Dragging. The plane each mode drags on is chosen so it faces the camera:
+// a horizontal plane at bar height seen from the audience is almost edge-on,
+// where one pixel of mouse movement is metres of depth.
+//   plain drag - slide along the bar (x only)
+//   Shift      - up/down (height only)
+//   Alt        - anywhere on the horizontal plane (best from the Plan view)
+// Nothing moves until the mouse has travelled a few pixels, so clicking to
+// select never nudges a fixture.
+const DRAG_THRESHOLD = 4;
+
+function facingPlane(point, lockAxis) {
+  // A plane through `point` that contains the axis we move along and faces
+  // the camera as squarely as possible.
+  const toCamera = camera.position.clone().sub(point);
+  toCamera[lockAxis] = 0;
+  if (toCamera.lengthSq() < 1e-6) toCamera.set(0, 0, 1);
+  return dragPlane.setFromNormalAndCoplanarPoint(toCamera.normalize(), point);
+}
+
 renderer.domElement.addEventListener("pointerdown", event => {
   if (event.button !== 0) return;
   setPointer(event);
+  const start = { x: event.clientX, y: event.clientY };
   if (handle.visible && raycaster.intersectObject(handle, false).length) {
-    drag = { kind: "aim", id: selected };
+    drag = { kind: "aim", id: selected, start, active: false };
   } else {
     const hit = raycaster.intersectObjects(pickables(), false)[0];
     const id = hit?.object.userData.fixtureId;
@@ -381,12 +457,12 @@ renderer.domElement.addEventListener("pointerdown", event => {
     select(id);
     const model = modelFor(id);
     const root = model.root;
-    const vertical = event.shiftKey;
-    const normal = vertical ? camera.getWorldDirection(new THREE.Vector3()).setY(0).normalize().negate() : new THREE.Vector3(0, 1, 0);
-    dragPlane.setFromNormalAndCoplanarPoint(normal, root.position);
-    raycaster.ray.intersectPlane(dragPlane, hitPoint);
+    const mode = event.altKey ? "free" : event.shiftKey ? "height" : model.onFloor ? "free" : "bar";
+    if (mode === "free") dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), root.position);
+    else facingPlane(root.position, mode === "bar" ? "x" : "y");
+    if (!raycaster.ray.intersectPlane(dragPlane, hitPoint)) hitPoint.copy(root.position);
     dragOffset.copy(root.position).sub(hitPoint);
-    drag = { kind: "move", id, vertical, free: event.altKey };
+    drag = { kind: "move", id, mode, start, active: false, origin: root.position.clone() };
   }
   controls.enabled = false;
   renderer.domElement.setPointerCapture(event.pointerId);
@@ -394,6 +470,11 @@ renderer.domElement.addEventListener("pointerdown", event => {
 
 renderer.domElement.addEventListener("pointermove", event => {
   if (!drag) return;
+  wake();
+  if (!drag.active) {
+    if (Math.hypot(event.clientX - drag.start.x, event.clientY - drag.start.y) < DRAG_THRESHOLD) return;
+    drag.active = true;
+  }
   setPointer(event);
   const model = modelFor(drag.id);
   if (!model) return;
@@ -403,12 +484,18 @@ renderer.domElement.addEventListener("pointermove", event => {
     return;
   }
   if (!raycaster.ray.intersectPlane(dragPlane, hitPoint)) return;
-  let position = hitPoint.add(dragOffset);
-  position = { x: position.x, y: Math.max(0, Math.min(10.5, position.y)), z: position.z };
+  const moved = hitPoint.add(dragOffset);
+  const origin = drag.origin;
+  let position;
+  if (drag.mode === "bar") position = { x: moved.x, y: origin.y, z: origin.z };
+  else if (drag.mode === "height") position = { x: origin.x, y: moved.y, z: origin.z };
+  else position = { x: moved.x, y: origin.y, z: moved.z };
+  position.x = Math.max(-10.5, Math.min(10.5, position.x));
+  position.y = Math.max(0, Math.min(10.5, position.y));
   if (model.onFloor) {
     const onStage = Math.abs(position.x) < STAGE.width / 2 && position.z < STAGE.frontZ && position.z > STAGE.frontZ - STAGE.depth;
     position.y = onStage ? STAGE_TOP : 0;
-  } else if (!drag.free && !drag.vertical && model instanceof Fixture) {
+  } else if (drag.mode === "free" && model instanceof Fixture) {
     position = snapToBar(position);
   }
   model.place(position);
@@ -416,12 +503,30 @@ renderer.domElement.addEventListener("pointermove", event => {
 
 const endDrag = () => {
   if (!drag) return;
+  const changed = drag.active;
   drag = null;
   controls.enabled = true;
-  saveLayout();
+  if (changed) saveLayout();
 };
 renderer.domElement.addEventListener("pointerup", endDrag);
 renderer.domElement.addEventListener("pointercancel", endDrag);
+
+// Typed positions.
+for (const field of ["selX", "selY", "selZ"]) {
+  $(field).addEventListener("change", () => {
+    const model = modelFor(selected);
+    if (!model) return;
+    const value = name => { const n = Number($(name).value); return Number.isFinite(n) ? n : 0; };
+    const position = { x: Math.max(-10.5, Math.min(10.5, value("selX"))), y: Math.max(0, Math.min(10.5, value("selY"))), z: Math.max(-9.5, Math.min(16.5, value("selZ"))) };
+    if (model.onFloor) {
+      const onStage = Math.abs(position.x) < STAGE.width / 2 && position.z < STAGE.frontZ && position.z > STAGE.frontZ - STAGE.depth;
+      position.y = onStage ? STAGE_TOP : 0;
+    }
+    model.place(position);
+    saveLayout();
+  });
+  $(field).addEventListener("keydown", event => event.stopPropagation());
+}
 
 // --- Toolbar and keys -------------------------------------------------------
 
@@ -437,11 +542,20 @@ function toggle(key) {
   layout.settings = { ...settings(), [key]: !settings()[key] };
   applySettings();
   saveLayout();
+  wake();
 }
 
 for (const key of ["house", "work", "grid", "beams"]) $(key).addEventListener("click", () => toggle(key));
 document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
+$("quality").addEventListener("change", () => {
+  const choice = $("quality").value;
+  layout.settings = { ...settings(), quality: choice };
+  applyQuality(choice === "auto" ? "medium" : choice);
+  saveLayout();
+  wake();
+});
 $("haze").addEventListener("input", () => {
+  wake();
   layout.settings = { ...settings(), haze: Number($("haze").value) / 100 };
   $("hazeValue").textContent = `${$("haze").value}%`;
 });
@@ -478,6 +592,7 @@ function normaliseLayout(next) {
 window.addEventListener("message", event => {
   const message = event.data;
   if (!message || typeof message !== "object") return;
+  wake();
   switch (message.type) {
     case "SYNC_FIXTURES": {
       library = message.fixtureLibrary || library;
@@ -500,11 +615,14 @@ window.addEventListener("message", event => {
       dmx = data instanceof Uint8Array ? data : Uint8Array.from(Array.isArray(data) ? data : []);
       break;
     }
-    case "LOAD_LAYOUT":
+    case "LOAD_LAYOUT": {
+      const before = settings().quality;
       layout = normaliseLayout(message.layout);
       applySettings();
+      if (settings().quality !== before) applyQuality(settings().quality === "auto" ? "medium" : settings().quality);
       if (patch.length) rebuild();
       break;
+    }
     case "CONSOLE_MODE":
       $("blind").hidden = message.mode !== "BLIND";
       break;
@@ -513,10 +631,10 @@ window.addEventListener("message", event => {
 
 // --- Start ------------------------------------------------------------------
 
-resize();
+applyQuality("medium");
 setView("foh");
 applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { fixtures, get ball() { return ball; }, layout: () => layout, camera, setView, renderer, scene, shared };
+window.LXViz = { fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared };

@@ -105,9 +105,9 @@ export function buildTheatre(scene) {
 
   // House lights: warm downlights over the audience.
   const house = [];
-  for (const x of [-6, -2, 2, 6]) {
-    for (const z of [5, 10, 14]) {
-      const light = new THREE.PointLight(0xffd2a0, 0, 16, 2);
+  for (const x of [-5, 0, 5]) {
+    for (const z of [6, 12]) {
+      const light = new THREE.PointLight(0xffd2a0, 0, 18, 2);
       light.position.set(x, 10.6, z);
       scene.add(light);
       house.push(light);
@@ -133,10 +133,11 @@ export function buildTheatre(scene) {
   return {
     solids,
     setHouse(on) {
-      house.forEach(light => { light.intensity = on ? 60 : 0; });
+      // Hidden lights cost nothing; switched-off-but-visible ones still do.
+      house.forEach(light => { light.intensity = 30; light.visible = on; });
       lamps.forEach(lamp => lamp.material.color.set(on ? 0xffe2b8 : 0x222222));
     },
-    setWork(on) { work.forEach(light => { light.intensity = on ? 900 : 0; }); },
+    setWork(on) { work.forEach(light => { light.intensity = 220; light.visible = on; }); },
     setGrid(on) { grid.visible = on; }
   };
 }

@@ -164,6 +164,7 @@ export class MirrorBall {
 
   // lights: [{ apex, axis, halfAngle, candela, rgb, level, lensRadius }]
   update(dt, speed, lights, haze) {
+    this.spinning = speed > 0.002;
     this.angle += (speed * MAX_RPM / 60) * dt * Math.PI * 2;
     this.ball.rotation.y = this.angle;
     const spin = tmp.quat.setFromAxisAngle(tmp.up, this.angle).clone();
@@ -219,8 +220,8 @@ export class MirrorBall {
         this.spots.setColorAt(spots, tmp.colour.setRGB(light.rgb[0] * brightness, light.rgb[1] * brightness, light.rgb[2] * brightness));
 
         // Light scattered out of a thin ray is faint: it only shows in haze.
-        const rayStrength = Math.min(0.6, intensity * haze * 2.5e-5);
-        tmp.matrix.compose(facet, new THREE.Quaternion().setFromUnitVectors(tmp.up, reflect), tmp.scale.set(size * 0.35, hit.distance, size * 0.35));
+        const rayStrength = Math.min(0.35, intensity * haze * 1.2e-5);
+        tmp.matrix.compose(facet, new THREE.Quaternion().setFromUnitVectors(tmp.up, reflect), tmp.scale.set(0.012 + size * 0.12, hit.distance, 0.012 + size * 0.12));
         this.rays.setMatrixAt(spots, tmp.matrix);
         this.rays.setColorAt(spots, tmp.colour.setRGB(light.rgb[0] * rayStrength, light.rgb[1] * rayStrength, light.rgb[2] * rayStrength));
         spots++;

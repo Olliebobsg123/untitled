@@ -1,138 +1,49 @@
-// One patched fixture in the visualiser: its body, the real spotlight that
-// lights the stage, the volumetric beam in the haze and the lens glow.
+// One patched fixture in the visualiser: its body, its volumetric beam(s),
+// lens glow, and a description of its light for the stage-lighting pool
+// (main.js gives the brightest fixtures a real spotlight each).
 //
-// Every fixture hangs from a clamp point. A yoke turns around the vertical
-// (pan) and the head tilts inside it; the lens points along the head's +Z.
-// Moving heads take pan/tilt from DMX; fixed fixtures are aimed by hand.
+// Every fixture hangs from a clamp. A yoke turns around the vertical (pan)
+// and the head tilts at the pivot; the lens points along the head's +Z.
+// Moving heads take pan/tilt from DMX and travel there at a real fixture's
+// speed; fixed fixtures are aimed by hand.
 import * as THREE from "three";
 import { BeamVolume } from "./beam.js";
-import { beamMask, glow, ledLens } from "./gobos.js";
-import { archetype, ratedLumens } from "./decode.js";
-
-const black = () => new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.55, metalness: 0.35 });
-const cylinderZ = (r1, r2, length, segments = 24) => new THREE.CylinderGeometry(r1, r2, length, segments).rotateX(Math.PI / 2);
+import { FixtureMask, glow } from "./gobos.js";
+import { archetype, ratedLumens, wheelColour } from "./decode.js";
+import { buildModel, MATERIALS } from "./models.js";
 
 const MOVING = new Set(["movingSpot", "movingWash", "movingBeam"]);
 const ON_FLOOR = new Set(["fogger", "hazer"]);
-const LED_TYPES = new Set(["rgb", "rgbw", "rgbal", "rgbalc", "bar", "wash", "blinder"]);
+const PAN_SPEED = 3.8; // rad/s, ~220°/s like a mid-size moving head
+const TILT_SPEED = 3.2;
+const PRISM_FACETS = 3;
+const PRISM_SPREAD = 0.11; // rad between the centre line and each copy
 
-// Body geometry for each kind of fixture. Returns the yoke's drop below the
-// clamp, the head parts, and where the lens is.
-function buildBody(kind, def) {
-  const head = new THREE.Group();
-  const parts = [];
-  const add = (geometry, position, material = black()) => {
-    const mesh = new THREE.Mesh(geometry, material);
-    if (position) mesh.position.set(...position);
-    mesh.castShadow = true;
-    head.add(mesh);
-    parts.push(mesh);
-    return mesh;
-  };
-  let lensRadius = 0.1;
-  let lensZ = 0.15;
-  let lensShape = "round";
-  let drop = 0.22; // clamp to tilt pivot
-  let base = null;
-
-  switch (kind) {
-    case "movingSpot":
-    case "movingBeam":
-    case "movingWash": {
-      const wash = kind === "movingWash";
-      const beam = kind === "movingBeam";
-      lensRadius = wash ? 0.13 : beam ? 0.07 : 0.085;
-      const length = wash ? 0.26 : 0.36;
-      add(cylinderZ(lensRadius + 0.03, lensRadius + 0.05, length, 28), [0, 0, 0]);
-      add(cylinderZ(lensRadius + 0.035, lensRadius + 0.035, 0.03, 28), [0, 0, length / 2 - 0.015], new THREE.MeshStandardMaterial({ color: 0x2b2d31, roughness: 0.4, metalness: 0.6 }));
-      lensZ = length / 2 + 0.001;
-      base = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.13, 0.3), black());
-      base.position.y = -0.07;
-      drop = 0.42;
-      break;
-    }
-    case "fresnel":
-      add(new THREE.BoxGeometry(0.3, 0.3, 0.32), [0, 0, 0]);
-      lensRadius = 0.12;
-      lensZ = 0.161;
-      break;
-    case "profile":
-      add(new THREE.BoxGeometry(0.22, 0.24, 0.26), [0, 0, -0.18]);
-      add(cylinderZ(0.075, 0.09, 0.42), [0, 0, 0.13]);
-      lensRadius = 0.07;
-      lensZ = 0.341;
-      break;
-    case "bar":
-      add(new THREE.BoxGeometry(1, 0.09, 0.11), [0, 0, 0]);
-      lensRadius = 0.04;
-      lensZ = 0.056;
-      lensShape = "strip";
-      drop = 0.14;
-      break;
-    case "strobe":
-      add(new THREE.BoxGeometry(0.5, 0.2, 0.16), [0, 0, 0]);
-      lensRadius = 0.08;
-      lensZ = 0.081;
-      lensShape = "panel";
-      drop = 0.18;
-      break;
-    case "blinder":
-      add(new THREE.BoxGeometry(0.52, 0.26, 0.14), [0, 0, 0]);
-      lensRadius = 0.1;
-      lensZ = 0.071;
-      lensShape = "twin";
-      break;
-    case "fogger":
-    case "hazer":
-      add(new THREE.BoxGeometry(0.5, 0.28, 0.32), [0, 0.14, 0], new THREE.MeshStandardMaterial({ color: 0x26282c, roughness: 0.6, metalness: 0.3 }));
-      add(cylinderZ(0.03, 0.03, 0.08), [0, 0.16, 0.2]);
-      lensRadius = 0.03;
-      lensZ = 0.24;
-      drop = 0;
-      break;
-    default: // LED / can par
-      add(cylinderZ(0.11, 0.12, 0.24, 28), [0, 0, 0]);
-      lensRadius = 0.1;
-      lensZ = 0.121;
-  }
-
-  // The lens: glows with the fixture's colour, which the bloom picks up.
-  const led = LED_TYPES.has(def?.type) || lensShape === "strip";
-  const lensMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, map: led ? ledLens() : null });
-  let lensGeometry;
-  if (lensShape === "strip") {
-    lensGeometry = new THREE.PlaneGeometry(0.94, 0.06);
-    lensMaterial.map = ledLens().clone();
-    lensMaterial.map.wrapS = THREE.RepeatWrapping;
-    lensMaterial.map.repeat.set(12, 1);
-    lensMaterial.map.needsUpdate = true;
-  } else if (lensShape === "panel") lensGeometry = new THREE.PlaneGeometry(0.42, 0.13);
-  else if (lensShape === "twin") lensGeometry = new THREE.CircleGeometry(lensRadius, 24).translate(-0.12, 0, 0).toNonIndexed();
-  else lensGeometry = new THREE.CircleGeometry(lensRadius, 32);
-  const lens = new THREE.Mesh(lensGeometry, lensMaterial);
-  lens.position.z = lensZ;
-  head.add(lens);
-  if (lensShape === "twin") {
-    const second = lens.clone();
-    second.position.x = 0.24;
-    head.add(second);
-    lens.userData.twin = second;
-  }
-
-  return { head, parts, lens, lensRadius, lensZ, drop, base };
+// How bright a fixture reads. Physically, candela = lumens / beam solid angle,
+// so a 1kW fresnel is ~7x a small LED par and a 4° beam light is ~100x a
+// 30° wash. Eyes (and cameras) compress that range, so we do too: brightness
+// grows with the square root of lumens and of how narrow the beam is,
+// relative to a 3000 lm, 25° reference.
+const REFERENCE_LUMENS = 3000;
+const REFERENCE_SOLID_ANGLE = 2 * Math.PI * (1 - Math.cos((12.5 * Math.PI) / 180));
+const REFERENCE_CANDELA = REFERENCE_LUMENS / REFERENCE_SOLID_ANGLE;
+export function perceivedCandela(lumens, halfAngle) {
+  const solidAngle = 2 * Math.PI * (1 - Math.cos(Math.max(halfAngle, 0.01)));
+  return REFERENCE_CANDELA * Math.sqrt(lumens / REFERENCE_LUMENS) * Math.sqrt(REFERENCE_SOLID_ANGLE / solidAngle);
 }
 
 // Barn doors on fresnels: four leaves hinged round the lens that fold in as
 // the blades close.
 function buildBarnDoors(head, lensZ) {
   const leaves = [];
-  const material = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.7, metalness: 0.2, side: THREE.DoubleSide });
+  const leafGeometry = new THREE.PlaneGeometry(0.3, 0.17).rotateX(Math.PI / 2).translate(0, 0, 0.085);
+  const material = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.7, metalness: 0.3, side: THREE.DoubleSide });
   for (let i = 0; i < 4; i++) {
     const hinge = new THREE.Group();
     hinge.rotation.z = (i * Math.PI) / 2;
     const pivot = new THREE.Group();
-    pivot.position.set(0, 0.16, lensZ + 0.01);
-    const leaf = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.16).rotateX(Math.PI / 2).translate(0, 0, 0.08), material);
+    pivot.position.set(0, 0.155, lensZ + 0.012);
+    const leaf = new THREE.Mesh(leafGeometry, material);
     leaf.castShadow = true;
     pivot.add(leaf);
     hinge.add(pivot);
@@ -142,13 +53,21 @@ function buildBarnDoors(head, lensZ) {
   return leaves;
 }
 
+// Move `current` towards `target` no faster than `speed` (per second), easing in.
+function approach(current, target, speed, dt) {
+  const delta = target - current;
+  const step = Math.sign(delta) * Math.min(Math.abs(delta), speed * dt, Math.abs(delta) * Math.min(1, dt * 7) + 0.002);
+  return current + step;
+}
+
 const tmpAxis = new THREE.Vector3();
 const tmpLens = new THREE.Vector3();
 const tmpCamera = new THREE.Vector3();
+const tmpQuat = new THREE.Quaternion();
 const raycaster = new THREE.Raycaster();
 
 export class Fixture {
-  constructor(fixture, def, shared, { castShadow = false } = {}) {
+  constructor(fixture, def, shared) {
     this.fixture = fixture;
     this.def = def;
     this.id = String(fixture.id);
@@ -158,70 +77,50 @@ export class Fixture {
     this.emitsLight = !this.onFloor && this.kind !== "mirrorBall";
     this.shared = shared;
     this.lumens = ratedLumens(def);
-    this.goboAngle = 0;
     this.lastAxis = new THREE.Vector3();
     this.lastApex = new THREE.Vector3();
     this.beamLength = 12;
+    this.pan = 0;
+    this.tilt = 0;
+    this.goboAngle = 0;
+    this.gobo2Angle = 0;
+    this.prismAngle = 0;
+    this.colourPhase = 0;
+    this.light = null;
+    this.state = null;
+    this.mask = new FixtureMask();
+    this.target = new THREE.Vector3(0, 1, -4);
 
     this.root = new THREE.Group();
     this.root.userData.fixtureId = this.id;
     this.yoke = new THREE.Group();
-    this.root.add(this.yoke);
+    this.head = new THREE.Group();
 
-    const body = buildBody(this.kind, def);
-    this.head = body.head;
-    this.lens = body.lens;
-    this.lensRadius = body.lensRadius;
-    this.lensLocal = new THREE.Vector3(0, 0, body.lensZ);
-    this.parts = [...body.parts];
-
+    const model = buildModel(this.kind, def, fixture.name);
+    this.lens = model.lens;
+    this.lensRadius = model.lensRadius;
+    this.lensLocal = new THREE.Vector3(0, model.nozzleY ?? 0, model.lensZ);
+    this.head.add(model.head);
     if (this.onFloor) {
       this.root.add(this.head);
     } else {
-      // Clamp and yoke.
-      const clamp = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.06), black());
-      clamp.position.y = -0.03;
-      this.root.add(clamp);
-      this.parts.push(clamp);
-      if (body.base) {
-        this.root.add(body.base);
-        this.parts.push(body.base);
-        this.yoke.position.y = -0.14;
-      } else this.yoke.position.y = -0.06;
-      const span = this.kind === "bar" ? 1.06 : this.kind === "strobe" || this.kind === "blinder" ? 0.58 : 0.36;
-      const yokeMaterial = black();
-      const arm = new THREE.BoxGeometry(0.035, body.drop, 0.06);
-      for (const side of [-1, 1]) {
-        const a = new THREE.Mesh(arm, yokeMaterial);
-        a.position.set((side * span) / 2, -body.drop / 2, 0);
-        a.castShadow = true;
-        this.yoke.add(a);
-        this.parts.push(a);
-      }
-      const top = new THREE.Mesh(new THREE.BoxGeometry(span, 0.03, 0.06), yokeMaterial);
-      this.yoke.add(top);
-      this.parts.push(top);
-      this.head.position.y = -body.drop;
+      this.root.add(model.base);
+      this.yoke.position.y = model.yokeY;
+      this.yoke.add(model.yoke);
+      this.head.position.y = -model.drop;
       this.yoke.add(this.head);
+      this.root.add(this.yoke);
     }
-    this.parts.forEach(part => { part.userData.fixtureId = this.id; });
-    this.lens.userData.fixtureId = this.id;
-    this.barnDoors = this.kind === "fresnel" ? buildBarnDoors(this.head, body.lensZ) : null;
+    this.barnDoors = this.kind === "fresnel" ? buildBarnDoors(this.head, model.lensZ) : null;
 
-    // Light, beam and glow.
+    this.parts = [];
+    this.root.traverse(object => {
+      if (object.isMesh) { object.userData.fixtureId = this.id; this.parts.push(object); }
+    });
+
     if (this.emitsLight) {
-      this.spot = new THREE.SpotLight(0xffffff, 0, 0, 0.3, 0.3, 2);
-      this.spot.castShadow = castShadow;
-      if (castShadow) {
-        this.spot.shadow.mapSize.set(1024, 1024);
-        this.spot.shadow.camera.near = 0.3;
-        this.spot.shadow.camera.far = 40;
-        this.spot.shadow.bias = -0.0004;
-        this.spot.shadow.normalBias = 0.02;
-      }
-      shared.scene.add(this.spot, this.spot.target);
-      this.beam = new BeamVolume(shared.uniforms);
-      shared.beamScene.add(this.beam.mesh);
+      this.beams = Array.from({ length: PRISM_FACETS }, () => new BeamVolume(shared.uniforms, shared.beamSteps));
+      this.beams.forEach(beam => shared.beamScene.add(beam.mesh));
       this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0x000000, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
       this.glow.renderOrder = 2;
       shared.scene.add(this.glow);
@@ -231,7 +130,10 @@ export class Fixture {
     this.selection.visible = false;
     shared.scene.add(this.selection);
     shared.scene.add(this.root);
-    this.target = new THREE.Vector3(0, 1, -4);
+  }
+
+  setBeamSteps(steps) {
+    this.beams?.forEach(beam => beam.setSteps(steps));
   }
 
   // Hanging/standing position (world).
@@ -265,11 +167,26 @@ export class Fixture {
     if (on) this.selection.update();
   }
 
+  // Is anything still moving on its own (so the view needs redrawing)?
+  get animating() {
+    const s = this.state;
+    return Boolean(s && (s.slewing || s.strobing || s.turning));
+  }
+
   // Apply a decoded DMX state. Returns how much fog the fixture is making.
   update(state, time, dt, settings) {
+    let slewing = false;
     if (this.moving && state.pan != null) {
+      // Travel to the DMX position at the fixture's speed. A P/T speed
+      // channel (0 = fastest) slows it further.
+      const slow = 1 - 0.9 * (Number.isInteger(this.def?.map?.speed) ? state.speed : 0);
+      const pan = approach(this.pan, state.pan, PAN_SPEED * slow, dt);
+      const tilt = approach(this.tilt, state.tilt ?? 0, TILT_SPEED * slow, dt);
+      slewing = Math.abs(pan - state.pan) > 1e-3 || Math.abs(tilt - (state.tilt ?? 0)) > 1e-3;
+      this.pan = pan;
+      this.tilt = tilt;
       // Hung upside down: pan turns the yoke, tilt 0 points straight down.
-      this.setAngles(state.pan, Math.PI / 2 + (state.tilt ?? 0));
+      this.setAngles(pan, Math.PI / 2 + tilt);
     }
     if (this.barnDoors) {
       // Leaves sit open at ~20° and fold into the beam as each blade closes.
@@ -282,36 +199,54 @@ export class Fixture {
         pivot.rotation.x = -0.35 + blades[[0, 3, 2, 1][i]] * 1.05;
       });
     }
-    if (!this.emitsLight) return this.onFloor ? state.fog : 0;
+    if (!this.emitsLight) {
+      this.state = { level: 0 };
+      return this.onFloor ? state.fog * (0.5 + 0.5 * state.fan) : 0;
+    }
 
     let level = state.intensity;
-    if (state.strobeRate > 0) level *= (time * state.strobeRate) % 1 < 0.22 ? 1 : 0;
+    const strobing = state.strobeRate > 0;
+    if (strobing) level *= (time * state.strobeRate) % 1 < 0.22 ? 1 : 0;
     if (settings.blackout) level = 0;
 
+    // Colour wheel scroll: step round the wheel's colours over time.
+    let rgb = state.rgb;
+    if (state.colourScroll > 0) {
+      this.colourPhase += state.colourScroll * dt;
+      const wheel = Array.isArray(this.def?.colourWheel) && this.def.colourWheel.length ? this.def.colourWheel : null;
+      const slots = wheel ? wheel.length : 8;
+      const slot = Math.floor(this.colourPhase) % slots;
+      rgb = wheel ? wheelColour(this.def, (Number(wheel[slot].min) + Number(wheel[slot].max)) / 2) : new THREE.Color().setHSL(slot / slots, 1, 0.5).toArray();
+    }
+
+    // Rotations: gobo, second gobo/effect, prism; plus gobo shake.
+    const turn = (rotation, angle) => (rotation.speed ? angle + rotation.speed * dt * Math.PI * 2 : rotation.angle);
+    this.goboAngle = turn(state.goboRotation, this.goboAngle);
+    this.gobo2Angle = state.effect > 0 && !state.gobo2 ? this.gobo2Angle + state.effect * dt * 2.5 : turn(state.gobo2Rotation, this.gobo2Angle);
+    this.prismAngle = turn(state.prismRotation, this.prismAngle);
+    const shake = state.goboShake ? Math.sin(time * (2 + state.goboShake * 10) * Math.PI * 2) * 0.35 : 0;
+    const turning = Boolean(state.goboRotation.speed || state.gobo2Rotation.speed || state.prismRotation.speed || state.goboShake || state.effect || state.colourScroll);
+
     this.root.updateMatrixWorld(true);
-    const axis = this.head.getWorldDirection(tmpAxis);
-    const lensWorld = this.head.localToWorld(tmpLens.copy(this.lensLocal));
-    const halfAngle = ((state.beamAngle * (state.prism ? 1.4 : 1)) * Math.PI) / 360;
-    const softness = state.softness + (state.prism ? 0.2 : 0);
+    const axis = this.head.getWorldDirection(tmpAxis).clone();
+    const lensWorld = this.head.localToWorld(tmpLens.copy(this.lensLocal)).clone();
+    const halfAngle = (state.beamAngle * Math.PI) / 360;
+    const softness = state.softness;
+    const candela = perceivedCandela(this.lumens, halfAngle) * level;
+    const [r, g, b] = rgb;
 
-    // Candela from lumens spread over the beam's solid angle.
-    const solidAngle = 2 * Math.PI * (1 - Math.cos(Math.max(halfAngle, 0.02)));
-    const candela = (this.lumens / solidAngle) * level;
-    const [r, g, b] = state.rgb;
-
-    // Spotlight: the pool on the stage.
-    this.spot.position.copy(lensWorld);
-    this.spot.target.position.copy(lensWorld).addScaledVector(axis, 10);
-    this.spot.target.updateMatrixWorld();
-    this.spot.angle = Math.min(1.5, halfAngle * (1 + softness * 0.35));
-    this.spot.penumbra = Math.min(1, 0.15 + softness * 0.85);
-    this.spot.color.setRGB(r, g, b);
-    this.spot.intensity = candela * this.shared.lightScale;
-
-    // Gobo / framing.
-    this.goboAngle += state.goboSpin * dt * Math.PI;
-    const mask = beamMask(state.gobo, state.framing);
-    if (this.spot.castShadow && this.spot.map !== mask) this.spot.map = mask;
+    // Gobo / framing / prism mask, blurred by focus and frost.
+    const masks = this.mask.update({
+      gobo: state.gobo,
+      gobo2: state.gobo2,
+      effect: state.effect,
+      framing: state.framing,
+      blur: Math.min(1, Math.max(0, softness - 0.2) * 1.4),
+      rotation: this.goboAngle + shake,
+      rotation2: this.gobo2Angle,
+      prism: state.prism,
+      prismAngle: this.prismAngle
+    });
 
     // Beam length: to the first solid thing along the axis.
     if (this.lastAxis.distanceToSquared(axis) > 1e-7 || this.lastApex.distanceToSquared(lensWorld) > 1e-7) {
@@ -323,30 +258,52 @@ export class Fixture {
       this.lastApex.copy(lensWorld);
       this.shared.shadowsDirty = true;
     }
-    if (Math.abs(this.spot.angle - (this.lastAngle ?? 0)) > 1e-4) {
-      this.lastAngle = this.spot.angle;
-      this.shared.shadowsDirty = true;
-    }
-    const tanHalf = Math.tan(Math.max(halfAngle, 0.004));
-    const back = Math.min(0.6, this.lensRadius / tanHalf);
-    const apex = lensWorld.clone().addScaledVector(axis, -back);
-    const colour = new THREE.Color(r, g, b).multiplyScalar(settings.beams ? candela * this.shared.beamScale : 0);
-    this.beam.update({ apex, axis, halfAngle, length: this.beamLength + back, colour, softness, start: back, mask, maskRotation: this.goboAngle });
 
-    // Lens: emissive in the light's colour; glow flares when you look into it.
-    const lensLevel = level * (0.6 + 3 * Math.min(1, this.lumens / 8000));
-    this.lens.material.color.setRGB(r * lensLevel * 4, g * lensLevel * 4, b * lensLevel * 4);
-    if (this.lens.userData.twin) this.lens.userData.twin.material = this.lens.material;
+    // The volumetric beam(s). A prism splits the beam into copies fanned
+    // round the axis, each with a share of the light.
+    const facets = state.prism ? PRISM_FACETS : 1;
+    const beamsOn = settings.beams && level > 0;
+    for (let i = 0; i < PRISM_FACETS; i++) {
+      const beam = this.beams[i];
+      if (!beamsOn || i >= facets) { beam.hide(); continue; }
+      let beamAxis = axis;
+      if (facets > 1) {
+        const around = this.prismAngle + (i / facets) * Math.PI * 2;
+        const side = new THREE.Vector3().crossVectors(axis, Math.abs(axis.y) > 0.95 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize();
+        side.applyQuaternion(tmpQuat.setFromAxisAngle(axis, around));
+        beamAxis = axis.clone().applyQuaternion(tmpQuat.setFromAxisAngle(side, PRISM_SPREAD)).normalize();
+      }
+      const tanHalf = Math.tan(Math.max(halfAngle, 0.004));
+      const back = Math.min(0.6, this.lensRadius / tanHalf);
+      const apex = lensWorld.clone().addScaledVector(beamAxis, -back);
+      const colour = new THREE.Color(r, g, b).multiplyScalar((candela / facets) * this.shared.beamScale);
+      beam.update({ apex, axis: beamAxis, halfAngle, length: this.beamLength + back, colour, softness, start: back, mask: masks.beam });
+    }
+
+    // What the stage-lighting pool needs to light the room for this fixture.
+    this.light = level > 0 ? {
+      position: lensWorld,
+      target: lensWorld.clone().addScaledVector(axis, 10),
+      angle: Math.min(1.5, halfAngle * (state.prism ? 1.6 : 1) * (1 + softness * 0.35)),
+      penumbra: Math.min(1, 0.15 + softness * 0.85),
+      colour: [r, g, b],
+      intensity: candela,
+      mask: masks.pool
+    } : null;
+
+    // Lens: lit in the light's colour; glow flares when you look into it.
+    const lensLevel = level * (1.5 + 3 * Math.min(1, this.lumens / 8000));
+    this.lens.material.emissive?.setRGB(r * lensLevel, g * lensLevel, b * lensLevel);
     const toCamera = tmpCamera.copy(this.shared.camera.position).sub(lensWorld).normalize();
     const facing = Math.max(0, axis.dot(toCamera));
-    const flare = level * (0.15 + 2.2 * Math.pow(facing, 8));
+    const flare = level * (0.12 + 2 * Math.pow(facing, 8));
     this.glow.position.copy(lensWorld).addScaledVector(axis, 0.02);
     this.glow.material.color.setRGB(r * flare, g * flare, b * flare);
     const size = this.lensRadius * (3 + 9 * Math.pow(facing, 4)) * (0.6 + 0.4 * Math.min(1, this.lumens / 5000));
     this.glow.scale.set(size, size, 1);
     this.glow.visible = flare > 0.002;
 
-    this.state = { level, rgb: state.rgb, candela, axis: axis.clone(), apex: lensWorld.clone(), halfAngle };
+    this.state = { level, rgb, candela, axis, apex: lensWorld, halfAngle, slewing, strobing, turning };
     if (this.selection.visible) this.selection.update();
     return 0;
   }
@@ -354,11 +311,14 @@ export class Fixture {
   dispose() {
     const { scene, beamScene } = this.shared;
     scene.remove(this.root, this.selection);
-    if (this.spot) { scene.remove(this.spot, this.spot.target, this.glow); this.spot.dispose(); }
-    if (this.beam) { beamScene.remove(this.beam.mesh); this.beam.dispose(); }
+    if (this.glow) { scene.remove(this.glow); this.glow.material.dispose(); }
+    this.beams?.forEach(beam => { beamScene.remove(beam.mesh); beam.dispose(); });
+    this.mask.dispose();
+    const shared = new Set(Object.values(MATERIALS));
     this.root.traverse(object => {
+      if (!object.isMesh) return;
       object.geometry?.dispose?.();
-      if (object.material && object.material.map !== ledLens()) object.material.dispose?.();
+      if (!shared.has(object.material)) object.material?.dispose?.();
     });
   }
 }

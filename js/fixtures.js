@@ -209,7 +209,7 @@ const FixtureLibrary = {
         photometrics: {
             verified: true,
             sourceType: "LED",
-            ratedLumens: 200000,
+            ratedLumens: 4997,
             beamAngle: 15,
             outputScale: 1.00,
             sourcePowerWatts: 126
@@ -969,8 +969,6 @@ const FixtureLibrary = {
             strobe: 1,
             pan: 2,
             tilt: 3,
-            panf: 4,
-            tiltf: 5,
             colour: 4,
             gobo: 5,
             gobor: 6,

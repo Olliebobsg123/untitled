@@ -10,11 +10,11 @@
 //   scattered to eye  = that x haze density x phase(angle) x drifting haze
 //
 // The phase function (Henyey-Greenstein) is why a real beam looks brighter
-// when you look up it towards the fixture. A gobo or framing-shutter mask
-// shapes the cross-section, so patterns show in the haze as well as on stage.
+// when you look up it towards the fixture. The fixture's mask (gobos,
+// effect wheel, framing; see gobos.js) shapes the cross-section, so
+// patterns show in the haze as well as on stage.
+// The number of steps along each ray is set by the quality preset.
 import * as THREE from "three";
-
-const STEPS = 28;
 
 const vertexShader = /* glsl */ `
   varying vec3 vWorld;
@@ -26,6 +26,7 @@ const vertexShader = /* glsl */ `
 `;
 
 const fragmentShader = /* glsl */ `
+  precision highp sampler3D;
   uniform vec3 uApex;
   uniform vec3 uAxis;
   uniform vec3 uRight;
@@ -39,29 +40,16 @@ const fragmentShader = /* glsl */ `
   uniform float uTime;
   uniform float uHasMask;
   uniform sampler2D uMask;
+  uniform sampler3D uNoise;
   uniform sampler2D uSceneDepth;
   uniform vec2 uResolution;
   uniform mat4 uProjectionInverse;
   varying vec3 vWorld;
 
-  float hash(vec3 p) {
-    p = fract(p * 0.3183099 + 0.1);
-    p *= 17.0;
-    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-  }
-  float noise(vec3 x) {
-    vec3 i = floor(x);
-    vec3 f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash(i), hash(i + vec3(1.0, 0.0, 0.0)), f.x),
-                   mix(hash(i + vec3(0.0, 1.0, 0.0)), hash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
-               mix(mix(hash(i + vec3(0.0, 0.0, 1.0)), hash(i + vec3(1.0, 0.0, 1.0)), f.x),
-                   mix(hash(i + vec3(0.0, 1.0, 1.0)), hash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
-  }
-  // Slowly drifting haze: brighter and darker patches like real haze.
+  // Slowly drifting haze from a small tiling noise texture.
   float haze(vec3 p) {
     vec3 drift = vec3(uTime * 0.035, uTime * 0.012, -uTime * 0.025);
-    float n = noise(p * 0.45 + drift) * 0.6 + noise(p * 1.3 - drift * 1.7) * 0.4;
+    float n = texture(uNoise, p * 0.11 + drift).r * 0.65 + texture(uNoise, p * 0.31 - drift * 1.7).r * 0.35;
     return 0.45 + 0.9 * n;
   }
 
@@ -117,13 +105,13 @@ const fragmentShader = /* glsl */ `
     tExit = min(tExit, sceneDistance(gl_FragCoord.xy / uResolution));
     if (tExit <= tEnter) discard;
 
-    float dt = (tExit - tEnter) / float(${STEPS});
+    float dt = (tExit - tEnter) / float(STEPS);
     // Per-pixel jitter hides banding between the steps.
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     float g = 0.35;
     float gg = g * g;
     float total = 0.0;
-    for (int i = 0; i < ${STEPS}; i++) {
+    for (int i = 0; i < STEPS; i++) {
       float t = tEnter + (float(i) + jitter) * dt;
       vec3 p = ro + rd * t;
       vec3 local = p - uApex;
@@ -145,22 +133,37 @@ const fragmentShader = /* glsl */ `
       float phase = (1.0 - gg) / pow(1.0 + gg - 2.0 * g * mu, 1.5);
       total += light * phase * haze(p);
     }
-    vec3 colour = uColor * uHaze * total * dt;
-    gl_FragColor = vec4(colour, 1.0);
+    gl_FragColor = vec4(uColor * uHaze * total * dt, 1.0);
   }
 `;
 
-// One cone geometry shared by every beam: apex at the origin, opening
-// along +Y, height 1 and radius 1 (scaled per beam).
-const coneGeometry = new THREE.ConeGeometry(1, 1, 48, 1, false);
-coneGeometry.translate(0, -0.5, 0);
-coneGeometry.rotateX(Math.PI); // apex at the origin, base at y = +1
-const LOCAL_AXIS = new THREE.Vector3(0, 1, 0);
+// A small tiling 3D value-noise texture for the haze (one texture lookup per
+// step instead of computing noise in the shader).
+export function hazeNoiseTexture(size = 32) {
+  const data = new Uint8Array(size * size * size);
+  const lattice = new Float32Array(size * size * size).map(() => Math.random());
+  const at = (x, y, z) => lattice[((z + size) % size) * size * size + ((y + size) % size) * size + ((x + size) % size)];
+  // Smooth the random lattice a little so it reads as soft haze, not static.
+  let i = 0;
+  for (let z = 0; z < size; z++) for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let sum = 0;
+    for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) sum += at(x + dx, y + dy, z + dz);
+    data[i++] = Math.round((sum / 27) * 255);
+  }
+  const texture = new THREE.Data3DTexture(data, size, size, size);
+  texture.format = THREE.RedFormat;
+  texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = texture.wrapT = texture.wrapR = THREE.RepeatWrapping;
+  texture.unpackAlignment = 1;
+  texture.needsUpdate = true;
+  return texture;
+}
 
-export function createBeamMaterial(shared) {
+export function createBeamMaterial(shared, steps) {
   return new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
+    defines: { STEPS: steps },
     uniforms: {
       uApex: { value: new THREE.Vector3() },
       uAxis: { value: new THREE.Vector3(0, -1, 0) },
@@ -175,6 +178,7 @@ export function createBeamMaterial(shared) {
       uTime: shared.time,
       uHasMask: { value: 0 },
       uMask: { value: null },
+      uNoise: shared.noise,
       uSceneDepth: shared.depth,
       uResolution: shared.resolution,
       uProjectionInverse: shared.projectionInverse
@@ -190,22 +194,45 @@ export function createBeamMaterial(shared) {
   });
 }
 
+// One cone geometry shared by every beam: apex at the origin, opening
+// along +Y, height 1 and radius 1 (scaled per beam).
+const coneGeometry = new THREE.ConeGeometry(1, 1, 40, 1, false);
+coneGeometry.translate(0, -0.5, 0);
+coneGeometry.rotateX(Math.PI); // apex at the origin, base at y = +1
+const LOCAL_AXIS = new THREE.Vector3(0, 1, 0);
+
 const tmp = new THREE.Vector3();
 const quat = new THREE.Quaternion();
 
+// A stable right/up pair around the axis for laying the mask across the beam.
+function basis(axis, right, up) {
+  const reference = Math.abs(axis.y) > 0.95 ? tmp.set(0, 0, 1) : tmp.set(0, 1, 0);
+  right.crossVectors(reference, axis).normalize();
+  up.crossVectors(axis, right).normalize();
+}
+
 // A beam volume. update() places it: apex (world), unit axis, half angle in
 // radians, length to the surface it lands on, colour already scaled by
-// candela, softness, start distance (the lens), and an optional mask with
-// its orientation.
+// candela, softness, start distance (the lens), and the mask.
 export class BeamVolume {
-  constructor(shared) {
-    this.material = createBeamMaterial(shared);
+  constructor(shared, steps) {
+    this.material = createBeamMaterial(shared, steps);
     this.mesh = new THREE.Mesh(coneGeometry, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.visible = false;
   }
 
-  update({ apex, axis, halfAngle, length, colour, softness, start, mask, maskRotation = 0 }) {
+  setSteps(steps) {
+    if (this.material.defines.STEPS === steps) return;
+    this.material.defines.STEPS = steps;
+    this.material.needsUpdate = true;
+  }
+
+  hide() {
+    this.mesh.visible = false;
+  }
+
+  update({ apex, axis, halfAngle, length, colour, softness, start, mask }) {
     const u = this.material.uniforms;
     const visible = colour.r + colour.g + colour.b > 1e-4;
     this.mesh.visible = visible;
@@ -220,19 +247,9 @@ export class BeamVolume {
     u.uSoft.value = Math.max(0.03, Math.min(1, softness));
     u.uHasMask.value = mask ? 1 : 0;
     u.uMask.value = mask;
-    // Mask orientation: a stable right/up pair around the axis, turned by
-    // the gobo/frame rotation.
-    const reference = Math.abs(axis.y) > 0.95 ? tmp.set(0, 0, 1) : tmp.set(0, 1, 0);
-    const right = u.uRight.value.crossVectors(reference, axis).normalize();
-    const up = u.uUp.value.crossVectors(axis, right).normalize();
-    if (maskRotation) {
-      const c = Math.cos(maskRotation), s = Math.sin(maskRotation);
-      const r = right.clone();
-      right.multiplyScalar(c).addScaledVector(up, s);
-      up.multiplyScalar(c).addScaledVector(r, -s);
-    }
-    // Mesh: slightly oversized cone so the faceted mesh fully contains the
-    // true cone the shader traces.
+    basis(axis, u.uRight.value, u.uUp.value);
+    // Slightly oversized cone so the faceted mesh fully contains the true
+    // cone the shader traces.
     const radius = length * tanHalf * 1.03 + 0.02;
     this.mesh.position.copy(apex);
     this.mesh.quaternion.copy(quat.setFromUnitVectors(LOCAL_AXIS, axis));

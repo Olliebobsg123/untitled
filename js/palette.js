@@ -84,7 +84,10 @@
       }
       // Some palettes (e.g. Auto Create's positions) hold values per fixture:
       // each moving head's own pan/tilt for the same spot on stage.
-      Object.assign(current, values, palette.perFixture?.[fixture.id] || {});
+      const own = palette.perFixture?.[fixture.id] || {};
+      Object.assign(current, values, own);
+      // A hue/sat palette on a CMY-only fixture (e.g. Robe): mix it in CMY.
+      if (!("cyan" in values) && !("cyan" in own) && typeof window.withCMY === "function") Object.assign(current, window.withCMY(fixture.id, current, values));
     });
 
     if (typeof window.fadeTo === "function") window.fadeTo(values, 300);

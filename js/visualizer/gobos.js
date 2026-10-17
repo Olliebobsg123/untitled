@@ -209,6 +209,25 @@ export function glow() {
   return glowTexture;
 }
 
+// A plain round pool of light with a soft edge, for fixtures drawn without
+// a real stage light (see the pool decal in fixture-model.js).
+let poolTexture = null;
+export function poolDisc() {
+  if (poolTexture) return poolTexture;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 128;
+  const g = canvas.getContext("2d");
+  const gradient = g.createRadialGradient(64, 64, 0, 64, 64, 63);
+  gradient.addColorStop(0, "#fff");
+  gradient.addColorStop(0.7, "#e6e6e6");
+  gradient.addColorStop(0.9, "#555");
+  gradient.addColorStop(1, "#000");
+  g.fillStyle = gradient;
+  g.fillRect(0, 0, 128, 128);
+  poolTexture = new THREE.CanvasTexture(canvas);
+  return poolTexture;
+}
+
 // LED lens: a grid of emitters, so LED fixtures read as LED fixtures.
 let ledTexture = null;
 export function ledLens() {

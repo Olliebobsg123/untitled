@@ -311,6 +311,9 @@ function update() {
     ball.model.update(dt, state.speed, lights, haze);
   }
   if (lightPool.update(fixtures.values(), LIGHT_SCALE)) shared.shadowsDirty = true;
+  // Fixtures without a real light draw their pool as a decal instead.
+  const lit = new Set(lightPool.owners);
+  for (const model of fixtures.values()) model.poolLit = lit.has(model);
   if (selected) showSelection();
 }
 
@@ -661,4 +664,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared };
+window.LXViz = { fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

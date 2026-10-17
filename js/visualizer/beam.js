@@ -232,18 +232,34 @@ export class BeamVolume {
     this.mesh.visible = false;
   }
 
-  update({ apex, axis, halfAngle, length, colour, softness, start, mask }) {
+  update({ apex, axis, halfAngle, length, colour, softness, start, mask, camera }) {
     const u = this.material.uniforms;
     const visible = colour.r + colour.g + colour.b > 1e-4;
     this.mesh.visible = visible;
     if (!visible) return;
-    const tanHalf = Math.tan(Math.min(halfAngle, 1.45));
+    let tanHalf = Math.tan(Math.min(halfAngle, 1.45));
+    // The beams are traced at reduced resolution, so a very narrow beam far
+    // away can be thinner than one of those pixels: it would break up into
+    // dots or vanish. Draw it about 1.5 pixels wide instead, dimmed so the
+    // same light is spread over the wider cone (it still reads as a thin
+    // bright line, as a narrow beam does in a real room).
+    let dim = 1;
+    if (camera) {
+      const pixel = (2 * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(1, u.uResolution.value.y);
+      const middle = tmp.copy(apex).addScaledVector(axis, length * 0.5);
+      const minTan = Math.min(0.25, (1.5 * pixel * camera.position.distanceTo(middle)) / Math.max(0.5, length * 0.5));
+      if (minTan > tanHalf) {
+        dim = (tanHalf / minTan) ** 2;
+        tanHalf = minTan;
+        softness = Math.max(softness, 0.7);
+      }
+    }
     u.uApex.value.copy(apex);
     u.uAxis.value.copy(axis);
     u.uTanHalf.value = tanHalf;
     u.uLength.value = length;
     u.uStart.value = start;
-    u.uColor.value.copy(colour);
+    u.uColor.value.copy(colour).multiplyScalar(dim);
     u.uSoft.value = Math.max(0.03, Math.min(1, softness));
     u.uHasMask.value = mask ? 1 : 0;
     u.uMask.value = mask;

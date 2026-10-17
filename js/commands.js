@@ -703,11 +703,25 @@ function selectGroup(grp){
 }
 // Fades the given values into each fixture's own state. updateDMX() drives the
 // rig from per-fixture states, so changing only State.current did nothing.
+// Fixtures that mix colour with cyan/magenta/yellow only (Robe ColorWash,
+// SolaFrame...) ignore hue/sat, so a colour given as hue/sat (typed colour
+// names, the remote) is turned into their CMY values too.
+function withCMY(id,state,values){
+  if(!('hue' in values||'sat' in values||'light' in values))return state;
+  const fixture=State.fixtures.find(f=>f?.id===id);
+  const map=(window.getFixtureDefinition?.(fixture)||{}).map||{};
+  const cmyOnly=['cyan','magenta','yellow'].every(k=>typeof map[k]==='number')&&!['r','g','b'].every(k=>typeof map[k]==='number');
+  if(!cmyOnly)return state;
+  const h=((Number(state.hue)||0)%360+360)%360,sat=Math.max(0,Math.min(100,Number(state.sat??100)))/100,l=Math.max(0,Math.min(100,Number(state.light??50)))/100;
+  const a=sat*Math.min(l,1-l),f=n=>{const k=(n+h/30)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));};
+  const rgb=[f(0),f(8),f(4)],max=Math.max(...rgb)||1;
+  return {...state,cyan:Math.round((1-rgb[0]/max)*255),magenta:Math.round((1-rgb[1]/max)*255),yellow:Math.round((1-rgb[2]/max)*255)};
+}
 function fadeFixtures(ids,values,ms=300){
   window.finishFade?.(); // land the previous change first, or its values freeze half-way
   const targets=[...ids].filter(id=>State.fixtures.some(f=>f?.id===id)).map(id=>{
     const current=window.ensureFixtureState?.(id)||State.fixtureStates.get(id)||cloneState(State.current);
-    return [id,{...cloneState(current),...values}];
+    return [id,withCMY(id,{...cloneState(current),...values},values)];
   });
   Object.assign(State.current,values);
   fadeTo?.({},ms,targets);

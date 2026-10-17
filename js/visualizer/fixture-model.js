@@ -8,7 +8,7 @@
 // speed; fixed fixtures are aimed by hand.
 import * as THREE from "three";
 import { BeamVolume } from "./beam.js";
-import { FixtureMask, glow } from "./gobos.js";
+import { FixtureMask, glow, poolDisc } from "./gobos.js";
 import { archetype, ratedLumens, wheelColour } from "./decode.js";
 import { buildModel, MATERIALS } from "./models.js";
 
@@ -16,6 +16,8 @@ const MOVING = new Set(["movingSpot", "movingWash", "movingBeam"]);
 const ON_FLOOR = new Set(["fogger", "hazer"]);
 const PAN_SPEED = 3.8; // rad/s, ~220°/s like a mid-size moving head
 const TILT_SPEED = 3.2;
+const POOL_PLANE = new THREE.PlaneGeometry(1, 1);
+const tmpU = new THREE.Vector3(), tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3();
 const PRISM_FACETS = 3;
 const PRISM_SPREAD = 0.11; // rad between the centre line and each copy
 
@@ -144,6 +146,16 @@ export class Fixture {
       this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0x000000, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
       this.glow.renderOrder = 2;
       shared.scene.add(this.glow);
+      // Pool of light where the beam lands, drawn when this fixture isn't
+      // one of the few given a real stage light (light-pool.js), so every
+      // light still shows on stage however many are on.
+      this.poolDecal = new THREE.Mesh(POOL_PLANE, new THREE.MeshBasicMaterial({ map: poolDisc(), color: 0x000000, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      this.poolDecal.matrixAutoUpdate = false;
+      this.poolDecal.visible = false;
+      this.poolDecal.renderOrder = 1;
+      shared.scene.add(this.poolDecal);
+      this.poolLit = false; // set by main.js: true while a real light does it
+      this.hit = null;
     }
 
     this.selection = new THREE.BoxHelper(this.root, 0x19d6a3);
@@ -174,6 +186,30 @@ export class Fixture {
       return;
     }
     this.setAngles(Math.atan2(direction.x, direction.z), Math.asin(Math.max(-1, Math.min(1, -direction.y))));
+  }
+
+  // The pool decal: lit as a real light would light that surface (diffuse,
+  // albedo/π x candela/d² x cos of the angle it lands at), stretched into
+  // the ellipse a cone makes on a slanted surface, with the gobo/shutter mask.
+  updatePoolDecal(level, rgb, candela, axis, halfAngle, softness, prism, mask) {
+    const decal = this.poolDecal, hit = this.hit;
+    if (!decal || !hit || level <= 0 || this.poolLit) { if (decal) decal.visible = false; return; }
+    const n = hit.normal;
+    const cos = Math.max(0.15, Math.abs(axis.dot(n)));
+    const radius = hit.distance * Math.tan(Math.min(1.3, halfAngle * (prism ? 1.6 : 1) * (1 + softness * 0.2)));
+    const along = tmpU.copy(axis).addScaledVector(n, -axis.dot(n));
+    if (along.lengthSq() < 1e-6) along.set(1, 0, 0).addScaledVector(n, -n.x);
+    along.normalize();
+    const across = tmpV.crossVectors(n, along).normalize();
+    decal.matrix.makeBasis(along.multiplyScalar(radius * 2 / cos), across.multiplyScalar(radius * 2), tmpW.copy(n));
+    decal.matrix.setPosition(hit.point.x + n.x * 0.01, hit.point.y + n.y * 0.01, hit.point.z + n.z * 0.01);
+    decal.matrixWorldNeedsUpdate = true;
+    const material = decal.material;
+    const map = mask || poolDisc();
+    if (material.map !== map) { material.map = map; material.needsUpdate = true; }
+    const k = (candela * this.shared.lightScale * cos) / (Math.PI * hit.distance * hit.distance);
+    material.color.setRGB(rgb[0] * k * hit.albedo.r, rgb[1] * k * hit.albedo.g, rgb[2] * k * hit.albedo.b);
+    decal.visible = true;
   }
 
   // yaw: around the vertical; pitch: 0 = level, +π/2 = straight down.
@@ -274,6 +310,12 @@ export class Fixture {
       raycaster.far = 60;
       const hit = raycaster.intersectObjects(this.shared.solids, false)[0];
       this.beamLength = hit ? hit.distance + 0.6 : 30;
+      this.hit = hit?.face ? {
+        point: hit.point.clone(),
+        normal: hit.face.normal.clone().transformDirection(hit.object.matrixWorld),
+        distance: hit.distance,
+        albedo: hit.object.material?.color?.clone?.() || new THREE.Color(0.2, 0.2, 0.2)
+      } : null;
       this.lastAxis.copy(axis);
       this.lastApex.copy(lensWorld);
       this.shared.shadowsDirty = true;
@@ -297,7 +339,7 @@ export class Fixture {
       const back = Math.min(0.6, this.lensRadius / tanHalf);
       const apex = lensWorld.clone().addScaledVector(beamAxis, -back);
       const colour = new THREE.Color(r, g, b).multiplyScalar((candela / facets) * this.shared.beamScale);
-      beam.update({ apex, axis: beamAxis, halfAngle, length: this.beamLength + back, colour, softness, start: back, mask: masks.beam });
+      beam.update({ apex, axis: beamAxis, halfAngle, length: this.beamLength + back, colour, softness, start: back, mask: masks.beam, camera: this.shared.camera });
     }
 
     // What the stage-lighting pool needs to light the room for this fixture.
@@ -310,6 +352,8 @@ export class Fixture {
       intensity: candela,
       mask: masks.pool
     } : null;
+
+    this.updatePoolDecal(level, rgb, candela, axis, halfAngle, softness, state.prism, masks.pool);
 
     // Lens: lit in the light's colour; glow flares when you look into it.
     const lensLevel = level * (1.5 + 3 * Math.min(1, this.lumens / 8000));
@@ -332,6 +376,7 @@ export class Fixture {
     const { scene, beamScene } = this.shared;
     scene.remove(this.root, this.selection);
     if (this.glow) { scene.remove(this.glow); this.glow.material.dispose(); }
+    if (this.poolDecal) { scene.remove(this.poolDecal); this.poolDecal.material.dispose(); }
     this.beams?.forEach(beam => { beamScene.remove(beam.mesh); beam.dispose(); });
     this.mask.dispose();
     const shared = new Set(Object.values(MATERIALS));

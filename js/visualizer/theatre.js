@@ -1,4 +1,4 @@
-// The room: a proscenium stage with a cyclorama, black masking, lighting
+// The room: a proscenium stage with a black back wall, black masking, lighting
 // bars, raked seating, house and work lights. Units are metres; the stage's
 // front edge is at z = 0 with the audience towards +z.
 import * as THREE from "three";
@@ -51,8 +51,9 @@ export function buildTheatre(scene) {
     [0, STAGE.height / 2, stageCentreZ]);
   add(new THREE.BoxGeometry(STAGE.width, 0.04, 0.05), matte(0x3a3a3a, 0.6), [0, STAGE.height + 0.005, STAGE.frontZ - 0.025]);
 
-  // Cyclorama: a pale cloth that takes the colour of whatever lights it.
-  add(new THREE.PlaneGeometry(STAGE.width - 1, 7), matte(0xd9d9dc, 0.98), [0, STAGE.height + 3.5, CYC_Z]);
+  // Back wall: black serge, like the masking, so beams and gobos read
+  // against it the way they do in a blacked-out theatre.
+  add(new THREE.PlaneGeometry(STAGE.width - 1, 7), matte(0x0b0b0c, 0.98), [0, STAGE.height + 3.5, CYC_Z]);
 
   // Black masking: proscenium, legs and borders.
   const black = matte(0x070708, 0.98);

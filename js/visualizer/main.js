@@ -117,13 +117,24 @@ const composer = new EffectComposer(renderer);
 const composite = new ShaderPass({
   uniforms: { tScene: { value: null }, tBeams: { value: null } },
   vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-  fragmentShader: "uniform sampler2D tScene; uniform sampler2D tBeams; varying vec2 vUv; void main() { gl_FragColor = vec4(texture2D(tScene, vUv).rgb + texture2D(tBeams, vUv).rgb, 1.0); }"
+  // Beams pass through unchanged up to a knee, then roll off smoothly, so a
+  // beam at full keeps its shape instead of its edges blowing out to white.
+  fragmentShader: `uniform sampler2D tScene; uniform sampler2D tBeams; varying vec2 vUv;
+    void main() {
+      vec3 beams = texture2D(tBeams, vUv).rgb;
+      float l = max(max(beams.r, beams.g), beams.b);
+      float knee = 0.6;
+      float rolled = l < knee ? l : knee + knee * (1.0 - exp(-(l - knee) / knee));
+      beams *= l > 0.0 ? rolled / l : 0.0;
+      gl_FragColor = vec4(texture2D(tScene, vUv).rgb + beams, 1.0);
+    }`
 }, null);
 // Set after construction: ShaderPass copies its uniforms, and render-target
 // textures can't be copied.
 composite.uniforms.tScene.value = sceneTarget.texture;
 composite.uniforms.tBeams.value = beamTarget.texture;
-const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.45, 0.85);
+// Only genuinely hot things (lenses, the hottest part of a pool) glow.
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.3, 1.4);
 composer.addPass(composite);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());

@@ -21,15 +21,17 @@ const PRISM_SPREAD = 0.11; // rad between the centre line and each copy
 
 // How bright a fixture reads. Physically, candela = lumens / beam solid angle,
 // so a 1kW fresnel is ~7x a small LED par and a 4° beam light is ~100x a
-// 30° wash. Eyes (and cameras) compress that range, so we do too: brightness
-// grows with the square root of lumens and of how narrow the beam is,
-// relative to a 3000 lm, 25° reference.
+// 30° wash. Eyes (and cameras) compress that range a lot, so we do too:
+// brightness grows gently with lumens and with how narrow the beam is,
+// relative to a 3000 lm, 25° reference, and is capped so a tight beam light
+// reads punchy (up to ~4x a par) rather than blinding.
 const REFERENCE_LUMENS = 3000;
 const REFERENCE_SOLID_ANGLE = 2 * Math.PI * (1 - Math.cos((12.5 * Math.PI) / 180));
 const REFERENCE_CANDELA = REFERENCE_LUMENS / REFERENCE_SOLID_ANGLE;
 export function perceivedCandela(lumens, halfAngle) {
   const solidAngle = 2 * Math.PI * (1 - Math.cos(Math.max(halfAngle, 0.01)));
-  return REFERENCE_CANDELA * Math.sqrt(lumens / REFERENCE_LUMENS) * Math.sqrt(REFERENCE_SOLID_ANGLE / solidAngle);
+  const gain = Math.pow(lumens / REFERENCE_LUMENS, 0.4) * Math.pow(REFERENCE_SOLID_ANGLE / solidAngle, 0.3);
+  return REFERENCE_CANDELA * Math.min(4, gain);
 }
 
 // Barn doors on fresnels: four leaves hinged round the lens that fold in as
@@ -296,7 +298,7 @@ export class Fixture {
     this.lens.material.emissive?.setRGB(r * lensLevel, g * lensLevel, b * lensLevel);
     const toCamera = tmpCamera.copy(this.shared.camera.position).sub(lensWorld).normalize();
     const facing = Math.max(0, axis.dot(toCamera));
-    const flare = level * (0.12 + 2 * Math.pow(facing, 8));
+    const flare = level * (0.12 + 1.2 * Math.pow(facing, 8));
     this.glow.position.copy(lensWorld).addScaledVector(axis, 0.02);
     this.glow.material.color.setRGB(r * flare, g * flare, b * flare);
     const size = this.lensRadius * (3 + 9 * Math.pow(facing, 4)) * (0.6 + 0.4 * Math.min(1, this.lumens / 5000));

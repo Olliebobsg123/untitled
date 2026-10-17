@@ -284,10 +284,14 @@ if(typeof map.cct==="number")write(base,map.cct,blackout?0:clamp255(saved.cct??S
 const hasRGB=typeof map.r==="number"&&typeof map.g==="number"&&typeof map.b==="number";
 if(hasRGB){
 const rgb=blackout?[0,0,0]:colourHSL(hue,sat,light);
-write(base,map.r,rgb[0]*level);
-write(base,map.g,rgb[1]*level);
-write(base,map.b,rgb[2]*level);
-if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)*level);
+// A fixture with its own dimmer takes the level there; its colour channels
+// stay at full colour (scaling both would give 10% x 10% = 1% at 10%).
+// Fixtures without one can only dim through their colour channels.
+const colourLevel=typeof map.dimmer==="number"?(blackout?0:1):level;
+write(base,map.r,rgb[0]*colourLevel);
+write(base,map.g,rgb[1]*colourLevel);
+write(base,map.b,rgb[2]*colourLevel);
+if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)*colourLevel);
 }else if(typeof map.colour==="number"){
 // A fixture with real CMY (cyan/magenta/yellow all present) skips the
 // wheel channel entirely rather than writing any computed value to it

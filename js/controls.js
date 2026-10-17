@@ -265,7 +265,7 @@
     card.className = "control-group parameter-card dynamic-parameter-card";
     const heading = document.createElement("div");
     heading.className = "dynamic-group-heading";
-    heading.textContent = "Beam Angle";
+    heading.textContent = "Beam Angle & Focus";
     card.appendChild(heading);
 
     const note = document.createElement("div");
@@ -274,6 +274,7 @@
     if (zoomOnly) {
       note.textContent = "Set by the Zoom control on this fixture.";
       card.appendChild(note);
+      renderEdge(card, fixtures);
       container.appendChild(card);
       return;
     }
@@ -345,7 +346,59 @@
     card.appendChild(row);
     describe();
     card.appendChild(note);
+    renderEdge(card, fixtures);
     container.appendChild(card);
+  }
+
+  // Edge: how sharply a hand-focused light is focused (0 sharp - 100 soft).
+  // Empty = the usual edge for that kind of light (profiles sharp, pars
+  // soft-edged, fresnels soft). Fixtures with a Focus channel use that.
+  function renderEdge(card, fixtures) {
+    const settable = fixtures.filter(f => typeof getDefinition(f)?.map?.focus !== "number");
+    if (!settable.length) return;
+    const representative = settable[settable.length - 1];
+    const field = document.createElement("div");
+    field.className = "dynamic-field";
+    const label = document.createElement("span");
+    label.className = "dynamic-field-label";
+    label.textContent = "Edge";
+    const range = document.createElement("input");
+    range.type = "range";
+    range.min = "0";
+    range.max = "100";
+    range.step = "1";
+    range.className = "dynamic-mini-fader";
+    range.title = "Sharp (left) to soft (right)";
+    const value = document.createElement("strong");
+    value.className = "dynamic-field-val";
+    const auto = document.createElement("button");
+    auto.type = "button";
+    auto.className = "btn-secondary";
+    auto.textContent = "Auto";
+    auto.title = "The usual edge for this kind of light";
+    auto.style.cssText = "margin-left:6px;padding:2px 8px;font-size:10px;";
+    const show = () => {
+      const edge = representative.edge;
+      range.value = String(Math.round((edge ?? 0.2) * 100));
+      value.textContent = edge == null ? "Auto" : edge <= 0.08 ? "Sharp" : edge >= 0.6 ? "Soft" : `${Math.round(edge * 100)}%`;
+    };
+    range.addEventListener("input", () => {
+      const edge = Math.max(0, Math.min(1, Number(range.value) / 100));
+      for (const fixture of settable) fixture.edge = edge;
+      window.sendToVisualizer?.();
+      show();
+    });
+    auto.addEventListener("click", () => {
+      for (const fixture of settable) delete fixture.edge;
+      window.sendToVisualizer?.();
+      show();
+    });
+    field.append(label, range, value, auto);
+    const row = document.createElement("div");
+    row.className = "dynamic-row";
+    row.appendChild(field);
+    card.appendChild(row);
+    show();
   }
 
   function renderManualBarnDoors(container, fixtures) {

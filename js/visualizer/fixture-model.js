@@ -34,6 +34,24 @@ export function perceivedCandela(lumens, halfAngle) {
   return REFERENCE_CANDELA * Math.min(4, gain);
 }
 
+// How hard a beam's edge is when it's in focus, by kind of light (0 = razor
+// sharp, 1 = very soft). Profiles and spots image a sharp aperture; pars and
+// washes have a natural soft edge; a fresnel's lens is made to be soft.
+const EDGE = { profile: 0.05, movingSpot: 0.06, movingBeam: 0.04, par: 0.2, movingWash: 0.28, bar: 0.3, fresnel: 0.5, strobe: 0.4, blinder: 0.4 };
+
+// Edge softness for this throw. A focus channel moves the focal plane from
+// near (0) to far (1): it's sharp when that matches the distance to the
+// surface the beam lands on, and goes soft either side of it. A fixture
+// focused by hand is taken as focused, or set in the console (edge).
+export function edgeSoftness(kind, { focus, frost }, throwDistance, manualEdge = null) {
+  let soft = manualEdge != null ? manualEdge : EDGE[kind] ?? 0.2;
+  if (focus != null && manualEdge == null) {
+    const ideal = Math.min(1, Math.max(0, (throwDistance - 2) / 18));
+    soft += Math.abs(focus - ideal) * 0.35;
+  }
+  return Math.min(1, soft + (frost || 0) * 0.7);
+}
+
 // Barn doors on fresnels: four leaves hinged round the lens that fold in as
 // the blades close.
 function buildBarnDoors(head, lensZ) {
@@ -233,7 +251,7 @@ export class Fixture {
     const axis = this.head.getWorldDirection(tmpAxis).clone();
     const lensWorld = this.head.localToWorld(tmpLens.copy(this.lensLocal)).clone();
     const halfAngle = (state.beamAngle * Math.PI) / 360;
-    const softness = state.softness;
+    const softness = edgeSoftness(this.kind, state, this.beamLength, Number.isFinite(this.fixture.edge) ? this.fixture.edge : null);
     const candela = perceivedCandela(this.lumens, halfAngle) * level;
     const [r, g, b] = rgb;
 
@@ -243,7 +261,7 @@ export class Fixture {
       gobo2: state.gobo2,
       effect: state.effect,
       framing: state.framing,
-      blur: Math.min(1, Math.max(0, softness - 0.2) * 1.4),
+      blur: Math.min(1, Math.max(0, softness - 0.1) * 1.2),
       rotation: this.goboAngle + shake,
       rotation2: this.gobo2Angle,
       prism: state.prism,
@@ -286,8 +304,8 @@ export class Fixture {
     this.light = level > 0 ? {
       position: lensWorld,
       target: lensWorld.clone().addScaledVector(axis, 10),
-      angle: Math.min(1.5, halfAngle * (state.prism ? 1.6 : 1) * (1 + softness * 0.35)),
-      penumbra: Math.min(1, 0.15 + softness * 0.85),
+      angle: Math.min(1.5, halfAngle * (state.prism ? 1.6 : 1) * (1 + softness * 0.2)),
+      penumbra: Math.min(1, 0.02 + softness * 0.9),
       colour: [r, g, b],
       intensity: candela,
       mask: masks.pool

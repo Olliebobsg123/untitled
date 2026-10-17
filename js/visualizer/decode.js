@@ -247,8 +247,11 @@ export function decodeFixture(def, frame, base, name = "", manualShutters = null
     rgb: colour.rgb,
     strobeRate: strobe.rate,
     beamAngle: decodeBeamAngle(def, read, name, beamAngle),
-    // Edge softness 0 (hard) - 1 (very soft). Focus sharpens; frost softens.
-    softness: Math.min(1, (read("focus") == null ? 0.35 : 0.15 + (1 - read("focus")) * 0.5) + (read("frost") ?? 0) * 0.6),
+    // Focus (0 = near, 1 = far; null when the lens is focused by hand) and
+    // frost. The edge they give depends on the throw, so it's worked out
+    // where the beam's length is known (fixture-model.js).
+    focus: read("focus"),
+    frost: read("frost") ?? 0,
     // Radians from the centre of travel; null for fixtures that don't move.
     pan: pan == null ? null : (pan - 0.5) * (panRange * Math.PI / 180),
     tilt: tilt == null ? null : (tilt - 0.5) * (tiltRange * Math.PI / 180),

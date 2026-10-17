@@ -159,6 +159,12 @@ try {
 }
 
 try {
+  contextBridge.exposeInMainWorld('LXDeskLink', {
+    getInfo: () => ipcRenderer.invoke('lx-desk-info'),
+    configure: next => ipcRenderer.invoke('lx-desk-configure', next),
+    onCommand: cb => { ipcRenderer.on('lx-desk-command', (_e, msg) => cb(msg)); },
+    onInfo: cb => { ipcRenderer.on('lx-desk-info', (_e, info) => cb(info)); }
+  });
   contextBridge.exposeInMainWorld('LXRemote', {
     getInfo: () => ipcRenderer.invoke('lx-remote-info'),
     setEnabled: enabled => ipcRenderer.invoke('lx-remote-set-enabled', !!enabled),

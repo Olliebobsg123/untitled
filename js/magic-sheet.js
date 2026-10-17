@@ -208,6 +208,8 @@
       document.querySelectorAll(".page").forEach(x => x.classList.remove("active"));
       button.classList.add("active");
       root.classList.add("active");
+      const title = document.getElementById("topPageTitle");
+      if (title) title.textContent = "MAGIC SHEET";
       layoutKey = null;
       window.log?.("View: magic sheet");
     });

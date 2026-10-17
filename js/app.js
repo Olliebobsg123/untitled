@@ -393,70 +393,58 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("click", () => setTimeout(refreshPatchBeamHint, 0));
   $("patchBeamAngle")?.addEventListener("focus", refreshPatchBeamHint);
 
+  // Patch one fixture or several of the same kind: consecutive addresses
+  // (each starting where the last one's channels end) and the next free
+  // fixture numbers. Everything is checked first, so a batch is patched
+  // whole or not at all.
   button("btnPatch", () => {
     ensureFixtureNumberField();
     const name = $("patchName")?.value;
     const uni = Number($("patchUni")?.value || 1);
     const addr = Number($("patchAddr")?.value || 1);
-    const fixtureNumber = Number($("patchFixtureNumber")?.value || 0);
+    const firstNumber = Number($("patchFixtureNumber")?.value || 0);
+    const quantity = Math.round(Number($("patchQty")?.value || 1));
     // Optional: the angle this light's lens or manual zoom is actually set to.
     const beamAngle = window.LXBeamAngle?.parse($("patchBeamAngle")?.value) ?? null;
+    const maxUniverses = Number(window.MAX_UNIVERSES) || 10;
 
-    if (!name || !FixtureLibrary?.[name]) {
-      return log("Select a valid fixture first", "warn");
-    }
-
-    if (!Number.isInteger(uni) || uni < 0) {
-      return log("Invalid universe", "warn");
-    }
-
-    if (!Number.isInteger(addr) || addr < 1 || addr > 512) {
-      return log("Invalid DMX address", "warn");
-    }
-
-    if (!Number.isInteger(fixtureNumber) || fixtureNumber < 1) {
-      return log("Invalid fixture number", "warn");
-    }
-
-    if (State.fixtures.some(f => Number(f?.fixtureNumber) === fixtureNumber)) {
-      return log(`Fixture number ${fixtureNumber} is already patched`, "warn");
-    }
+    if (!name || !FixtureLibrary?.[name]) return log("Choose a fixture from the library first", "warn");
+    if (!Number.isInteger(uni) || uni < 1 || uni > maxUniverses) return log(`Universe must be 1 to ${maxUniverses}`, "warn");
+    if (!Number.isInteger(addr) || addr < 1 || addr > 512) return log("Start address must be 1 to 512", "warn");
+    if (!Number.isInteger(firstNumber) || firstNumber < 1) return log("Invalid fixture number", "warn");
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 96) return log("Quantity must be 1 to 96", "warn");
+    if (State.fixtures.some(f => Number(f?.fixtureNumber) === firstNumber)) return log(`Fixture number ${firstNumber} is already patched`, "warn");
 
     const definition = FixtureLibrary[name];
-    const channels = Number(definition.channels || 1);
-    const end = addr + channels - 1;
-
-    if (end > 512) {
-      return log("Fixture extends beyond DMX address 512", "warn");
+    const channels = Math.max(1, Number(definition.channels || 1));
+    const lastEnd = addr + quantity * channels - 1;
+    if (lastEnd > 512) {
+      const fits = Math.floor((513 - addr) / channels);
+      return log(`${quantity} × ${channels}ch from address ${addr} runs to ${lastEnd}, past 512${fits ? ` (only ${fits} fit)` : ""}. Use a lower start address or another universe.`, "warn");
     }
 
-    const overlapping = State.fixtures.filter(fixture => {
-      if (Number(fixture.uni) !== uni) return false;
+    // Fixture numbers: the one asked for, then the next free ones.
+    const used = new Set(State.fixtures.map(f => Number(f?.fixtureNumber)).filter(Number.isInteger));
+    const numbers = [];
+    for (let n = firstNumber; numbers.length < quantity; n++) if (!used.has(n)) numbers.push(n);
+    const batch = numbers.map((fixtureNumber, i) => ({ fixtureNumber, addr: addr + i * channels, end: addr + (i + 1) * channels - 1 }));
 
+    const overlapping = State.fixtures.filter(fixture => {
+      if (Number(fixture.uni) !== uni || fixture.addr == null) return false;
       const existing = FixtureLibrary[fixture.name];
       if (!existing) return false;
-
       const start = Number(fixture.addr);
       const finish = start + Number(existing.channels || 1) - 1;
-
-      return addr <= finish && end >= start;
+      return addr <= finish && lastEnd >= start;
     });
 
     if (overlapping.length) {
       const names = overlapping.map(f => `#${f.fixtureNumber ?? "?"} ${f.name}`).join(", ");
-      if (!confirm(`DMX ${addr}-${end} is already used by ${names}. Replace ${overlapping.length === 1 ? "it" : "them"}?`)) return;
+      if (!confirm(`DMX ${uni}/${addr}–${lastEnd} is already used by ${names}. Replace ${overlapping.length === 1 ? "it" : "them"}?`)) return;
       // Replace means unpatch: two fixtures on the same channels fight over them.
-      const removed = new Set(overlapping.map(f => f.id));
-      for (let i = State.fixtures.length - 1; i >= 0; i--) if (removed.has(State.fixtures[i]?.id)) State.fixtures.splice(i, 1);
-      removed.forEach(id => { State.fixtureStates.delete(id); State.selected?.delete(id); });
+      window.LXPatch?.unpatch(overlapping.map(f => f.id), { quiet: true });
       log(`Unpatched ${names}`, "info");
     }
-
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-    const fixture = { id, name, uni, addr, fixtureNumber };
-    if (beamAngle != null && !window.LXBeamAngle?.info(definition).zoom) fixture.beamAngle = beamAngle;
-    State.fixtures.push(fixture);
 
     const initialState = {
       ...(State.current || {}),
@@ -465,18 +453,19 @@ document.addEventListener("DOMContentLoaded", () => {
       zoom: Number($("zoom")?.value ?? 0),
       intensity: Number($("intensity")?.value ?? 100)
     };
-
-    State.fixtureStates.set(
-      id,
-      typeof createFixtureState === "function"
-        ? createFixtureState(initialState)
-        : initialState
-    );
-
-    State.selectedFixtureId = id;
     State.selected ||= new Set();
     State.selected.clear();
-    State.selected.add(id);
+    const zoomed = window.LXBeamAngle?.info(definition).zoom;
+    for (const item of batch) {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const fixture = { id, name, uni, addr: item.addr, fixtureNumber: item.fixtureNumber };
+      if (beamAngle != null && !zoomed) fixture.beamAngle = beamAngle;
+      State.fixtures.push(fixture);
+      State.fixtureStates.set(id, typeof createFixtureState === "function" ? createFixtureState(initialState) : { ...initialState });
+      State.selected.add(id);
+      State.selectedFixtureId = id;
+    }
+    State.fixtures.sort((a, b) => Number(a?.fixtureNumber) - Number(b?.fixtureNumber));
 
     renderFixtures?.();
     updateControlVisibility();
@@ -484,9 +473,14 @@ document.addEventListener("DOMContentLoaded", () => {
     updateDMX?.();
     sendToVisualizer?.();
 
-    // Ready for the next one: the next free fixture number.
+    // Ready for the next lot: the next free number and the address after this batch.
     if ($("patchFixtureNumber")) $("patchFixtureNumber").value = String(nextFixtureNumber());
-    log(`Patched: #${fixtureNumber} ${name} → Uni ${uni} Addr ${addr}${fixture.beamAngle ? ` · ${fixture.beamAngle}°` : ""}`, "ok");
+    if ($("patchAddr") && lastEnd < 512) $("patchAddr").value = String(lastEnd + 1);
+    const angle = beamAngle != null && !zoomed ? ` · ${beamAngle}°` : "";
+    log(quantity === 1
+      ? `Patched: #${batch[0].fixtureNumber} ${name} → Uni ${uni} Addr ${addr}${angle}`
+      : `Patched ${quantity} × ${name}: #${batch[0].fixtureNumber}–${batch[quantity - 1].fixtureNumber} → Uni ${uni} Addr ${addr}–${lastEnd}${angle}`, "ok");
+    window.LXPatch?.refresh();
     ensureFixtureNumberField();
   });
 

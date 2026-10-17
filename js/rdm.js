@@ -30,14 +30,17 @@
     const panel = document.createElement("section");
     panel.className = "panel rdm-panel";
     panel.id = "rdmPanel";
-    panel.innerHTML = `<div class="panel-header"><div><span class="eyebrow">03</span> RDM Discovery</div><span class="panel-meta">ART-NET RDM / TOD</span></div><div class="panel-body"><div class="rdm-actions"><button class="btn-primary" id="btnRdmScan">↻ Discover RDM</button><button class="btn-secondary" id="btnRdmFlush">⟳ Full Discovery</button></div><div class="rdm-status" id="rdmStatus">Ready — choose a universe and discover RDM devices.</div><div class="patch-range" id="patchRange">Select a fixture to see its DMX footprint.</div><div id="rdmDeviceList" class="item-list" style="margin-top:10px"></div></div>`;
+    panel.innerHTML = `<div class="panel-header"><div><span class="eyebrow">04</span> RDM Discovery</div><span class="panel-meta">ART-NET RDM / TOD</span></div><div class="panel-body"><div class="rdm-actions"><button class="btn-primary" id="btnRdmScan">↻ Discover RDM</button><button class="btn-secondary" id="btnRdmFlush">⟳ Full Discovery</button></div><div class="rdm-status" id="rdmStatus">Ready — choose a universe and discover RDM devices.</div><div id="rdmDeviceList" class="item-list" style="margin-top:10px"></div></div>`;
     grid.appendChild(panel);
     $("btnRdmScan")?.addEventListener("click", () => scan(false));
     $("btnRdmFlush")?.addEventListener("click", () => scan(true));
     return panel;
   }
 
+  // The patch form's footprint line (#patchRange) is drawn by js/patch-page.js;
+  // this only fills it in when that isn't loaded.
   function patchFootprint() {
+    if (window.LXPatch) return;
     const name = $("patchName")?.value;
     const addr = Number($("patchAddr")?.value || 0);
     const def = name && window.FixtureLibrary?.[name];
@@ -112,8 +115,6 @@
   function install() {
     injectStyles();
     ensurePanel();
-    ["patchName", "patchAddr", "patchUni"].forEach(id => $(id)?.addEventListener("input", patchFootprint));
-    patchFootprint();
     connectRelay();
   }
 

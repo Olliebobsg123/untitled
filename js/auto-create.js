@@ -539,7 +539,7 @@
     window.__autoCreateCommandInstalled = true;
   }
 
-  window.AutoCreate = Object.freeze({ run, open: openDialog, aim, describe });
+  window.AutoCreate = Object.freeze({ run, open: openDialog, aim, describe, positions: fixtures => positions(fixtures.filter(Boolean).map(describe)) });
 
   function boot() {
     installButton();

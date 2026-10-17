@@ -156,7 +156,7 @@ function fxHasColour(fixture) {
 }
 
 function stopEffect(silent = false) {
-  if (State.effectFrame !== null) { cancelAnimationFrame(State.effectFrame); State.effectFrame = null; }
+  if (State.effectFrame !== null) { LXClock.cancel(State.effectFrame); State.effectFrame = null; }
   const previous = State.activeEffect;
   State.activeEffect = null;
   if (!silent && previous) fxLog(`■ Effect stopped: ${previous.type}`, "ok");
@@ -173,9 +173,9 @@ function fxStart(type, options = {}, renderFrame, filter) {
     if (!State.activeEffect || State.activeEffect.type !== type) return;
     renderFrame(now, (now - started) / 1000, fixtures);
     fxUpdateOutput();
-    State.effectFrame = requestAnimationFrame(frame);
+    State.effectFrame = LXClock.frame(frame);
   }
-  State.effectFrame = requestAnimationFrame(frame);
+  State.effectFrame = LXClock.frame(frame);
   fxLog(`▶ ${type[0].toUpperCase() + type.slice(1)} started — ${fixtures.length} fixture${fixtures.length === 1 ? "" : "s"}`, "ok");
   return true;
 }

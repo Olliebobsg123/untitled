@@ -258,7 +258,7 @@
     const state = window.State;
     if (!state) return;
     if (state.chaseTimer) { try { clearTimeout(state.chaseTimer); } catch (_) {} state.chaseTimer = null; }
-    if (state.fading != null) { try { cancelAnimationFrame(state.fading); } catch (_) {} state.fading = null; }
+    if (state.fading != null) { LXClock.cancel(state.fading); state.fading = null; }
     if (state.followTimer != null) { try { clearTimeout(state.followTimer); } catch (_) {} state.followTimer = null; }
     state.currentChase = -1;
     state.activeEffect = null;

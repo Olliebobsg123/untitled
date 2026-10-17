@@ -121,7 +121,7 @@
     s.chaseTimer = null;
     s.currentChase = -1;
     if (typeof window.stopCueTimers === "function") window.stopCueTimers();
-    if (s.fading != null) { cancelAnimationFrame(s.fading); s.fading = null; }
+    if (s.fading != null) { LXClock.cancel(s.fading); s.fading = null; }
     renderChases();
     if (message) log("⏹ Chase stopped");
   }

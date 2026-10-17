@@ -357,9 +357,11 @@ const FrozenColours = {
   olaf:{hue:50,sat:80}, forest:{hue:140,sat:55}, night:{hue:260,sat:45}
 };
 const cueColours = {
-  red:{hue:0,sat:100},green:{hue:120,sat:100},blue:{hue:240,sat:100},white:{hue:0,sat:0},
+  red:{hue:0,sat:100},green:{hue:120,sat:100},blue:{hue:240,sat:100},white:{hue:0,sat:0,light:100},
   yellow:{hue:60,sat:100},cyan:{hue:180,sat:100},magenta:{hue:300,sat:100},orange:{hue:30,sat:100},...FrozenColours
 };
+// Saturated colours sit at lightness 50; white needs 100 or it comes out as 50% grey.
+Object.values(cueColours).forEach(colour => { colour.light ??= 50; });
 
 const commandDefs = [
   {cmd:'artnet',hint:''},{cmd:'clear',hint:''},{cmd:'release',hint:''},{cmd:'blackout',hint:''},{cmd:'full',hint:''},
@@ -699,8 +701,19 @@ function selectGroup(grp){
   renderFixtures?.(); updateControlsForSelection(); updateDMX?.();
   return found;
 }
-function applyColour(col){Object.assign(State.current,col);fadeTo?.(col,300);updateDMX?.();renderFixtures?.();updateControlsForSelection();}
-function applyLevel(v){Object.assign(State.current,{intensity:v});fadeTo?.({intensity:v},300);updateDMX?.();setIntensityUI(v);renderFixtures?.();updateControlsForSelection();}
+// Fades the given values into each fixture's own state. updateDMX() drives the
+// rig from per-fixture states, so changing only State.current did nothing.
+function fadeFixtures(ids,values,ms=300){
+  const targets=[...ids].filter(id=>State.fixtures.some(f=>f?.id===id)).map(id=>{
+    const current=window.ensureFixtureState?.(id)||State.fixtureStates.get(id)||cloneState(State.current);
+    return [id,{...cloneState(current),...values}];
+  });
+  Object.assign(State.current,values);
+  fadeTo?.({},ms,targets);
+}
+function applyColour(col){fadeFixtures(State.selected,col);renderFixtures?.();updateControlsForSelection();}
+function applyLevel(v){fadeFixtures(State.selected,{intensity:v});setIntensityUI(v);renderFixtures?.();updateControlsForSelection();}
+function allOrSelected(){return State.selected?.size?State.selected:new Set(State.fixtures.filter(Boolean).map(f=>f.id));}
 
 function parseCommand(cmd){
   console.log('[COMMAND] Received:',JSON.stringify(cmd));
@@ -758,7 +771,7 @@ function parseCommand(cmd){
     return log('Position hold was already off','ok');
   }
   if(c==='blackout'){fadeTo?.({intensity:0,strobe:0},500);Object.assign(State.current,{intensity:0,strobe:0});setIntensityUI(0);updateDMX?.();return log('Blackout — all lights off','ok');}
-  if(/^(full|all)$/.test(c)){fadeTo?.({intensity:100,strobe:0},500);Object.assign(State.current,{intensity:100,strobe:0});setIntensityUI(100);updateDMX?.();return log('Full On — all lights 100%','ok');}
+  if(/^(full|all)$/.test(c)){const ids=allOrSelected();fadeFixtures(ids,{intensity:100,strobe:0},500);setIntensityUI(100);return log(State.selected?.size?`Full — ${ids.size} selected at 100%`:'Full On — all lights 100%','ok');}
   if(c==='all half')applyLevel(50),log('All @ 50%','ok');
   else if(c==='all 25')applyLevel(25),log('All @ 25%','ok');
   else if(c==='all 75')applyLevel(75),log('All @ 75%','ok');
@@ -839,7 +852,7 @@ function parseCommand(cmd){
     const colm=c.match(/(red|green|blue|white|yellow|cyan|magenta|orange|elsa|ice|snow|sky|aurora|castle|kristoff|sven|olaf|forest|night)/);
     if(colm&&State.selected.size){applyColour(cueColours[colm[1]]);return log(`Colour: ${colm[1]}`,'ok');}
     const stbm=c.match(/strobe\s+(\d+|off)/);
-    if(stbm&&State.selected.size){const v=stbm[1]==='off'?0:Math.max(0,Math.min(255,Number(stbm[1])));State.current.strobe=v;updateDMX?.();return log(v===0?'Strobe off':`Strobe ${v}`,'ok');}
+    if(stbm&&State.selected.size){const v=stbm[1]==='off'?0:Math.max(0,Math.min(255,Number(stbm[1])));fadeFixtures(State.selected,{strobe:v},0);return log(v===0?'Strobe off':`Strobe ${v}`,'ok');}
     return log(`Unknown command: ${cmd} — type "status" to see what's loaded`,'warn');
   }
 }
@@ -933,9 +946,7 @@ function applyPalette(name) {
   if (!selected.size && Array.isArray(palette.fixtures) && palette.fixtures.length) {
     State.selected = new Set(palette.fixtures);
   }
-  Object.assign(State.current, values);
-  if (typeof fadeTo === 'function') fadeTo(values, 300);
-  updateDMX?.();
+  fadeFixtures(State.selected, values);
   setIntensityUI(State.current.intensity ?? 100);
   renderFixtures?.();
   updateControlsForSelection();

@@ -317,21 +317,31 @@ if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof ma
 ArtNet.send();
 }
 
+// Each running fade registers how to jump to its end. finishFade() uses that so
+// recording right after a change stores the new look, not a half-faded one.
+let fadeFinisher=null;
+window.trackFade=(id,finish)=>{fadeFinisher={id,finish};return id;};
+window.finishFade=()=>{
+if(State.fading==null||fadeFinisher?.id!==State.fading)return;
+const {finish}=fadeFinisher;fadeFinisher=null;
+LXClock.cancel(State.fading);State.fading=null;finish();
+};
 function fadeTo(target,duration=1000,targetFixtureStates=null){
-if(State.fading){cancelAnimationFrame(State.fading);State.fading=null;}
+if(State.fading){LXClock.cancel(State.fading);State.fading=null;}
 const startG={...State.current},startF=new Map();
 State.fixtureStates.forEach((v,id)=>startF.set(id,cloneState(v)));
 const tgts=Array.isArray(targetFixtureStates)?targetFixtureStates:null;
 if(duration<=0){Object.assign(State.current,target||{});tgts?.forEach(([id,s])=>State.fixtureStates.set(id,cloneState(s)));updateDMX();return;}
 const start=performance.now();
+const finish=()=>{Object.assign(State.current,target||{});tgts?.forEach(([id,s])=>State.fixtureStates.set(id,cloneState(s)));updateDMX();};
 function tick(now){
 const p=Math.min(1,(now-start)/duration),e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
 Object.keys(target||{}).forEach(k=>{if(typeof target[k]==="number"&&typeof startG[k]==="number")State.current[k]=startG[k]+(target[k]-startG[k])*e;});
 tgts?.forEach(([id,tFx])=>{const sFx=startF.get(id)||cloneState(tFx),cFx=cloneState(sFx);Object.keys(tFx).forEach(k=>{if(typeof tFx[k]==="number"&&typeof sFx[k]==="number")cFx[k]=sFx[k]+(tFx[k]-sFx[k])*e;});State.fixtureStates.set(id,cFx);});
 updateDMX();
-if(p<1)State.fading=requestAnimationFrame(tick);else{Object.assign(State.current,target||{});tgts?.forEach(([id,s])=>State.fixtureStates.set(id,cloneState(s)));State.fading=null;updateDMX();}
+if(p<1)State.fading=trackFade(LXClock.frame(tick),finish);else{Object.assign(State.current,target||{});tgts?.forEach(([id,s])=>State.fixtureStates.set(id,cloneState(s)));State.fading=null;updateDMX();}
 }
-State.fading=requestAnimationFrame(tick);
+State.fading=trackFade(LXClock.frame(tick),finish);
 }
 window.fadeTo=fadeTo;
 

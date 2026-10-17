@@ -105,7 +105,7 @@ function startCueEffectIfNeeded(cue) {
 
 function stopCueFade() {
     if (State.fading !== null) {
-        cancelAnimationFrame(State.fading);
+        LXClock.cancel(State.fading);
         State.fading = null;
     }
 }
@@ -227,9 +227,13 @@ function fadeLighting(from, to, duration, finished) {
             if (typeof finished === "function") finished();
             return;
         }
-        State.fading = requestAnimationFrame(frame);
+        State.fading = trackFade(LXClock.frame(frame), finishNow);
     }
-    State.fading = requestAnimationFrame(frame);
+    const finishNow = () => {
+        applyLightingState(to.globalState, to.fixtureMap);
+        if (typeof finished === "function") finished();
+    };
+    State.fading = trackFade(LXClock.frame(frame), finishNow);
 }
 
 function renderCues() {
@@ -345,6 +349,7 @@ function goPreviousCue(forceFade = null) {
 }
 
 function recordCue(number, name, fadeMs = 800, follow = 0, followEnabled = false) {
+    window.finishFade?.();
     number = Number(number);
     if (!Number.isInteger(number) || number < 1) {
         cueLog("Invalid cue number", "warn");
@@ -431,6 +436,7 @@ function updateCue(number, options = {}) {
     // anything else (e.g. a plain "update cue N") re-records it from stage.
     const keys = Object.keys(options);
     const keepLook = keys.length > 0 && keys.every(key => ["name", "fade", "follow", "followEnabled"].includes(key));
+    if (!keepLook) window.finishFade?.();
     const globalState = keepLook ? existing.globalState : clone(State.current || {});
     const fixtureStates = keepLook ? existing.fixtureStates : snapshotFixtureStates();
     const effect = Object.prototype.hasOwnProperty.call(options, "effect")

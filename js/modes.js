@@ -94,8 +94,9 @@ window.__blindLiveMode = true;
 
   function setMode(next) {
     if (isFreeTier()) {
+      // Forced BLIND: don't save it as the user's preference, or a Pro
+      // licence would keep starting in BLIND after any free-tier session.
       mode="BLIND";
-      localStorage.setItem(MODE_KEY,"blind");
       if(window.ArtNet) window.ArtNet.outputMode="BLIND";
       if(typeof window.__setMultiOutputMode === "function") window.__setMultiOutputMode("BLIND");
       updateUI();
@@ -110,10 +111,13 @@ window.__blindLiveMode = true;
   }
 
   function stopRunningLooks(){
+    // Emergency white / blackout must stop anything still animating the
+    // rig, or it keeps writing over the safety look.
     if(window.ActiveChase){clearInterval(window.ActiveChase);window.ActiveChase=null;}
-    if(window.State?.fading){cancelAnimationFrame(window.State.fading);window.State.fading=null;}
-    if(typeof window.stopEffects==="function") window.stopEffects();
-    if(typeof window.stopAllEffects==="function") window.stopAllEffects();
+    if(window.State?.fading){LXClock.cancel(window.State.fading);window.State.fading=null;}
+    if(typeof window.stopEffect==="function") window.stopEffect(true);
+    if(typeof window.stopChase==="function") window.stopChase(false);
+    if(typeof window.stopFollow==="function") window.stopFollow();
   }
 
   function snapshotState(){

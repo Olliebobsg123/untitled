@@ -10,7 +10,8 @@
 // the two are added together, given a gentle bloom and tone mapped.
 //
 // Mouse: drag a fixture to move it (it snaps under the nearest bar; hold
-// Shift to move up/down, Alt to place it freely). Select a fixed fixture and
+// Shift to move up/down, Option/Cmd on a Mac or Alt/Ctrl on Windows to place
+// it freely). Select a fixed fixture and
 // drag its green handle to aim it. Left-drag the empty room to orbit,
 // right-drag to pan, scroll to zoom.
 import * as THREE from "three";
@@ -430,10 +431,22 @@ function showSelection() {
 // where one pixel of mouse movement is metres of depth.
 //   plain drag - slide along the bar (x only)
 //   Shift      - up/down (height only)
-//   Alt        - anywhere on the horizontal plane (best from the Plan view)
+//   Option/Cmd (Mac), Alt/Ctrl (Windows)
+//              - anywhere on the horizontal plane (best from the Plan view)
 // Nothing moves until the mouse has travelled a few pixels, so clicking to
 // select never nudges a fixture.
 const DRAG_THRESHOLD = 4;
+
+// Key names follow the computer: a Mac keyboard has Option and Cmd where a
+// PC has Alt and Ctrl (Ctrl-click on a Mac is a right click, so not that).
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const freeKey = event => event.altKey || (MAC ? event.metaKey : event.ctrlKey);
+document.getElementById("moveKeys").textContent = MAC
+  ? "Drag = slide along its bar · ⇧ Shift = up/down · ⌥ Option or ⌘ Cmd = anywhere (easiest in Plan view)"
+  : "Drag = slide along its bar · Shift = up/down · Alt or Ctrl = anywhere (easiest in Plan view)";
+document.getElementById("viewKeys").textContent = MAC
+  ? "Drag a light to slide it along its bar · Drag empty space to look around · ⇧ Shift-drag empty space to pan · Scroll or pinch to zoom"
+  : "Drag a light to slide it along its bar · Drag empty space to look around · Right-drag or Shift-drag to pan · Scroll to zoom";
 
 function facingPlane(point, lockAxis) {
   // A plane through `point` that contains the axis we move along and faces
@@ -457,7 +470,7 @@ renderer.domElement.addEventListener("pointerdown", event => {
     select(id);
     const model = modelFor(id);
     const root = model.root;
-    const mode = event.altKey ? "free" : event.shiftKey ? "height" : model.onFloor ? "free" : "bar";
+    const mode = freeKey(event) ? "free" : event.shiftKey ? "height" : model.onFloor ? "free" : "bar";
     if (mode === "free") dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), root.position);
     else facingPlane(root.position, mode === "bar" ? "x" : "y");
     if (!raycaster.ray.intersectPlane(dragPlane, hitPoint)) hitPoint.copy(root.position);

@@ -1,0 +1,28 @@
+name: LXRemote
+options:
+  bundleIdPrefix: com.olivergrainger
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  LXRemote:
+    type: application
+    platform: iOS
+    sources: [LXRemote]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.olivergrainger.lxremote
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: LXRemote/Info.plist
+      properties:
+        CFBundleDisplayName: LX Remote
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSLocalNetworkUsageDescription: LX Remote connects to your lighting console on the local network.
+        NSBonjourServices: ["_lxconsole._tcp"]
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true

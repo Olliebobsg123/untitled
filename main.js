@@ -67,10 +67,21 @@ ipcMain.handle('lx-show-load', (_event, payload) => {
 });
 
 // ---- Phone remote (see remote-server.js) ----
+// The phone remote is optional: if remote-server.js isn't present the rest of
+// the console runs normally and the remote just reports itself unavailable.
 let remoteServer = null;
+let remoteUnavailable = false;
 function getRemoteServer() {
-  if (!remoteServer) {
-    const { createRemoteServer } = require('./remote-server.js');
+  if (!remoteServer && !remoteUnavailable) {
+    let createRemoteServer;
+    try {
+      ({ createRemoteServer } = require('./remote-server.js'));
+    } catch (err) {
+      if (err.code !== 'MODULE_NOT_FOUND') throw err;
+      remoteUnavailable = true;
+      console.log('ℹ️ Phone remote not installed (remote-server.js missing) — skipping');
+      return null;
+    }
     remoteServer = createRemoteServer({
       configPath: path.join(app.getPath('userData'), 'remote.json'),
       onCommand: msg => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('lx-remote-command', msg); },
@@ -79,9 +90,10 @@ function getRemoteServer() {
   }
   return remoteServer;
 }
-ipcMain.handle('lx-remote-info', () => getRemoteServer().info());
-ipcMain.handle('lx-remote-set-enabled', (_e, enabled) => getRemoteServer().setEnabled(enabled));
-ipcMain.handle('lx-remote-regen-pin', () => getRemoteServer().regeneratePin());
+const REMOTE_OFF = { available: false, enabled: false, clients: 0 };
+ipcMain.handle('lx-remote-info', () => getRemoteServer()?.info() ?? REMOTE_OFF);
+ipcMain.handle('lx-remote-set-enabled', (_e, enabled) => getRemoteServer()?.setEnabled(enabled) ?? REMOTE_OFF);
+ipcMain.handle('lx-remote-regen-pin', () => getRemoteServer()?.regeneratePin() ?? REMOTE_OFF);
 ipcMain.on('lx-remote-snapshot', (_e, snapshot) => { if (remoteServer) remoteServer.broadcast(snapshot); });
 
 function startServices() {
@@ -322,7 +334,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   buildApplicationMenu(); startServices(); createWindow();
-  try { getRemoteServer().autostart(); } catch (err) { console.error('❌ Remote server failed:', err); }
+  try { getRemoteServer()?.autostart(); } catch (err) { console.error('❌ Remote server failed:', err); }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
 app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} stopServices(); });

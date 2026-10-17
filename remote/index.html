@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0f14">
+<link rel="manifest" href="manifest.webmanifest">
+<title>LX Remote</title>
+<link rel="stylesheet" href="remote.css">
+</head>
+<body>
+<div id="login" class="screen" hidden>
+  <div class="login-card">
+    <h1>LX Remote</h1>
+    <p id="loginMsg">Enter the PIN shown on the console.</p>
+    <input id="pin" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" autocomplete="off">
+    <button id="pinGo" class="btn primary">Connect</button>
+  </div>
+</div>
+
+<div id="app" class="screen" hidden>
+  <header>
+    <div id="status" class="dot"></div>
+    <div id="title">LX Remote</div>
+    <button id="eject" class="btn danger" hidden aria-label="Disconnect">⏏</button>
+    <button id="blackout" class="btn danger">Blackout</button>
+  </header>
+
+  <main>
+    <section id="tab-play" class="tab active">
+      <div class="go-row">
+        <button id="back" class="btn big">◀ Back</button>
+        <button id="go" class="btn big primary">GO</button>
+      </div>
+      <div id="nowplaying" class="now">No cue active</div>
+      <div id="cues" class="list"></div>
+    </section>
+
+    <section id="tab-look" class="tab">
+      <div class="card">
+        <label><span>Intensity</span><span><b id="intVal">100</b>%</span></label>
+        <input id="intensity" type="range" min="0" max="100">
+        <div class="row3">
+          <button data-int="0" class="btn">0</button><button data-int="50" class="btn">50</button><button data-int="100" class="btn">Full</button>
+        </div>
+      </div>
+      <div class="card">
+        <label>Colour</label>
+        <div id="swatches" class="swatches"></div>
+        <label><span>Hue</span><span><b id="hueVal">0</b>°</span></label>
+        <input id="hue" type="range" min="0" max="360" class="hue">
+        <label><span>Saturation</span><span><b id="satVal">0</b>%</span></label>
+        <input id="sat" type="range" min="0" max="100" class="sat">
+      </div>
+      <div class="card">
+        <label><span>Strobe</span><span><b id="strobeVal">0</b></span></label>
+        <input id="strobe" type="range" min="0" max="255">
+      </div>
+    </section>
+
+    <section id="tab-select" class="tab">
+      <div class="row3">
+        <button id="selAll" class="btn">All</button><button id="selNone" class="btn">None</button>
+        <span id="selCount" class="muted"></span>
+      </div>
+      <h3>Groups</h3>
+      <div id="groups" class="grid"></div>
+      <h3>Fixtures</h3>
+      <div id="fixtures" class="grid"></div>
+    </section>
+
+    <section id="tab-fx" class="tab">
+      <h3>Palettes</h3>
+      <div id="palettes" class="grid"></div>
+      <h3>Chases</h3>
+      <div id="chases" class="grid"></div>
+      <button id="stopChase" class="btn">■ Stop chase</button>
+    </section>
+
+    <section id="tab-cmd" class="tab">
+      <form id="cmdForm" class="cmd-form">
+        <input id="cmdText" placeholder="e.g. 1 thru 4 at 50" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <button class="btn primary">Send</button>
+      </form>
+      <h3>Record cue</h3>
+      <form id="recForm" class="cmd-form">
+        <input id="recNum" inputmode="numeric" placeholder="#" class="narrow">
+        <input id="recName" placeholder="Name">
+        <button class="btn">Record</button>
+      </form>
+      <div id="cmdLog" class="log"></div>
+    </section>
+  </main>
+
+  <div class="masterbar">
+    <label><span>Master</span><span><b id="masterVal">100</b>%</span></label>
+    <input id="master" type="range" min="0" max="100">
+  </div>
+
+  <nav>
+    <button data-tab="play" class="active"><i>▶</i>Play</button>
+    <button data-tab="look"><i>◐</i>Look</button>
+    <button data-tab="select"><i>▦</i>Select</button>
+    <button data-tab="fx"><i>✦</i>FX</button>
+    <button data-tab="cmd"><i>⌨</i>Cmd</button>
+  </nav>
+  <div id="toast"></div>
+</div>
+<script src="remote.js"></script>
+</body>
+</html>

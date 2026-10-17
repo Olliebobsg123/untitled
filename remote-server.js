@@ -57,7 +57,8 @@ function createRemoteServer({ configPath, onCommand, onClientsChanged }) {
 
   function serveStatic(req, res) {
     const url = new URL(req.url, 'http://x');
-    let rel = decodeURIComponent(url.pathname);
+    let rel;
+    try { rel = decodeURIComponent(url.pathname); } catch (_) { res.writeHead(400); res.end('Bad request'); return; } // e.g. "/%" would otherwise throw and crash the app
     if (rel === '/') rel = '/index.html';
     const file = path.normalize(path.join(ROOT, rel));
     if (!file.startsWith(ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end('Not found'); return; }

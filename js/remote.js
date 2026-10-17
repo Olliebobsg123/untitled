@@ -77,7 +77,7 @@
     intensity(m) { if (has("applyLevel")) window.applyLevel(num(m.value, 0, 100)); },
     colour(m) { if (has("applyColour")) window.applyColour({ hue: num(m.hue, 0, 360), sat: num(m.sat, 0, 100) }); },
     colourName(m) { const c = typeof cueColours !== "undefined" ? cueColours[String(m.name)] : null; if (c && has("applyColour")) window.applyColour(c); },
-    strobe(m) { S().current.strobe = num(m.value, 0, 255); window.updateDMX?.(); },
+    strobe(m) { if (has("fadeFixtures")) window.fadeFixtures(S().selected, { strobe: num(m.value, 0, 255) }, 0); },
     blackout(m) { if (has("setBlackout")) window.setBlackout(!!m.on); },
     select(m) {
       const s = S(); if (!(s.selected instanceof Set)) return;

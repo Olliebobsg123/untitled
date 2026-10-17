@@ -182,7 +182,7 @@ window.__blindLiveMode = true;
     stopRunningLooks(); snapshotState(); blackoutActive=false;
     if(window.State) State.blackout=false;
     setBlackoutUI(false); setMode("LIVE");
-    applyAllFixturesState({intensity:70,master:100,hue:0,sat:0,light:50,strobe:0,gobo:0,gobo2:0,prism:0,prismr:0,focus:0,zoom:0,frost:0,iris:0,rot:0,effect:0,speed:0,macro:0,preset:0,shake:0,mode:0});
+    applyAllFixturesState({intensity:70,master:100,hue:0,sat:0,light:100,strobe:0,gobo:0,gobo2:0,prism:0,prismr:0,focus:0,zoom:0,frost:0,iris:0,rot:0,effect:0,speed:0,macro:0,preset:0,shake:0,mode:0});
     setEmergencyUI(true);
     const title=$("topPageTitle"); if(title) title.textContent="EMERGENCY WHITE";
     if(typeof window.log==="function") window.log("EMERGENCY WHITE — safe white at 70% output","warn");

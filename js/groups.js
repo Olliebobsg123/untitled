@@ -15,6 +15,10 @@
     if (!wanted) return null;
     const byId = fixtures.find(fixture => fixture?.id != null && String(fixture.id) === wanted);
     if (byId?.id != null) return byId;
+    // Group members are fixture numbers (as typed in "group 1 = 1,2"), which
+    // stop matching list positions once fixtures are deleted or renumbered.
+    const byNumber = fixtures.find(fixture => fixture?.fixtureNumber != null && String(fixture.fixtureNumber) === wanted);
+    if (byNumber) return byNumber;
     const index = Number(value) - 1;
     return Number.isInteger(index) && index >= 0 ? fixtures[index] || null : null;
   }

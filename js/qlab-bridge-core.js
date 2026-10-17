@@ -2,7 +2,7 @@
 const WebSocket=require("ws"),dgram=require("dgram");
 let QLAB_IP=process.env.QLAB_IP||"127.0.0.1",QLAB_PORT=Number(process.env.QLAB_PORT||53000),QLAB_PASSWORD=String(process.env.QLAB_PASSWORD||"");
 const QLAB_REPLY_PORT=Number(process.env.QLAB_REPLY_PORT||53001),BRIDGE_PASSWORD=String(process.env.QLAB_BRIDGE_PASSWORD||""),WS_PORT=Number(process.env.QLAB_WS_PORT||8083),POLL_MS=250,RETRY_MS=2000;
-const udp=dgram.createSocket("udp4"),wss=new WebSocket.Server({host:"0.0.0.0",port:WS_PORT}),clients=new Map();
+const udp=dgram.createSocket("udp4"),wss=new WebSocket.Server({host:"127.0.0.1",port:WS_PORT}),clients=new Map();
 let cues=[],activeCue=null,activeCueObject=null,activeDuration=null,timeTriggers={},firedTriggers=new Set(),pollTimer=null,syncTimer=null,workspaceId=null,lastSyncRequest=0,lastElapsed=null,emptyActiveReplies=0,shuttingDown=false;
 function encStr(v){const b=Buffer.from(`${v}\0`);return Buffer.concat([b,Buffer.alloc((4-b.length%4)%4)]);}function tag(v){return typeof v==="boolean"?(v?"T":"F"):Number.isInteger(v)?"i":typeof v==="number"?"f":"s";}function encArg(v){if(typeof v==="boolean")return Buffer.alloc(0);if(Number.isInteger(v)){const b=Buffer.alloc(4);b.writeInt32BE(v);return b;}if(typeof v==="number"){const b=Buffer.alloc(4);b.writeFloatBE(v);return b;}return encStr(v);}function encodeOsc(a,args=[]){const x=Array.isArray(args)?args:[args];return Buffer.concat([encStr(a),encStr(`,${x.map(tag).join("")}`),...x.map(encArg)]);}
 function decStr(b,o){let e=o;while(e<b.length&&b[e]!==0)e++;if(e>=b.length)throw Error("Invalid OSC string");const n=e+1+((4-((e+1)%4))%4);if(n>b.length)throw Error("Truncated OSC packet");return{value:b.toString("utf8",o,e),next:n};}

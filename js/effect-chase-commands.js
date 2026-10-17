@@ -50,6 +50,17 @@
     if (Number.isInteger(window.State.currentChase) && window.State.currentChase >= n) {
       window.State.currentChase -= 1;
     }
+    // Cues point at chases by position: drop links to the deleted chase and
+    // shift the ones after it, or GO would start the wrong chase.
+    (window.State.cues || []).forEach((cue, i) => {
+      const linked = Number(cue?.chase?.index);
+      if (!Number.isInteger(linked)) return;
+      if (linked === n - 1) {
+        delete cue.chase;
+        log(`Cue ${i + 1} no longer starts a chase (Chase ${n} was deleted)`, "warn");
+      } else if (linked > n - 1) cue.chase.index = linked - 1;
+    });
+    window.renderCues?.();
 
     window.renderChases?.();
 

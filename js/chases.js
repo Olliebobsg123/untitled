@@ -141,7 +141,7 @@
     if (!cue) return stopChase(false);
     const fade = Math.max(0, Math.min(60000, n(chase.fade, 0)));
     const fixtureIds = chaseFixtureIds(chase);
-    log(`CHASE DEBUG: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
+    console.debug(`CHASE: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
     if (fade > 0 && typeof window.fadeTo === "function") {
       const target = clone(cue.globalState || cue.state || {});
       const fixtureTargets = fixtureIds.map(id => [id, cueState(cue, id)]);
@@ -173,7 +173,7 @@
       const cueIndex = steps[(fixtureIndex + rotation) % steps.length];
       const state = cueState(s.cues[cueIndex], fixture.id);
       map.set(fixture.id, state);
-      log(`🌈 CHASE DEBUG: fixture ${fixture.id} ← Cue ${cueIndex + 1}`);
+      console.debug(`CHASE: fixture ${fixture.id} ← Cue ${cueIndex + 1}`);
     });
     const first = s.cues[steps[rotation % steps.length]];
     pushState(first?.globalState || first?.state || {}, map);
@@ -192,7 +192,7 @@
     const ids = new Set(chaseFixtureIds(chase).map(String));
     const filtered = (snapshot.fixtureStates || []).filter(x => Array.isArray(x) && x.length > 1 && ids.has(String(x[0])));
     applySnapshot({ globalState: snapshot.globalState, fixtureStates: filtered });
-    log(`CHASE DEBUG: recorded look ${step + 1}/${chase.snapshots.length} on ${ids.size} fixture(s)`);
+    console.debug(`CHASE: recorded look ${step + 1}/${chase.snapshots.length} on ${ids.size} fixture(s)`);
     let next = step + 1;
     if (next >= chase.snapshots.length) {
       if (!chase.loop) return stopChase();

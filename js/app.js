@@ -756,47 +756,7 @@ document.addEventListener("DOMContentLoaded", () => {
      CHASES
   ========================================================== */
 
-  button("btnSaveChase", () => {
-    if (typeof saveChase !== "function") return;
-
-    const name = prompt(
-      "Chase name:",
-      `Chase ${State.chases.length + 1}`
-    );
-
-    if (name === null) return;
-
-    const raw = prompt("Cue numbers:", "1,2,3,4");
-    if (raw === null) return;
-
-    const steps = raw
-      .split(",")
-      .map(value => Number(value.trim()))
-      .filter(Number.isInteger);
-
-    if (steps.length) {
-      saveChase(name, steps, confirm("Loop this chase?"));
-    }
-  });
-
-  button("btnRunChase", () => {
-    const number = Number(prompt("Chase number:", "1"));
-
-    if (State.chases?.[number - 1]) {
-      startChase?.(number - 1);
-    }
-  });
-
-  button("btnStopChase", () => {
-    stopChase?.();
-  });
-
-  $("chaseSpeed")?.addEventListener("input", e => {
-    const speed = Number(e.target.value);
-
-    State.chaseWait = Math.max(0, 2000 - speed * 20);
-    State.chaseFade = State.chaseWait > 0 ? 800 : 0;
-  });
+  // Chase buttons and the speed slider are wired by js/chases.js.
 
   /* ==========================================================
      SAVE / LOAD

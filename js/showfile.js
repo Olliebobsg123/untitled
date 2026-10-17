@@ -36,19 +36,33 @@
     return def?.transport === "tapo" || fixture?.transport === "tapo" || !!fixture?.tapo;
   };
 
+  // Tapo account passwords stay on this computer (localStorage) and are left
+  // out of show files, which get copied and shared.
+  const TAPO_PASSWORDS_KEY = "lighting-tapo-passwords";
+  const tapoKey = config => `${String(config?.email || "").trim().toLowerCase()}|${String(config?.ip || "").trim()}`;
+  function rememberTapoPassword(config) {
+    if (!config?.password) return;
+    const stored = readStoredJSON(TAPO_PASSWORDS_KEY, {});
+    stored[tapoKey(config)] = String(config.password);
+    writeStoredJSON(TAPO_PASSWORDS_KEY, stored);
+  }
+  function storedTapoPassword(config) {
+    return String(readStoredJSON(TAPO_PASSWORDS_KEY, {})[tapoKey(config)] || "");
+  }
+
   function snapshotTapoSettings(fixtures) {
     return (Array.isArray(fixtures) ? fixtures : [])
       .filter(isTapoFixture)
       .map(fixture => {
         const config = fixture.tapo || {};
+        rememberTapoPassword(config);
         return {
           fixtureId: String(fixture.id),
           ip: String(config.ip || "").trim(),
-          email: String(config.email || "").trim(),
-          password: String(config.password || "")
+          email: String(config.email || "").trim()
         };
       })
-      .filter(config => config.ip || config.email || config.password);
+      .filter(config => config.ip || config.email);
   }
 
   function restoreTapoSettings(fixtures, settings) {
@@ -61,10 +75,16 @@
       fixture.tapo = {
         ip: String(config.ip || "").trim(),
         email: String(config.email || "").trim(),
-        password: String(config.password || "")
+        password: String(config.password || "") || storedTapoPassword(config)
       };
       fixture.addr = null;
       fixture.uni = null;
+    });
+    // Older show files kept the password; newer ones get it from this computer.
+    fixtures.forEach(fixture => {
+      if (!fixture?.tapo) return;
+      if (fixture.tapo.password) rememberTapoPassword(fixture.tapo);
+      else fixture.tapo.password = storedTapoPassword(fixture.tapo);
     });
   }
 
@@ -225,7 +245,12 @@
       format: "lx-console-show",
       version: 7,
       savedAt: new Date().toISOString(),
-      fixtures: cloneValue(fixtures),
+      fixtures: cloneValue(fixtures).map(fixture => {
+        if (!fixture?.tapo) return fixture;
+        rememberTapoPassword(fixture.tapo);
+        const { password, ...tapo } = fixture.tapo;
+        return { ...fixture, tapo };
+      }),
       groups: cloneValue(state.groups || []),
       cues: cloneValue(state.cues || []),
       chases: cloneValue(state.chases || []),

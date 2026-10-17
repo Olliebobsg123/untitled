@@ -82,7 +82,9 @@
         current = State.fixtureStates?.get(fixture.id) || {};
         State.fixtureStates?.set(fixture.id, current);
       }
-      Object.assign(current, values);
+      // Some palettes (e.g. Auto Create's positions) hold values per fixture:
+      // each moving head's own pan/tilt for the same spot on stage.
+      Object.assign(current, values, palette.perFixture?.[fixture.id] || {});
     });
 
     if (typeof window.fadeTo === "function") window.fadeTo(values, 300);
@@ -125,6 +127,8 @@
     if (values.sat != null) bits.push(`S${values.sat}`);
     if (values.pan != null || values.tilt != null) bits.push(`P${values.pan ?? "-"} T${values.tilt ?? "-"}`);
     if (values.zoom != null) bits.push(`Z${values.zoom}`);
+    if (palette.perFixture) bits.push(`${Object.keys(palette.perFixture).length} fixtures`);
+    if (palette.auto) bits.push("auto");
     return bits.join(" · ") || "Programmer state";
   }
 

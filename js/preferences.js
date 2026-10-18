@@ -47,6 +47,7 @@
     cueFadeMs: 800,            // default fade when recording a cue
     askCueDetails: true,       // ask for name, fade and follow when saving a cue
     paletteFadeMs: 300,
+    commandFadeMs: 300,        // fade for levels typed in the command line
     chaseSpeedStart: 50,
     masterStart: 100,
     confirmUnpatch: true,
@@ -269,7 +270,8 @@
     host.appendChild(panel("programming", "prefCues", "Cues", "PROGRAMMING",
       row("Default fade", "Fade time for new cues.", number("cueFadeMs", 0, 600, 0.1, "s", 1000)) +
       row("Ask when saving a cue", "Ask for a name, fade and follow time when you press Save. Off: saves straight away with the default fade.", check("askCueDetails")) +
-      row("Palette fade", "How long applying a palette takes.", number("paletteFadeMs", 0, 30, 0.1, "s", 1000))));
+      row("Palette fade", "How long applying a palette takes.", number("paletteFadeMs", 0, 30, 0.1, "s", 1000)) +
+      row("Command line fade", "How long a level typed in the command line takes, unless you add time (e.g. 1 thru 5 @ 50 time 3).", number("commandFadeMs", 0, 30, 0.1, "s", 1000))));
 
     host.appendChild(panel("programming", "prefStart", "Start-up", "PROGRAMMING",
       row("Master level", "Where the master sits when Light Spark opens.", seg("masterStart", [["100", "Full"], ["0", "Zero (start dark)"]])) +
@@ -293,6 +295,8 @@
         <kbd>${cmdKey} 1–9</kbd><span>Go to a page (your own pages too)</span>
         <kbd>Space</kbd><span>GO (see GO key)</span>
         <kbd>Enter</kbd><span>Run what's typed in the command line</span>
+        <kbd>↑ ↓</kbd><span>Earlier commands (in an empty command line)</span>
+        <kbd>${cmdKey} Z</kbd><span>Undo a level change (${cmdKey} ⇧ Z to redo)</span>
         <kbd>Esc</kbd><span>Close Preferences or a menu</span>
         <kbd>${cmdKey} Q</kbd><span>Quit Light Spark</span>
       </div>`));

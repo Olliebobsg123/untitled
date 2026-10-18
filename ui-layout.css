@@ -184,6 +184,7 @@ html[data-sidebar="labels"] body:has(.sidebar:hover) { grid-template-columns: va
   text-align: right;
   margin-right: 104px; /* room for the Remote button */
 }
+html[data-remote="off"] .cmd-ticker { margin-right: 0; }
 .cmd-ticker:hover { color: var(--text); }
 .cmd-ticker.warn { color: var(--warning); }
 .cmd-ticker.error { color: var(--danger); }

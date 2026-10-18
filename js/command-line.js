@@ -246,6 +246,7 @@
     // Land any fade still running, or its half-way values become the new ones.
     window.finishFade?.();
     const ms = p.time != null ? p.time : fadeMs();
+    window.LXFixtureInfo?.act("command", `“${p.raw || describe(p)}”`, "typed in the command line", ms + 600);
     const targets = [];
     const cmy = typeof withCMY === "function" ? withCMY : (id, s) => s;
     const clone = s => (typeof window.cloneFixtureState === "function" ? window.cloneFixtureState(s) : { ...s });
@@ -278,6 +279,7 @@
   function info(n) {
     const f = fixtureByNumber(n);
     if (!f) return say(`There's no fixture ${n}`, "warn");
+    if (window.LXFixtureInfo) return window.LXFixtureInfo.open(f.id);
     const s = window.ensureFixtureState?.(f.id) || {};
     const def = window.FixtureLibrary?.[f.name] || {};
     const bits = [`#${f.fixtureNumber} ${f.name}`, `Uni ${f.uni} Addr ${f.addr}${def.channels ? `–${Number(f.addr) + def.channels - 1}` : ""}`, `level ${Math.round(Number(s.intensity) || 0)}%`];
@@ -349,6 +351,13 @@
       if (c === "redo") return redo();
       if (c === "help" || c === "?" || c === "commands") { window.LXWindows?.open("commands"); return say("Command reference opened — click any example to try it", "info"); }
       if ((m = c.match(/^(?:info\s+(\d+)|(\d+)\s+info)$/))) return info(Number(m[1] || m[2]));
+      if (c === "info") {
+        const id = [...(S().selected || [])][0];
+        if (id == null) return say("Select a fixture first, or type info 5", "warn");
+        return window.LXFixtureInfo ? window.LXFixtureInfo.open(id) : null;
+      }
+      // Fixture Info shows this command as what changed things.
+      if (!QUIET.test(c)) window.LXFixtureInfo?.act("command", `“${raw}”`, "typed in the command line", 1500);
       if ((m = c.match(/^sneak(?:\s+(\d+(?:\.\d+)?))?$/))) {
         const state = S();
         if (!(state.currentCue >= 0) || !state.cues?.[state.currentCue]) return say("Sneak needs a cue to go back to — GO a cue first", "warn");
@@ -361,6 +370,7 @@
       }
       const parsed = parse(raw);
       if (parsed) {
+        parsed.raw = raw;
         if (!parsed.error && !parsed.select) remember(raw);
         return run(parsed);
       }
@@ -394,6 +404,7 @@
         const v = input.value.trim();
         if (v && history[history.length - 1] !== v) { history.push(v); if (history.length > 200) history.shift(); try { localStorage.setItem(HISTORY, JSON.stringify(history)); } catch (_) {} }
         hIndex = -1; preview.textContent = "";
+        setTimeout(() => document.getElementById("cmdAutocompleteList")?.classList.remove("is-visible"), 0);
         return;
       }
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -451,7 +462,7 @@
     ["Levels", [["1 thru 10 @ 50", "set a level"], ["group 1 @ full", "full is 100"], ["2 @ out", "out is 0"], ["@ 75", "the selected fixtures"], ["@ +10", "up 10% (each from its own level)"], ["@ -20", "down 20%"], ["1 thru 5 @ 80 time 4", "fade over 4 seconds"], ["rem dim", "everything not selected to 0"]]],
     ["Colour & movement", [["1 thru 4 red", "colour by name"], ["group 2 @ 60 blue", "level and colour together"], ["5 pan 100 tilt 40", "position (0–255)"], ["5 zoom 200", "also focus, frost, iris, gobo, prism"], ["group 3 home", "pan and tilt to centre"], ["1 strobe 120", "strobe (strobe off to stop)"]]],
     ["Cues", [["record cue 5 Opening", "record a cue"], ["go", "next cue"], ["go 3", "jump to cue 3"], ["back", "previous cue"], ["update cue 3", "save the stage into cue 3"], ["fade 3 2.5", "set cue 3's fade"], ["sneak", "fade back to the current cue"], ["sneak 5", "…over 5 seconds"]]],
-    ["Other", [["undo", "undo a level change (⌘Z)"], ["redo", "redo it (⇧⌘Z)"], ["info 5", "what fixture 5 is doing"], ["blackout", "everything off"], ["full", "everything on"], ["auto create", "groups, palettes, effects and chases"], ["viz", "3D visualiser"], ["save MyShow.json", "save the show"]]]
+    ["Other", [["undo", "undo a level change (⌘Z)"], ["redo", "redo it (⇧⌘Z)"], ["info 5", "what fixture 5 is doing, and why (window)"], ["blackout", "everything off"], ["full", "everything on"], ["auto create", "groups, palettes, effects and chases"], ["viz", "3D visualiser"], ["save MyShow.json", "save the show"]]]
   ];
 
   function buildReference(body) {

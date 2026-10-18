@@ -36,13 +36,27 @@
     return layer;
   }
 
-  // Keep a window on screen, with its title bar reachable.
-  function clamp(rect) {
+  // Keep a window on screen (or inside its page), with its title bar reachable.
+  function clamp(rect, host) {
+    if (host) {
+      const W = host.el.clientWidth, H = host.el.clientHeight;
+      const w = Math.max(200, Math.min(rect.w, W)), h = Math.max(120, Math.min(rect.h, H));
+      const x = Math.max(0, Math.min(rect.x, W - w)), y = Math.max(0, Math.min(rect.y, H - h));
+      return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+    }
     const w = Math.max(240, Math.min(rect.w, innerWidth - 8));
     const h = Math.max(140, Math.min(rect.h, innerHeight - 8));
     const x = Math.max(4 - w + 80, Math.min(rect.x, innerWidth - 80));
     const y = Math.max(4, Math.min(rect.y, innerHeight - 32));
     return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+  }
+
+  // Preferences → Layout → "Snap windows to a grid".
+  function snap(rect, mode) {
+    const step = Number(window.LXPrefs?.get("windowSnap")) || 0;
+    if (!step) return rect;
+    const r = v => Math.round(v / step) * step;
+    return mode === "move" ? { ...rect, x: r(rect.x), y: r(rect.y) } : { ...rect, w: r(rect.w), h: r(rect.h) };
   }
 
   function place(el, rect) {
@@ -53,7 +67,7 @@
     const area = workspaceRect();
     const count = open.size;
     const w = Math.min(def.w || 480, area.width - 20), h = Math.min(def.h || 400, area.height - 20);
-    if (def.center) return { x: area.left + (area.width - w) / 2, y: Math.max(area.top, area.top + (area.height - h) / 3), w, h };
+    if (def.center || window.LXPrefs?.get("windowOpen") === "centre") return { x: area.left + (area.width - w) / 2, y: Math.max(area.top, area.top + (area.height - h) / 3), w, h };
     return { x: area.left + area.width - w - 16 - count * 24, y: area.top + 12 + count * 24, w, h };
   }
 
@@ -67,6 +81,8 @@
   function drag(handle, el, id, mode) {
     handle.addEventListener("pointerdown", event => {
       if (event.button !== 0 || event.target.closest("button")) return;
+      const host = open.get(id)?.host;
+      if (host?.locked?.()) return;
       event.preventDefault();
       front(id);
       handle.setPointerCapture(event.pointerId);
@@ -74,7 +90,7 @@
       const move = e => {
         const dx = e.clientX - start.px, dy = e.clientY - start.py;
         const rect = mode === "move" ? { x: start.x + dx, y: start.y + dy, w: start.w, h: start.h } : { x: start.x, y: start.y, w: start.w + dx, h: start.h + dy };
-        place(el, clamp(rect));
+        place(el, clamp(snap(rect, mode), host));
       };
       const up = () => {
         handle.removeEventListener("pointermove", move);
@@ -91,6 +107,7 @@
 
   function remember(id) {
     const entry = open.get(id);
+    if (entry?.host) { entry.host.onChange?.(id, { x: entry.el.offsetLeft, y: entry.el.offsetTop, w: entry.el.offsetWidth, h: entry.el.offsetHeight }); return; }
     saved[id] = { ...(saved[id] || {}), open: Boolean(entry) };
     if (entry) Object.assign(saved[id], { x: entry.el.offsetLeft, y: entry.el.offsetTop, w: entry.el.offsetWidth, h: entry.el.offsetHeight });
     persist();
@@ -107,7 +124,12 @@
   function openWindow(id, options = {}) {
     const def = defs.get(id);
     if (!def) return false;
-    if (open.has(id)) { front(id); def.onFront?.(); return true; }
+    const host = options.host || null;
+    if (open.has(id)) {
+      // Moving between a page and floating: close it where it is first.
+      if (open.get(id).host !== host) closeWindow(id);
+      else { front(id); def.onFront?.(); return true; }
+    }
     let panel = null, placeholder = null;
     if (def.panel) {
       panel = panelOf(def);
@@ -129,20 +151,23 @@
     el.innerHTML = `<div class="lxw-bar"><span class="lxw-title"></span>${def.panel ? '<button type="button" class="lxw-dock" title="Put back in the page">⇲</button>' : ""}<button type="button" class="lxw-close" title="Close">×</button></div><div class="lxw-body"></div><div class="lxw-grip"></div>`;
     el.querySelector(".lxw-title").textContent = def.title;
     const body = el.querySelector(".lxw-body");
-    ensureLayer().appendChild(el);
-    place(el, clamp(saved[id]?.w ? saved[id] : defaultRect(def)));
+    if (host) { el.classList.add("lxw-docked"); host.el.appendChild(el); }
+    else ensureLayer().appendChild(el);
+    place(el, clamp(host ? (options.rect || { x: 20, y: 20, w: def.w || 480, h: def.h || 400 }) : saved[id]?.w ? saved[id] : defaultRect(def), host));
     if (panel) body.appendChild(panel);
     else def.build?.(body, el);
 
-    open.set(id, { el, body, placeholder, panel });
+    open.set(id, { el, body, placeholder, panel, host });
     el.addEventListener("pointerdown", () => front(id), true);
-    el.querySelector(".lxw-close").addEventListener("click", () => closeWindow(id));
-    el.querySelector(".lxw-dock")?.addEventListener("click", () => closeWindow(id));
+    // Closing a window that's part of a page takes it off that page.
+    const userClose = () => { host?.onRemove?.(id); closeWindow(id); };
+    el.querySelector(".lxw-close").addEventListener("click", userClose);
+    el.querySelector(".lxw-dock")?.addEventListener("click", userClose);
     drag(el.querySelector(".lxw-bar"), el, id, "move");
     drag(el.querySelector(".lxw-grip"), el, id, "size");
     bodyClass(def, true);
     front(id);
-    if (!options.quiet) remember(id);
+    if (!options.quiet && !host) remember(id);
     def.onOpen?.(body, el);
     window.dispatchEvent(new Event("resize"));
     renderMenu();
@@ -153,12 +178,14 @@
     const entry = open.get(id);
     const def = defs.get(id);
     if (!entry) return false;
-    remember(id);
+    if (!entry.host) remember(id);
     if (entry.panel && entry.placeholder) entry.placeholder.replaceWith(entry.panel);
     entry.el.remove();
     open.delete(id);
-    saved[id] = { ...(saved[id] || {}), open: false };
-    persist();
+    if (!entry.host) {
+      saved[id] = { ...(saved[id] || {}), open: false };
+      persist();
+    }
     // A panel whose home is hidden (the log, when it isn't docked) stays out.
     bodyClass(def, Boolean(def.hiddenWhenDocked?.()));
     def.onClose?.();
@@ -220,7 +247,7 @@
       if (b.dataset.win) return toggle(b.dataset.win);
       if (b.dataset.act === "viz") return window.parseCommand?.("viz");
       if (b.dataset.act === "prefs") return window.LXPrefs?.open();
-      if (b.dataset.act === "dock") return [...open.keys()].forEach(closeWindow);
+      if (b.dataset.act === "dock") return [...open.keys()].filter(id => !open.get(id).host).forEach(closeWindow);
     });
     document.addEventListener("pointerdown", e => { if (!menu.hidden && !menu.contains(e.target) && e.target !== menuButton) toggleMenu(false); });
     return true;
@@ -340,13 +367,17 @@
     const go = (n = 0) => (ready() || n > 40 ? restore() : setTimeout(() => go(n + 1), 250));
     go();
     addEventListener("resize", () => {
-      for (const { el } of open.values()) place(el, clamp({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }));
+      for (const { el, host } of open.values()) if (!host) place(el, clamp({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }));
     });
   }
 
   window.LXWindows = Object.freeze({
     register, open: openWindow, close: closeWindow, toggle,
     isOpen: id => open.has(id),
+    hostOf: id => open.get(id)?.host || null,
+    title: id => defs.get(id)?.title || id,
+    place: (id, rect) => { const e = open.get(id); if (e) place(e.el, clamp(rect, e.host)); },
+    rectOf: id => { const e = open.get(id); return e ? { x: e.el.offsetLeft, y: e.el.offsetTop, w: e.el.offsetWidth, h: e.el.offsetHeight } : null; },
     list: () => [...defs.keys()],
     refreshDock: id => { const def = defs.get(id); if (def && !open.has(id)) bodyClass(def, Boolean(def.hiddenWhenDocked?.())); }
   });

@@ -1,12 +1,12 @@
 "use strict";
 
 /*
- * Preferences: a window (Windows menu, the sidebar's Preferences button,
- * or Cmd/Ctrl+,) with tabs for Interface, Programming and Show plus the old
- * Settings page (Outputs, MIDI, QLab Connect). Options are kept in
- * localStorage "lx-preferences".
+ * Preferences: a window (the Light Spark menu, the Windows menu, or
+ * Cmd/Ctrl+,) with tabs for Appearance, Layout, Programming, Keyboard and
+ * Show plus the old Settings page (Outputs, MIDI, QLab Connect). Options
+ * are kept in localStorage "lx-preferences".
  *
- * Loaded in <head> so the layout options apply before the first paint.
+ * Loaded in <head> so the look applies before the first paint.
  *
  *   LXPrefs.get(key)  .set(key, value)  .on(fn)  .open(tab)  .close()
  */
@@ -15,52 +15,135 @@
 
   const STORE = "lx-preferences";
   const DEFAULTS = {
-    density: "compact",       // compact | comfortable
-    zoom: 1,                  // interface size
-    accent: "teal",
-    sidebar: "icons",         // icons (expand on hover) | labels
-    logDocked: false,         // console log in the bottom bar, or only as a window
-    cueFadeMs: 800,           // default fade when recording a cue
-    askCueDetails: true,      // ask for name, fade and follow when saving a cue
+    // Appearance
+    density: "compact",        // compact | comfortable
+    zoom: 1,                   // interface size
+    accent: "teal",            // a name from ACCENTS, or "custom"
+    accentCustom: "#19d6a3",
+    theme: "dark",             // dark | black | slate
+    textSize: "normal",        // small | normal | large
+    corners: "rounded",        // rounded | square
+    motion: true,              // animations
+    panelLabels: true,         // the small "01 · SELECT" labels on panels
+    fixtureDetail: true,       // address/level line in the fixture list
+    cueDetail: true,           // fade times in the cue stack
+    // Layout
+    sidebar: "icons",          // icons (expand on hover) | labels
+    sidebarWidth: 214,
+    clock: "off",              // off | 24 | 12
+    topStatus: true,           // Art-Net / QLab / MIDI lights
+    topSafety: true,           // WHITE and BLACKOUT buttons
+    topLicence: true,          // licence buttons
+    topMaster: true,           // MASTER readout
+    logDocked: false,          // console log in the bottom bar, or only as a window
+    bottomHeight: 0,           // 0 = automatic
+    cueColumns: true,          // cue stack in columns across the bottom bar
+    ticker: true,              // latest log line at the end of the command line
+    remoteButton: true,
+    windowSnap: 0,             // 0 | 8 | 16 | 32
+    windowOpen: "right",       // right | centre
+    windowDim: 1,              // opacity of windows that aren't in front
+    // Programming
+    cueFadeMs: 800,            // default fade when recording a cue
+    askCueDetails: true,       // ask for name, fade and follow when saving a cue
+    paletteFadeMs: 300,
+    chaseSpeedStart: 50,
+    masterStart: 100,
     confirmUnpatch: true,
-    goKey: "space",           // space | shift | off
-    autosaveMin: 2            // 0 = off
+    // Keyboard
+    goKey: "space",            // space | shift | off
+    backKey: "off",            // off | left | backspace
+    typeToCommand: true,       // typing anywhere goes to the command line
+    pageKeys: true,            // Cmd/Ctrl+number switches page
+    // Show
+    autosaveMin: 2,            // 0 = off
+    autosaveCopies: 1,
+    confirmQuit: true
   };
   const ACCENTS = {
-    teal: ["#19d6a3", "#54f2c8", "25, 214, 163"],
-    blue: ["#3d9bff", "#8cc4ff", "61, 155, 255"],
-    amber: ["#ffad1f", "#ffd27a", "255, 173, 31"],
-    magenta: ["#e24fd0", "#f59ae4", "226, 79, 208"],
-    red: ["#ff4f62", "#ff98a3", "255, 79, 98"],
-    white: ["#cfd8d6", "#ffffff", "207, 216, 214"]
+    teal: ["#19d6a3", "#54f2c8"],
+    blue: ["#3d9bff", "#8cc4ff"],
+    amber: ["#ffad1f", "#ffd27a"],
+    magenta: ["#e24fd0", "#f59ae4"],
+    red: ["#ff4f62", "#ff98a3"],
+    green: ["#5ad34f", "#a2f09a"],
+    violet: ["#9b7bff", "#c7b6ff"],
+    white: ["#cfd8d6", "#ffffff"]
   };
 
   let prefs = { ...DEFAULTS };
   try { prefs = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(STORE) || "{}") || {}) }; } catch (_) {}
   const listeners = new Set();
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(prefs)); } catch (_) {} };
 
   const get = key => prefs[key];
   function set(key, value) {
     if (prefs[key] === value) return;
     prefs[key] = value;
-    try { localStorage.setItem(STORE, JSON.stringify(prefs)); } catch (_) {}
+    save();
     apply();
     for (const fn of listeners) { try { fn(key, value); } catch (_) {} }
   }
 
   // ------------------------------------------------------------ apply
 
+  const hexRgb = hex => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+    const n = m ? parseInt(m[1], 16) : 0x19d6a3;
+    return [n >> 16, (n >> 8) & 255, n & 255];
+  };
+  const lighter = hex => "#" + hexRgb(hex).map(c => Math.round(c + (255 - c) * 0.45).toString(16).padStart(2, "0")).join("");
+
   function apply() {
-    const root = document.documentElement;
-    root.dataset.density = prefs.density === "comfortable" ? "comfortable" : "compact";
-    root.dataset.sidebar = prefs.sidebar === "labels" ? "labels" : "icons";
-    const [accent, accent2, rgb] = ACCENTS[prefs.accent] || ACCENTS.teal;
+    const root = document.documentElement, d = root.dataset;
+    d.density = prefs.density === "comfortable" ? "comfortable" : "compact";
+    d.sidebar = prefs.sidebar === "labels" ? "labels" : "icons";
+    d.theme = prefs.theme;
+    d.text = prefs.textSize;
+    d.corners = prefs.corners;
+    d.motion = prefs.motion ? "on" : "off";
+    d.panelLabels = prefs.panelLabels ? "on" : "off";
+    d.fixtureDetail = prefs.fixtureDetail ? "on" : "off";
+    d.cueDetail = prefs.cueDetail ? "on" : "off";
+    d.topStatus = prefs.topStatus ? "on" : "off";
+    d.topSafety = prefs.topSafety ? "on" : "off";
+    d.topLicence = prefs.topLicence ? "on" : "off";
+    d.topMaster = prefs.topMaster ? "on" : "off";
+    d.cueColumns = prefs.cueColumns ? "on" : "off";
+    d.ticker = prefs.ticker ? "on" : "off";
+    d.remote = prefs.remoteButton ? "on" : "off";
+
+    const [accent, accent2] = prefs.accent === "custom" ? [prefs.accentCustom, lighter(prefs.accentCustom)] : ACCENTS[prefs.accent] || ACCENTS.teal;
     root.style.setProperty("--accent", accent);
     root.style.setProperty("--accent-2", accent2);
-    root.style.setProperty("--accent-rgb", rgb);
+    root.style.setProperty("--accent-rgb", hexRgb(accent).join(", "));
+    root.style.setProperty("--sidebar-open", `${Number(prefs.sidebarWidth) || 214}px`);
+    if (Number(prefs.bottomHeight) > 0) root.style.setProperty("--bottom-h", `${Number(prefs.bottomHeight)}px`);
+    else root.style.removeProperty("--bottom-h");
+    root.style.setProperty("--window-dim", String(Number(prefs.windowDim) || 1));
+
     try { window.LXZoom?.set(Number(prefs.zoom) || 1); } catch (_) {}
+    try { window.LXApp?.setConfirmQuit(Boolean(prefs.confirmQuit)); } catch (_) {}
     window.LXWindows?.refreshDock("log");
+    clockTick();
     scheduleAutosave();
+  }
+
+  // ------------------------------------------------------------- clock
+
+  let clockEl = null, clockTimer = null;
+  function clockTick() {
+    if (prefs.clock === "off") { clockEl?.remove(); clockEl = null; clearInterval(clockTimer); clockTimer = null; return; }
+    const status = document.querySelector(".topbar-status");
+    if (!status) return;
+    if (!clockEl) {
+      clockEl = document.createElement("div");
+      clockEl.className = "top-clock";
+      status.insertBefore(clockEl, status.querySelector(".top-master") || null);
+    }
+    if (!clockTimer) clockTimer = setInterval(clockTick, 1000);
+    const now = new Date();
+    clockEl.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: prefs.clock === "12" });
   }
 
   // --------------------------------------------------------- autosave
@@ -75,6 +158,8 @@
     if (minutes > 0) autosaveTimer = setInterval(autosave, minutes * 60000);
   }
 
+  // Autosave.json is always the latest. With more than one copy, older
+  // ones are kept as "Autosave 1.json", "Autosave 2.json"… in turn.
   async function autosave() {
     const files = window.LXShowFiles, show = window.LXShowCommands;
     if (!files?.save || !show?.snapshot) return null;
@@ -85,6 +170,13 @@
     if (text === lastSaved) return null;
     try {
       const result = await files.save(AUTOSAVE_FILE, snap);
+      const copies = Number(prefs.autosaveCopies) || 1;
+      if (copies > 1) {
+        let n = 0;
+        try { n = Number(localStorage.getItem("lx-autosave-slot")) || 0; } catch (_) {}
+        await files.save(`Autosave ${(n % copies) + 1}.json`, snap);
+        try { localStorage.setItem("lx-autosave-slot", String(n + 1)); } catch (_) {}
+      }
       lastSaved = text;
       lastAt = new Date();
       renderAutosave(result?.path);
@@ -100,7 +192,7 @@
     if (!el) return;
     if (!(Number(prefs.autosaveMin) > 0)) el.textContent = "Autosave is off.";
     else if (lastAt) el.textContent = `Last autosaved at ${lastAt.toLocaleTimeString()}${path ? ` to ${path}` : ""}.`;
-    else el.textContent = `Saves to ${AUTOSAVE_FILE} in your shows folder when something has changed.`;
+    else el.textContent = `Saves to ${AUTOSAVE_FILE} in your shows folder whenever something has changed.`;
   }
 
   apply();
@@ -108,6 +200,8 @@
   // ------------------------------------------------------------ panels
 
   const esc = value => String(value ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const isMac = /Mac/.test(navigator.platform);
+  const cmdKey = isMac ? "⌘" : "Ctrl";
 
   function panel(tab, id, title, meta, html) {
     const section = document.createElement("section");
@@ -121,54 +215,111 @@
   const row = (label, help, control) => `<div class="lx-pref-row"><div><b>${label}</b>${help ? `<small>${help}</small>` : ""}</div><div class="lx-pref-control">${control}</div></div>`;
   const seg = (key, options) => `<div class="lx-seg" data-pref="${key}">${options.map(([value, label]) => `<button type="button" data-value="${esc(value)}">${esc(label)}</button>`).join("")}</div>`;
   const check = key => `<label class="lx-switch"><input type="checkbox" data-pref="${key}"><span></span></label>`;
+  const select = (key, options) => `<select class="lx-select" data-pref="${key}">${options.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("")}</select>`;
+  const number = (key, min, max, step, unit, scale) => `<input class="lx-num" type="number" min="${min}" max="${max}" step="${step}" data-pref="${key}"${scale ? ` data-scale="${scale}"` : ""}>${unit ? ` <span class="lx-unit">${unit}</span>` : ""}`;
+  const slider = (key, min, max, step, unit) => `<input class="lx-range" type="range" min="${min}" max="${max}" step="${step}" data-pref="${key}"><span class="lx-unit lx-range-val" data-for="${key}" data-unit="${unit}"></span>`;
+  const onOff = key => seg(key, [["true", "On"], ["false", "Off"]]);
 
   function buildPanels() {
     const host = document.querySelector("#page-settings .page-grid") || document.getElementById("page-settings");
-    if (!host || document.getElementById("prefInterface")) return Boolean(host);
-    const isMac = navigator.platform.includes("Mac");
+    if (!host || document.getElementById("prefLook")) return Boolean(host);
 
-    host.appendChild(panel("interface", "prefInterface", "Layout", "INTERFACE",
-      row("Density", "Compact fits more on screen, like Eos. Comfortable is the older, roomier look.", seg("density", [["compact", "Compact"], ["comfortable", "Comfortable"]])) +
-      row("Interface size", "Makes everything bigger or smaller.", `<select class="lx-select" data-pref="zoom">${[[0.8, "80%"], [0.9, "90%"], [1, "100%"], [1.1, "110%"], [1.25, "125%"], [1.4, "140%"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>`) +
-      row("Accent colour", "Used for selections, buttons and highlights.", `<div class="lx-swatches" data-pref="accent">${Object.entries(ACCENTS).map(([name, [c]]) => `<button type="button" data-value="${name}" title="${name}" style="--c:${c}"></button>`).join("")}</div>`) +
-      row("Sidebar", "Icons only (hover to see names), or always show the page names.", seg("sidebar", [["icons", "Icons"], ["labels", "Icons and names"]]))));
+    // ---- Appearance
+    host.appendChild(panel("interface", "prefLook", "Look", "APPEARANCE",
+      row("Density", "Compact fits more on screen, like Eos. Comfortable is roomier.", seg("density", [["compact", "Compact"], ["comfortable", "Comfortable"]])) +
+      row("Interface size", "Makes everything bigger or smaller.", select("zoom", [[0.75, "75%"], [0.8, "80%"], [0.9, "90%"], [1, "100%"], [1.1, "110%"], [1.25, "125%"], [1.4, "140%"], [1.5, "150%"]])) +
+      row("Background", "Black is darkest, for a dark auditorium. Slate is lighter, for daylight.", seg("theme", [["black", "Black"], ["dark", "Dark"], ["slate", "Slate"]])) +
+      row("Accent colour", "Used for selections, buttons and highlights. The last swatch picks any colour.", `<div class="lx-swatches" data-pref="accent">${Object.entries(ACCENTS).map(([name, [c]]) => `<button type="button" data-value="${name}" title="${name}" style="--c:${c}"></button>`).join("")}<button type="button" data-value="custom" title="Your own colour" class="lx-swatch-custom" style="--c:${esc(prefs.accentCustom)}"></button></div><input type="color" class="lx-color" data-pref="accentCustom" title="Pick your own accent colour">`) +
+      row("Text size", "Size of names in lists: fixtures, groups, cues, effects and chases.", seg("textSize", [["small", "Small"], ["normal", "Normal"], ["large", "Large"]])) +
+      row("Corners", "Rounded, or square like a hardware desk.", seg("corners", [["rounded", "Rounded"], ["square", "Square"]])) +
+      row("Animations", "Fades and slides when things change. Off makes the interface snap instantly.", onOff("motion"))));
 
-    host.appendChild(panel("interface", "prefWindows", "Windows", "INTERFACE",
-      row("Console log", "In the bottom bar, or only in its own window. The latest line always shows at the end of the command line.", seg("logDocked", [["false", "Window only"], ["true", "Bottom bar"]])) +
-      `<div class="lx-pref-note">Open any of these as a floating window from <b>▤ Windows</b> in the top bar: Cue Stack, Console Log, Groups, Fixtures, Control Deck, Palettes, Magic Sheet, Effects, Chases, Cue Inspector and Patched Fixtures. Drag a window by its title bar and resize it from the bottom-right corner. Windows remember where you left them.</div>
+    host.appendChild(panel("interface", "prefDetail", "Detail", "APPEARANCE",
+      row("Panel labels", "The small numbers and captions in panel headers (01, SELECT, LIVE ENGINE…).", onOff("panelLabels")) +
+      row("Fixture details", "Universe, address, level and output beside each fixture in the list.", onOff("fixtureDetail")) +
+      row("Cue details", "Fade and follow times beside each cue.", onOff("cueDetail"))));
+
+    // ---- Layout
+    host.appendChild(panel("layout", "prefSidebar", "Sidebar", "LAYOUT",
+      row("Sidebar", "Icons only (hover to see names), or always show the page names.", seg("sidebar", [["icons", "Icons"], ["labels", "Icons and names"]])) +
+      row("Width when open", "How wide the sidebar is when it shows page names.", slider("sidebarWidth", 150, 280, 2, "px"))));
+
+    host.appendChild(panel("layout", "prefTop", "Top Bar", "LAYOUT",
+      row("Clock", "Time of day in the top bar.", seg("clock", [["off", "Off"], ["24", "24-hour"], ["12", "12-hour"]])) +
+      row("Status lights", "Art-Net, QLab and MIDI connection lights.", onOff("topStatus")) +
+      row("WHITE and BLACKOUT buttons", "Hide them if you don't want them pressed by accident. The commands still work.", onOff("topSafety")) +
+      row("Licence buttons", "LICENSE and PRO.", onOff("topLicence")) +
+      row("Master readout", "The MASTER level at the right.", onOff("topMaster"))));
+
+    host.appendChild(panel("layout", "prefBottom", "Bottom Bar", "LAYOUT",
+      row("Console log", "In the bottom bar, or only in its own window.", seg("logDocked", [["false", "Window only"], ["true", "Bottom bar"]])) +
+      row("Cue stack", "Cues in columns across the bar, or one long list.", seg("cueColumns", [["true", "Columns"], ["false", "List"]])) +
+      row("Height", "Height of the bottom bar. Automatic suits the density.", `${slider("bottomHeight", 0, 360, 4, "px")}`) +
+      row("Latest log line", "Show the last message at the end of the command line.", onOff("ticker")) +
+      row("Remote button", "The 📱 Remote button in the corner.", onOff("remoteButton"))));
+
+    host.appendChild(panel("layout", "prefWindows", "Windows", "LAYOUT",
+      row("Snap to a grid", "Windows line up neatly when you move or resize them.", seg("windowSnap", [["0", "Off"], ["8", "8 px"], ["16", "16 px"], ["32", "32 px"]])) +
+      row("New windows open", "Where a window appears the first time.", seg("windowOpen", [["right", "At the right"], ["centre", "In the middle"]])) +
+      row("Windows behind", "Fade windows that aren't in front, so the one you're using stands out.", seg("windowDim", [["1", "Off"], ["0.85", "A little"], ["0.65", "A lot"]])) +
+      `<div class="lx-pref-note">Open windows from <b>▤ Windows</b> in the top bar. Make your own page of windows with <b>＋</b> at the bottom of the sidebar.</div>
        <div class="action-row"><button type="button" class="btn-secondary" id="prefResetWindows">Reset window positions</button></div>`));
 
+    // ---- Programming
     host.appendChild(panel("programming", "prefCues", "Cues", "PROGRAMMING",
-      row("Default fade", "Fade time for new cues, in seconds.", `<input class="lx-num" type="number" min="0" max="600" step="0.1" data-pref="cueFadeMs" data-scale="1000"> <span class="lx-unit">s</span>`) +
+      row("Default fade", "Fade time for new cues.", number("cueFadeMs", 0, 600, 0.1, "s", 1000)) +
       row("Ask when saving a cue", "Ask for a name, fade and follow time when you press Save. Off: saves straight away with the default fade.", check("askCueDetails")) +
-      row("GO key", "The key that fires the next cue. It's ignored while you're typing in a box.", seg("goKey", [["space", "Space"], ["shift", "Shift"], ["off", "None"]]))));
+      row("Palette fade", "How long applying a palette takes.", number("paletteFadeMs", 0, 30, 0.1, "s", 1000))));
+
+    host.appendChild(panel("programming", "prefStart", "Start-up", "PROGRAMMING",
+      row("Master level", "Where the master sits when Light Spark opens.", seg("masterStart", [["100", "Full"], ["0", "Zero (start dark)"]])) +
+      row("Chase speed", "Chase speed slider when Light Spark opens.", slider("chaseSpeedStart", 10, 100, 1, "%"))));
 
     host.appendChild(panel("programming", "prefPatch", "Patch", "PROGRAMMING",
       row("Confirm before unpatching", "Ask before removing fixtures from the patch.", check("confirmUnpatch"))));
 
+    // ---- Keyboard
+    host.appendChild(panel("keyboard", "prefKeyboard", "Keys", "KEYBOARD",
+      row("GO key", "Fires the next cue. Ignored while you're typing in a box.", seg("goKey", [["space", "Space"], ["shift", "Shift"], ["off", "None"]])) +
+      row("Back key", "Goes back a cue.", seg("backKey", [["off", "None"], ["left", "← Left arrow"], ["backspace", "Backspace"]])) +
+      row("Type to command line", "Start typing anywhere and it goes into the command line, like Eos.", check("typeToCommand")) +
+      row("Page shortcuts", `${cmdKey}+1, 2, 3… go to the pages in the sidebar, in order.`, check("pageKeys"))));
+
+    host.appendChild(panel("keyboard", "prefKeys", "Shortcuts", "KEYBOARD",
+      `<div class="lx-keys">
+        <kbd>${cmdKey} ,</kbd><span>Preferences</span>
+        <kbd>${cmdKey} S</kbd><span>Save show</span>
+        <kbd>${cmdKey} O</kbd><span>Open show</span>
+        <kbd>${cmdKey} 1–9</kbd><span>Go to a page (your own pages too)</span>
+        <kbd>Space</kbd><span>GO (see GO key)</span>
+        <kbd>Enter</kbd><span>Run what's typed in the command line</span>
+        <kbd>Esc</kbd><span>Close Preferences or a menu</span>
+        <kbd>${cmdKey} Q</kbd><span>Quit Light Spark</span>
+      </div>`));
+
+    // ---- Show
     host.appendChild(panel("show", "prefShow", "Show File", "SHOW",
-      row("Autosave", "Keeps a copy of the show in case Light Spark or the computer crashes.", `<select class="lx-select" data-pref="autosaveMin">${[[0, "Off"], [1, "Every minute"], [2, "Every 2 minutes"], [5, "Every 5 minutes"], [10, "Every 10 minutes"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>`) +
+      row("Autosave", "Keeps a copy of the show in case Light Spark or the computer crashes.", select("autosaveMin", [[0, "Off"], [1, "Every minute"], [2, "Every 2 minutes"], [5, "Every 5 minutes"], [10, "Every 10 minutes"]])) +
+      row("Autosave copies", "Keep older autosaves too, so you can go back further.", select("autosaveCopies", [[1, "Latest only"], [3, "Latest + 3 older"], [5, "Latest + 5 older"], [10, "Latest + 10 older"]])) +
       `<div class="lx-pref-note" id="prefAutosaveStatus"></div>
        <div class="action-row"><button type="button" class="btn-secondary" id="prefAutosaveNow">Autosave now</button><button type="button" class="btn-secondary" id="prefAutosaveLoad">Open the autosave</button></div>
        <div class="section-divider"><span>SHOW FILE</span></div>
        <div class="action-row lx-showfile-row"></div>`));
 
-    host.appendChild(panel("show", "prefKeys", "Shortcuts", "SHOW",
-      `<div class="lx-keys">
-        <kbd>${isMac ? "⌘" : "Ctrl"} ,</kbd><span>Preferences</span>
-        <kbd>Space</kbd><span>GO (change it under Programming)</span>
-        <kbd>Enter</kbd><span>Run what's typed in the command line</span>
-        <kbd>${isMac ? "⌘" : "Ctrl"} 1–7</kbd><span>Go to a page: Live, Patch, Cue Inspector, Chases, Effects, QLab, Magic Sheet</span>
-        <kbd>Esc</kbd><span>Close Preferences</span>
-      </div>`));
+    host.appendChild(panel("show", "prefQuit", "Quitting", "SHOW",
+      row("Ask before quitting", "Light Spark asks before it closes, so a stray ⌘Q can't stop the lights mid-show.", check("confirmQuit"))));
+
+    host.appendChild(panel("show", "prefFile", "These Preferences", "SHOW",
+      `<div class="lx-pref-note" style="margin-top:0">Copy your preferences to another computer, or start again.</div>
+       <div class="action-row"><button type="button" class="btn-secondary" id="prefExport">Export preferences…</button><button type="button" class="btn-secondary" id="prefImport">Import preferences…</button><button type="button" class="btn-danger-soft" id="prefReset">Reset all to defaults</button><input type="file" id="prefImportFile" accept=".json" hidden></div>`));
 
     // The show file buttons used to sit under Art-Net; they belong here.
-    const save = document.getElementById("btnSaveShow"), load = document.getElementById("btnLoadShow");
+    const saveBtn = document.getElementById("btnSaveShow"), load = document.getElementById("btnLoadShow");
     const slot = document.querySelector("#prefShow .lx-showfile-row");
-    if (save && load && slot) {
-      const oldRow = save.closest(".action-row");
+    if (saveBtn && load && slot) {
+      const oldRow = saveBtn.closest(".action-row");
       const divider = oldRow?.previousElementSibling;
-      slot.append(save, load);
+      slot.append(saveBtn, load);
       const input = document.getElementById("showFileInput");
       if (input) slot.appendChild(input);
       if (divider?.classList.contains("section-divider")) divider.remove();
@@ -180,45 +331,86 @@
     return true;
   }
 
+  // Values come out of the controls as strings: give them back their type.
+  function typed(key, raw) {
+    const def = DEFAULTS[key];
+    if (typeof def === "boolean") return raw === true || raw === "true";
+    if (typeof def === "number") return Number(raw);
+    return String(raw);
+  }
+
   // Listeners go on the panels themselves: they move into the window.
   function wire(host) {
     const onClick = e => {
       const button = e.target.closest(".lx-seg button, .lx-swatches button");
       if (!button) return;
       const key = button.parentElement.dataset.pref;
-      let value = button.dataset.value;
-      if (value === "true" || value === "false") value = value === "true";
-      set(key, value);
+      set(key, typed(key, button.dataset.value));
       sync();
     };
-    const onChange = e => {
+    const onInput = e => {
       const input = e.target.closest("[data-pref]");
-      if (!input || input.classList.contains("lx-seg")) return;
+      if (!input || input.classList.contains("lx-seg") || input.classList.contains("lx-swatches")) return;
+      if (e.type === "input" && !input.matches(".lx-range, .lx-color")) return; // sliders and the colour picker update live
       const key = input.dataset.pref;
       if (input.type === "checkbox") set(key, input.checked);
       else if (input.dataset.scale) set(key, Math.max(0, Math.round(Number(input.value) * Number(input.dataset.scale)) || 0));
-      else set(key, Number(input.value));
+      else set(key, typed(key, input.value));
+      if (key === "accentCustom") set("accent", "custom");
       sync();
     };
     host.querySelectorAll(".lx-pref-panel").forEach(p => {
       p.addEventListener("click", onClick);
-      p.addEventListener("change", onChange);
+      p.addEventListener("change", onInput);
+      p.addEventListener("input", onInput);
     });
-    document.getElementById("prefResetWindows")?.addEventListener("click", () => {
-      for (const id of window.LXWindows?.list() || []) if (id !== "prefs") window.LXWindows.close(id);
+    const $ = id => document.getElementById(id);
+    $("prefResetWindows")?.addEventListener("click", () => {
+      for (const id of window.LXWindows?.list() || []) if (id !== "prefs" && !window.LXWindows.hostOf(id)) window.LXWindows.close(id);
       try { localStorage.removeItem("lx-windows"); } catch (_) {}
       window.log?.("Window positions reset", "ok");
     });
-    document.getElementById("prefAutosaveNow")?.addEventListener("click", async () => {
+    $("prefAutosaveNow")?.addEventListener("click", async () => {
       lastSaved = "";
       const result = await autosave();
       if (!result) window.log?.("Nothing to autosave yet — patch some fixtures or record a cue first", "warn");
       else window.log?.(`Autosaved to ${result.path}`, "ok");
     });
-    document.getElementById("prefAutosaveLoad")?.addEventListener("click", async () => {
+    $("prefAutosaveLoad")?.addEventListener("click", async () => {
       const go = await window.LXAsk?.("Open the autosave", [], { ok: "Open it", message: "Anything not saved in the current show will be replaced." });
       if (!go) return;
       try { await window.LXShowCommands.loadShow(AUTOSAVE_FILE); } catch (error) { window.log?.(`Couldn't open the autosave: ${error.message}`, "warn"); }
+    });
+    $("prefExport")?.addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify({ lightSparkPreferences: 1, prefs }, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "Light Spark Preferences.json";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+    $("prefImport")?.addEventListener("click", () => $("prefImportFile")?.click());
+    $("prefImportFile")?.addEventListener("change", async e => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        const incoming = data?.prefs || data;
+        let n = 0;
+        for (const key of Object.keys(DEFAULTS)) if (key in incoming) { prefs[key] = typed(key, incoming[key]); n++; }
+        save(); apply(); sync();
+        window.log?.(`Imported ${n} preferences`, "ok");
+      } catch (error) {
+        window.log?.(`That isn't a preferences file: ${error.message}`, "warn");
+      }
+    });
+    $("prefReset")?.addEventListener("click", async () => {
+      const sure = await window.LXAsk?.("Reset all preferences?", [], { ok: "Reset", message: "Every option goes back to how Light Spark came. Your show, patch and outputs aren't touched." });
+      if (!sure) return;
+      prefs = { ...DEFAULTS };
+      save(); apply(); sync();
+      window.log?.("Preferences reset to defaults", "ok");
     });
   }
 
@@ -234,7 +426,49 @@
       else if (input.dataset.scale) { if (document.activeElement !== input) input.value = String(Number(value) / Number(input.dataset.scale)); }
       else input.value = String(value);
     });
+    document.querySelectorAll(".lx-range-val").forEach(el => {
+      const v = Number(prefs[el.dataset.for]);
+      el.textContent = el.dataset.for === "bottomHeight" && !v ? "Auto" : `${v}${el.dataset.unit}`;
+    });
+    document.querySelector(".lx-swatch-custom")?.style.setProperty("--c", prefs.accentCustom);
     renderAutosave();
+  }
+
+  // ------------------------------------------------------- start-up values
+
+  // Master and chase speed as chosen in Programming → Start-up.
+  function startValues() {
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (!el || el.value === String(value)) return;
+      el.value = String(value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    if (Number(prefs.masterStart) !== 100) set("master", prefs.masterStart);
+    if (Number(prefs.chaseSpeedStart) !== 50) set("chaseSpeed", prefs.chaseSpeedStart);
+  }
+
+  // ------------------------------------------------------------ keyboard
+
+  function onKey(e) {
+    const mod = e.metaKey || e.ctrlKey;
+    const typing = e.target.closest?.("input, select, textarea, [contenteditable='true'], .lx-ask-back");
+    if (mod && e.key === ",") { e.preventDefault(); openPrefs(); return; }
+    if (mod && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key) && prefs.pageKeys) {
+      const page = document.querySelectorAll(".nav-link[data-page]")[Number(e.key) - 1];
+      if (page) { e.preventDefault(); page.click(); }
+      return;
+    }
+    if (e.key === "Escape" && window.LXWindows?.isOpen("prefs") && !e.target.closest?.("input[type=text], input[type=number], input:not([type]), select, textarea, .lx-ask-back")) {
+      window.LXWindows.close("prefs");
+      return;
+    }
+    // Type anywhere → command line (letters, digits and the usual command symbols).
+    if (prefs.typeToCommand && !typing && !mod && !e.altKey && e.key.length === 1 && e.key !== " " && /[\w@+\-.*/>]/.test(e.key)) {
+      const input = document.getElementById("cmdInput");
+      if (input) input.focus(); // the key itself then lands in the box
+    }
   }
 
   // ------------------------------------------------------------ window
@@ -244,21 +478,25 @@
     const style = document.createElement("style");
     style.id = "lxPrefStyles";
     style.textContent = `
-      .lx-pref-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:9px 0;border-bottom:1px solid #161f24}
+      .lx-pref-row{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:14px;align-items:center;padding:9px 0;border-bottom:1px solid #161f24}
       .lx-pref-row:last-child{border-bottom:0}
       .lx-pref-row b{display:block;color:#dfe8e5;font-size:12px;font-weight:650}
       .lx-pref-row small{display:block;margin-top:3px;color:#71807d;font-size:10.5px;line-height:1.45}
-      .lx-pref-control{display:flex;align-items:center;gap:6px}
+      .lx-pref-control{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
       .lx-seg{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
-      .lx-seg button{height:26px;padding:0 11px;border:0;background:#0d1418;color:#8c9a97;font-size:11px;cursor:pointer}
+      .lx-seg button{height:26px;padding:0 10px;border:0;background:#0d1418;color:#8c9a97;font-size:11px;cursor:pointer;white-space:nowrap}
       .lx-seg button + button{border-left:1px solid var(--border)}
       .lx-seg button.on{background:var(--accent-soft);color:var(--accent-2);font-weight:700}
       .lx-select,.lx-num{height:28px;padding:0 8px;background:#0d1418;border:1px solid var(--border);border-radius:6px;color:#e3ebe9;font-size:12px}
       .lx-num{width:76px;text-align:right;font-family:var(--mono)}
       .lx-unit{color:#71807d;font-size:11px}
-      .lx-swatches{display:flex;gap:6px}
-      .lx-swatches button{width:22px;height:22px;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer;box-shadow:inset 0 0 0 2px #0c1215}
+      .lx-range{width:150px;accent-color:var(--accent)}
+      .lx-range-val{min-width:44px;text-align:right;font-family:var(--mono)}
+      .lx-swatches{display:flex;gap:5px}
+      .lx-swatches button{width:20px;height:20px;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer;box-shadow:inset 0 0 0 2px #0c1215}
       .lx-swatches button.on{border-color:#e6eeec}
+      .lx-swatches .lx-swatch-custom{background:conic-gradient(from 0deg,#f44,#fd4,#4f6,#4df,#64f,#f4d,#f44);box-shadow:inset 0 0 0 5px #0c1215,inset 0 0 0 20px var(--c)}
+      .lx-color{width:26px;height:22px;padding:0;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer}
       .lx-switch{position:relative;display:inline-block;width:34px;height:19px;cursor:pointer}
       .lx-switch input{position:absolute;opacity:0;width:0!important;height:0!important}
       .lx-switch span{position:absolute;inset:0;border-radius:99px;background:#1c272d;transition:background .15s}
@@ -285,41 +523,28 @@
   function registerWindow() {
     if (!window.LXWindows || !window.SettingsTabs?.box()) return false;
     window.LXWindows.register({
-      id: "prefs", title: "Preferences", menu: false, noRestore: true, center: true, w: 960, h: 640,
+      id: "prefs", title: "Preferences", menu: false, noRestore: true, center: true, w: 980, h: 660,
       build: body => { body.appendChild(window.SettingsTabs.box()); sync(); },
       onClose: () => { const box = window.SettingsTabs.box(); document.getElementById("page-settings")?.prepend(box); }
     });
     return true;
   }
 
-  // The sidebar's Settings button opens the window instead of a page.
-  function replaceNav() {
+  // Preferences lives in the Light Spark menu now, not the sidebar.
+  function removeNav() {
     const old = document.querySelector('.nav-link[data-page="settings"]');
-    if (!old) return Boolean(document.getElementById("navPreferences"));
-    const button = old.cloneNode(true); // drops the page-switching listeners
-    button.removeAttribute("data-page");
-    button.id = "navPreferences";
-    const text = button.querySelector(".nav-text");
-    if (text) text.textContent = "Preferences";
-    button.querySelector("b")?.remove();
-    old.replaceWith(button);
-    button.addEventListener("click", e => { e.preventDefault(); openPrefs(); });
-    // If Settings was the page showing, go back to Live.
-    if (document.getElementById("page-settings")?.classList.contains("active")) document.querySelector('.nav-link[data-page="live"]')?.click();
+    if (!old) return true;
+    if (old.classList.contains("active")) document.querySelector('.nav-link[data-page="live"]')?.click();
+    old.remove();
     return true;
   }
 
   function boot() {
     injectStyles();
-    if (!buildPanels() || !registerWindow() || !replaceNav()) return setTimeout(boot, 300);
-    document.addEventListener("keydown", e => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") { e.preventDefault(); openPrefs(); }
-      else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && /^[1-9]$/.test(e.key)) {
-        const page = document.querySelectorAll(".nav-link[data-page]")[Number(e.key) - 1];
-        if (page) { e.preventDefault(); page.click(); }
-      }
-      else if (e.key === "Escape" && window.LXWindows?.isOpen("prefs") && !e.target.closest?.("input[type=text], input[type=number], input:not([type]), select, textarea, .lx-ask-back")) window.LXWindows.close("prefs");
-    });
+    if (!buildPanels() || !registerWindow() || !removeNav()) return setTimeout(boot, 300);
+    document.addEventListener("keydown", onKey);
+    clockTick();
+    setTimeout(startValues, 600); // after the sliders are wired
   }
 
   window.LXPrefs = Object.freeze({

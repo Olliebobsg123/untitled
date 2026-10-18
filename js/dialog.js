@@ -9,6 +9,7 @@
  *     { key: "fade", label: "Fade (seconds)", value: 0.8, type: "number", step: 0.1 }
  *   ], { ok: "Record" });
  *   // → { name: "Cue 4", fade: "0.8" }, or null if cancelled
+ *   // A field with type: "select" and options: [[value, label], …] is a dropdown.
  *
  * Enter confirms, Esc cancels.
  */
@@ -26,8 +27,8 @@
       .lx-ask form{padding:12px;display:flex;flex-direction:column;gap:9px}
       .lx-ask p{margin:0;color:#8c9a97;font-size:11px;line-height:1.5}
       .lx-ask label{display:flex;flex-direction:column;gap:4px;color:#8c9a97;font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
-      .lx-ask input{height:30px;padding:0 9px;background:#0d1418;border:1px solid var(--border);border-radius:6px;color:#e3ebe9;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;user-select:text}
-      .lx-ask input:focus{outline:0;border-color:var(--accent-line)}
+      .lx-ask input,.lx-ask select{height:30px;padding:0 9px;background:#0d1418;border:1px solid var(--border);border-radius:6px;color:#e3ebe9;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;user-select:text}
+      .lx-ask input:focus,.lx-ask select:focus{outline:0;border-color:var(--accent-line)}
       .lx-ask .row{display:flex;justify-content:flex-end;gap:6px;margin-top:3px}
     `;
     document.head.appendChild(style);
@@ -40,7 +41,7 @@
     return new Promise(resolve => {
       const back = document.createElement("div");
       back.className = "lx-ask-back";
-      back.innerHTML = `<div class="lx-ask" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><form>${options.message ? `<p>${esc(options.message)}</p>` : ""}${fields.map((f, i) => `<label>${esc(f.label)}<input data-i="${i}" type="${f.type === "number" ? "number" : "text"}"${f.step != null ? ` step="${f.step}"` : ""}${f.min != null ? ` min="${f.min}"` : ""} value="${esc(f.value)}"></label>`).join("")}<div class="row"><button type="button" class="btn-secondary" data-cancel>Cancel</button><button type="submit" class="btn-primary">${esc(options.ok || "OK")}</button></div></form></div>`;
+      back.innerHTML = `<div class="lx-ask" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><form>${options.message ? `<p>${esc(options.message)}</p>` : ""}${fields.map((f, i) => `<label>${esc(f.label)}${f.type === "select" ? `<select data-i="${i}">${(f.options || []).map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(f.value) ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>` : `<input data-i="${i}" type="${f.type === "number" ? "number" : "text"}"${f.step != null ? ` step="${f.step}"` : ""}${f.min != null ? ` min="${f.min}"` : ""} value="${esc(f.value)}">`}</label>`).join("")}<div class="row"><button type="button" class="btn-secondary" data-cancel>Cancel</button><button type="submit" class="btn-primary">${esc(options.ok || "OK")}</button></div></form></div>`;
       document.body.appendChild(back);
       const form = back.querySelector("form");
       const done = value => { back.remove(); resolve(value); };
@@ -53,7 +54,7 @@
       back.querySelector("[data-cancel]").addEventListener("click", () => done(null));
       back.addEventListener("pointerdown", e => { if (e.target === back) done(null); });
       back.addEventListener("keydown", e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); } });
-      const first = form.querySelector("input") || form.querySelector("[type=submit]");
+      const first = form.querySelector("input, select") || form.querySelector("[type=submit]");
       first.focus();
       first.select?.();
     });

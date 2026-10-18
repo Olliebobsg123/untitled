@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -158,8 +158,88 @@ function stopServices() {
   }
 }
 
+// The menu bar (on a Mac, the menus at the top of the screen; on Windows,
+// press Alt). Items that belong to the console run in the page, as a user
+// gesture so things like the Open Show file picker are allowed.
+const APP_NAME = 'Light Spark';
+let confirmQuit = false, quitConfirmed = false;
+
+function runInPage(action) {
+  const win = mainWindow || BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+  win.webContents.executeJavaScript(`window.LXAppMenu && window.LXAppMenu.run(${JSON.stringify(action)})`, true).catch(() => {});
+}
+
 function buildApplicationMenu() {
-  Menu.setApplicationMenu(null);
+  const mac = process.platform === 'darwin';
+  const page = (label, action, accelerator) => ({ label, accelerator, click: () => runInPage(action) });
+  const template = [
+    ...(mac ? [{
+      label: APP_NAME,
+      submenu: [
+        page(`About ${APP_NAME}`, 'about'),
+        { type: 'separator' },
+        page('Preferences…', 'prefs', 'CmdOrCtrl+,'),
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { label: `Hide ${APP_NAME}`, role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { label: `Quit ${APP_NAME}`, accelerator: 'Cmd+Q', click: () => app.quit() }
+      ]
+    }] : []),
+    {
+      label: 'File',
+      submenu: [
+        page('New Page…', 'new-page'),
+        { type: 'separator' },
+        page('Save Show', 'save', 'CmdOrCtrl+S'),
+        page('Open Show…', 'open', 'CmdOrCtrl+O'),
+        page('Autosave Now', 'autosave'),
+        ...(mac ? [] : [{ type: 'separator' }, page('Preferences…', 'prefs', 'CmdOrCtrl+,'), { type: 'separator' }, { label: `Quit ${APP_NAME}`, accelerator: 'Ctrl+Q', click: () => app.quit() }])
+      ]
+    },
+    { role: 'editMenu' }, // copy and paste in text boxes need this on a Mac
+    {
+      label: 'View',
+      submenu: [
+        page('Live Control', 'page:live'), page('Patch', 'page:patch'), page('Cue Inspector', 'page:inspector'),
+        page('Chases', 'page:chases'), page('Effects', 'page:effects'), page('QLab', 'page:qlab'), page('Magic Sheet', 'page:magic'),
+        { type: 'separator' },
+        page('3D Visualiser', 'viz'),
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        page('Cue Stack', 'win:cues'), page('Console Log', 'win:log'), page('Groups', 'win:groups'), page('Fixtures', 'win:fixtures'),
+        page('Control Deck', 'win:control'), page('Palettes', 'win:palettes'), page('Magic Sheet', 'win:magic'), page('Effects', 'win:effects'),
+        page('Chases', 'win:chases'), page('Cue Inspector', 'win:inspector'), page('Patched Fixtures', 'win:patch'),
+        { type: 'separator' },
+        page('Put Every Window Back', 'dock'),
+        { type: 'separator' },
+        { role: 'minimize' },
+        ...(mac ? [{ role: 'zoom' }, { role: 'front' }] : [])
+      ]
+    }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// Preferences → Show → "Ask before quitting".
+ipcMain.on('lx-quit-confirm', (_event, on) => { confirmQuit = Boolean(on); });
+ipcMain.on('lx-quit', () => app.quit());
+function guardClose(win) {
+  win.on('close', event => {
+    if (!confirmQuit || quitConfirmed) return;
+    const choice = dialog.showMessageBoxSync(win, { type: 'question', buttons: [`Quit ${APP_NAME}`, 'Cancel'], defaultId: 1, cancelId: 1, message: `Quit ${APP_NAME}?`, detail: 'Lighting output stops when Light Spark quits. Save your show first if you need to.' });
+    if (choice === 0) quitConfirmed = true;
+    else event.preventDefault();
+  });
 }
 
 function createWindow() {
@@ -178,6 +258,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, backgroundThrottling: false, preload: path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
+  guardClose(mainWindow);
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {

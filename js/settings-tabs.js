@@ -1,7 +1,7 @@
 "use strict";
 
 /*
- * Preferences tabs: Interface, Programming, Show (built by preferences.js),
+ * Preferences tabs: Appearance, Layout, Programming, Keyboard, Show (built by preferences.js),
  * Outputs, MIDI, QLab Connect (and Other, for any panel nothing else
  * claims). Panels are added to the Settings page by several scripts at
  * different times, so each one is sorted into its tab as it appears. The
@@ -13,9 +13,11 @@
   window.__settingsTabsInstalled = true;
 
   const TABS = [
-    { id: "interface", label: "Interface", hint: "How the console looks: layout density, size, colour and where things sit." },
-    { id: "programming", label: "Programming", hint: "Defaults used when you record cues and change the patch." },
-    { id: "show", label: "Show", hint: "Saving the show, and autosave in case the computer crashes." },
+    { id: "interface", label: "Appearance", hint: "How the console looks: density, size, colours and detail." },
+    { id: "layout", label: "Layout", hint: "What's in the sidebar, top bar and bottom bar, and how windows behave." },
+    { id: "programming", label: "Programming", hint: "Defaults for recording cues, palettes and the patch, and what Light Spark starts with." },
+    { id: "keyboard", label: "Keyboard", hint: "GO and Back keys, the command line and shortcuts." },
+    { id: "show", label: "Show", hint: "Autosave, saving and opening shows, quitting, and these preferences." },
     { id: "outputs", label: "Outputs", hint: "Where the console sends DMX: Art-Net, sACN and USB interfaces, one per universe." },
     { id: "midi", label: "MIDI", hint: "Connect a MIDI controller and choose what each knob, pad and joystick does." },
     { id: "qlab", label: "QLab Connect", hint: "Let QLab Connect fire Light Spark's cues, chases and effects." },

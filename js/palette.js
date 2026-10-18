@@ -90,7 +90,7 @@
       if (!("cyan" in values) && !("cyan" in own) && typeof window.withCMY === "function") Object.assign(current, window.withCMY(fixture.id, current, values));
     });
 
-    if (typeof window.fadeTo === "function") window.fadeTo(values, 300);
+    if (typeof window.fadeTo === "function") window.fadeTo(values, Number(window.LXPrefs?.get("paletteFadeMs") ?? 300));
     if (typeof window.updateDMX === "function") window.updateDMX();
     if (typeof window.renderFixtures === "function") window.renderFixtures();
     if (typeof window.buildControls === "function") window.buildControls();

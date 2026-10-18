@@ -66,6 +66,20 @@ try {
   console.error('[SHOW DEBUG] FAILED to expose LXShowFiles bridge:', error);
 }
 
+// App menu: quit, the quit question, and the version for About.
+try {
+  let version = '';
+  try { version = require('./package.json').version; } catch (_) {}
+  contextBridge.exposeInMainWorld('LXApp', {
+    quit: () => ipcRenderer.send('lx-quit'),
+    setConfirmQuit: on => ipcRenderer.send('lx-quit-confirm', Boolean(on)),
+    version,
+    platform: process.platform
+  });
+} catch (error) {
+  console.error('[APP] could not expose app bridge:', error);
+}
+
 // Interface size (Preferences → Interface).
 try {
   const { webFrame } = require('electron');

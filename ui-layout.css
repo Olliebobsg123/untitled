@@ -9,8 +9,9 @@
 html[data-density="compact"] body {
   gap: 6px;
   padding: 6px;
-  grid-template-rows: 42px minmax(0, 1fr) 128px 32px;
+  grid-template-rows: 42px minmax(0, 1fr) var(--bottom-h, 128px) 32px;
 }
+html[data-density="comfortable"] body { grid-template-rows: 58px minmax(0, 1fr) var(--bottom-h, 156px) 44px; }
 
 html[data-density="compact"] .topbar { padding: 0 10px; }
 html[data-density="compact"] .topbar-status { gap: 6px; }
@@ -164,8 +165,9 @@ html[data-density="compact"] .cmd-line input { font-size: 11px; }
 
 /* ---------- Sidebar labels (Preferences → Interface) ---------- */
 
+body:has(.sidebar:hover),
 html[data-sidebar="labels"] body,
-html[data-sidebar="labels"] body:has(.sidebar:hover) { grid-template-columns: 184px minmax(0, 1fr); }
+html[data-sidebar="labels"] body:has(.sidebar:hover) { grid-template-columns: var(--sidebar-open, 214px) minmax(0, 1fr); }
 
 /* ---------- Command-line ticker: the latest log line ---------- */
 
@@ -416,3 +418,124 @@ html[data-density="compact"] #libList .fixture-item { min-height: 24px; }
 html[data-density="compact"] #patchFormPanel #btnPatch { height: 32px; }
 html[data-density="compact"] .search-box { height: 30px; margin-bottom: 6px; }
 html[data-density="compact"] .pt-row { min-height: 29px; }
+
+
+/* ============================================================
+   Preferences options (data-* set on <html> by preferences.js)
+   ============================================================ */
+
+/* Background */
+html[data-theme="black"] { --border: #161b1e; --border-strong: #20272b; }
+html[data-theme="black"] body { background: #000; }
+html[data-theme="black"] .panel,
+html[data-theme="black"] .topbar,
+html[data-theme="black"] .sidebar,
+html[data-theme="black"] .cmd-line,
+html[data-theme="black"] .lxw,
+html[data-theme="black"] .cp-bar { background: #050606; }
+html[data-theme="black"] .lxw-bar { background: #0b0e0f; }
+html[data-theme="black"] .fixture-item,
+html[data-theme="black"] .group-item,
+html[data-theme="black"] .cue-item,
+html[data-theme="black"] .effect-card,
+html[data-theme="black"] .master-card,
+html[data-theme="black"] .parameter-card,
+html[data-theme="black"] .toolbar-card { background: #0b0d0e; }
+
+html[data-theme="slate"] { --border: #34404a; --border-strong: #43515c; --text-muted: #8b9a98; }
+html[data-theme="slate"] body { background: #1b2227; }
+html[data-theme="slate"] .panel,
+html[data-theme="slate"] .topbar,
+html[data-theme="slate"] .sidebar,
+html[data-theme="slate"] .cmd-line,
+html[data-theme="slate"] .lxw,
+html[data-theme="slate"] .cp-bar { background: #222a30; }
+html[data-theme="slate"] .lxw-bar { background: #2a333a; }
+html[data-theme="slate"] .fixture-item,
+html[data-theme="slate"] .group-item,
+html[data-theme="slate"] .cue-item,
+html[data-theme="slate"] .effect-card,
+html[data-theme="slate"] .master-card,
+html[data-theme="slate"] .parameter-card,
+html[data-theme="slate"] .toolbar-card,
+html[data-theme="slate"] .form-row input,
+html[data-theme="slate"] .form-row select { background: #2a333a; }
+html[data-theme="slate"] .fixture-item:hover,
+html[data-theme="slate"] .group-item:hover,
+html[data-theme="slate"] .cue-item:hover { background: #323d45; }
+
+/* Text size in lists */
+html[data-text="small"] .fixture-item,
+html[data-text="small"] .group-item,
+html[data-text="small"] .cue-item,
+html[data-text="small"] #effectsList .effect-card strong,
+html[data-text="small"] .lx-direct-grid button { font-size: 10px; }
+html[data-text="large"] .fixture-item,
+html[data-text="large"] .group-item,
+html[data-text="large"] .cue-item,
+html[data-text="large"] #effectsList .effect-card strong,
+html[data-text="large"] .lx-direct-grid button { font-size: 13px; }
+html[data-text="large"] .fixture-item,
+html[data-text="large"] .cue-item { min-height: 30px; }
+html[data-text="large"] #groupList { grid-auto-rows: 30px; }
+html[data-text="large"] #groupList .group-item { line-height: 28px; }
+
+/* Square corners */
+html[data-corners="square"] .panel,
+html[data-corners="square"] .topbar,
+html[data-corners="square"] .sidebar,
+html[data-corners="square"] .cmd-line,
+html[data-corners="square"] .lxw,
+html[data-corners="square"] .cp-bar,
+html[data-corners="square"] .cp-canvas,
+html[data-corners="square"] .fixture-item,
+html[data-corners="square"] .group-item,
+html[data-corners="square"] .cue-item,
+html[data-corners="square"] .effect-card,
+html[data-corners="square"] .toolbar-card,
+html[data-corners="square"] .master-card,
+html[data-corners="square"] .parameter-card,
+html[data-corners="square"] .deck-tab,
+html[data-corners="square"] .status-pill,
+html[data-corners="square"] .lxw-menu,
+html[data-corners="square"] .lxw-menu-btn,
+html[data-corners="square"] .lx-direct-grid button,
+html[data-corners="square"] [class^="btn-"],
+html[data-corners="square"] input:not([type="range"]):not([type="checkbox"]),
+html[data-corners="square"] select { border-radius: 2px !important; }
+
+/* Animations off */
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after { transition: none !important; animation: none !important; }
+
+/* Detail */
+html[data-panel-labels="off"] .panel-header .eyebrow,
+html[data-panel-labels="off"] .panel-header .panel-meta,
+html[data-panel-labels="off"] .list-toolbar { display: none; }
+html[data-fixture-detail="off"] #fixtureList .fixture-item > span + span { display: none; }
+html[data-cue-detail="off"] #cueList .cue-item > small { display: none; }
+
+/* Top bar */
+html[data-top-status="off"] .topbar .status-pill { display: none; }
+html[data-top-safety="off"] #safetyControls { display: none; }
+html[data-top-licence="off"] #licenseTierBadge,
+html[data-top-licence="off"] #changeLicenseButton { display: none; }
+html[data-top-master="off"] .top-master,
+html[data-top-master="off"] .topbar-divider { display: none; }
+.top-clock {
+  padding: 0 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: .5px;
+}
+
+/* Bottom bar and command line */
+html[data-cue-columns="off"] .bottom-row #cueList { display: flex; flex-direction: column; }
+html[data-ticker="off"] .cmd-ticker { display: none; }
+html[data-remote="off"] #lxRemoteBtn { display: none; }
+
+/* Windows behind the front one */
+.lxw:not(.front):not(.lxw-docked) { opacity: var(--window-dim, 1); transition: opacity .15s; }
+.lxw:not(.front):hover { opacity: 1; }

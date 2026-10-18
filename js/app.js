@@ -966,7 +966,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // GO key (Preferences → Programming): Space by default. Never while
+  // GO and Back keys (Preferences → Keyboard): Space for GO by default. Never while
   // typing in a field, and Shift only on its own (not shift-click).
   let shiftAlone = false;
   const typing = target => Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
@@ -978,6 +978,12 @@ document.addEventListener("DOMContentLoaded", () => {
       parseCommand("go");
     }
     shiftAlone = key === "shift" && e.key === "Shift";
+    const back = window.LXPrefs?.get("backKey") ?? "off";
+    if ((back === "left" && e.key === "ArrowLeft") || (back === "backspace" && e.key === "Backspace")) {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      parseCommand("back");
+    }
   });
   document.addEventListener("keyup", e => {
     if (e.key === "Shift" && shiftAlone && !typing(e.target)) parseCommand("go");

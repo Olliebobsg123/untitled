@@ -349,6 +349,7 @@
       let m;
       if (c === "undo") return undo();
       if (c === "redo") return redo();
+      if (c === "cue list" || c === "cuelist") { window.LXWindows?.open("cuelist"); return; }
       if (c === "help" || c === "?" || c === "commands") { window.LXWindows?.open("commands"); return say("Command reference opened — click any example to try it", "info"); }
       if ((m = c.match(/^(?:info\s+(\d+)|(\d+)\s+info)$/))) return info(Number(m[1] || m[2]));
       if (c === "info") {
@@ -461,7 +462,7 @@
     ["Select", [["1", "fixture 1"], ["1 thru 10", "fixtures 1 to 10 (also 1>10 or 1-10)"], ["1 + 3 + 5", "several fixtures"], ["1 thru 10 - 4", "1 to 10 except 4"], ["group 2", "a group by number"], ["all lights + odd", "groups by name"], ["clear", "deselect everything"]]],
     ["Levels", [["1 thru 10 @ 50", "set a level"], ["group 1 @ full", "full is 100"], ["2 @ out", "out is 0"], ["@ 75", "the selected fixtures"], ["@ +10", "up 10% (each from its own level)"], ["@ -20", "down 20%"], ["1 thru 5 @ 80 time 4", "fade over 4 seconds"], ["rem dim", "everything not selected to 0"]]],
     ["Colour & movement", [["1 thru 4 red", "colour by name"], ["group 2 @ 60 blue", "level and colour together"], ["5 pan 100 tilt 40", "position (0–255)"], ["5 zoom 200", "also focus, frost, iris, gobo, prism"], ["group 3 home", "pan and tilt to centre"], ["1 strobe 120", "strobe (strobe off to stop)"]]],
-    ["Cues", [["record cue 5 Opening", "record a cue"], ["go", "next cue"], ["go 3", "jump to cue 3"], ["back", "previous cue"], ["update cue 3", "save the stage into cue 3"], ["fade 3 2.5", "set cue 3's fade"], ["sneak", "fade back to the current cue"], ["sneak 5", "…over 5 seconds"]]],
+    ["Cues", [["record cue 5 Opening", "record a cue"], ["go", "next cue"], ["go 3", "jump to cue 3"], ["back", "previous cue"], ["update cue 3", "save the stage into cue 3"], ["fade 3 2.5", "set cue 3's fade"], ["sneak", "fade back to the current cue"], ["cue list", "open the Cue List window"], ["sneak 5", "…over 5 seconds"]]],
     ["Other", [["undo", "undo a level change (⌘Z)"], ["redo", "redo it (⇧⌘Z)"], ["info 5", "what fixture 5 is doing, and why (window)"], ["blackout", "everything off"], ["full", "everything on"], ["auto create", "groups, palettes, effects and chases"], ["viz", "3D visualiser"], ["save MyShow.json", "save the show"]]]
   ];
 

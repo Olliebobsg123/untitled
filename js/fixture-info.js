@@ -391,8 +391,8 @@
       else if (held === live) cueRows.push(["ok", `Cue ${s.currentCue + 1} “${name}” (running) holds ${held} — live matches.`]);
       else cueRows.push(["warn", `Cue ${s.currentCue + 1} “${name}” (running) holds ${held}, but live is ${live}. “Put back to the cue” fixes it.`]);
     } else cueRows.push(["info", "No cue running."]);
-    let nextIndex = (s.currentCue ?? -1) + 1;
-    while (nextIndex < (s.cues?.length || 0) && !s.cues[nextIndex]) nextIndex++;
+    let nextIndex = window.LXCueList ? window.LXCueList.next() : (s.currentCue ?? -1) + 1;
+    while (!window.LXCueList && nextIndex < (s.cues?.length || 0) && !s.cues[nextIndex]) nextIndex++;
     if (s.cues?.[nextIndex]) {
       const held = cueValue(nextIndex, f, attr);
       const name = s.cues[nextIndex].name || `Cue ${nextIndex + 1}`;

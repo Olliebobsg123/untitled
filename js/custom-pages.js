@@ -23,8 +23,8 @@
       windows: { fixtures: [0, 0, .3, 1], groups: [.3, 0, .3, .38], palettes: [.3, .38, .3, .62], control: [.6, 0, .4, 1] }
     },
     playback: {
-      label: "Playback — cue stack, magic sheet, chases, effects",
-      windows: { magic: [0, 0, .62, .6], cues: [.62, 0, .38, .6], chases: [0, .6, .5, .4], effects: [.5, .6, .5, .4] }
+      label: "Playback — cue list, magic sheet, chases, effects",
+      windows: { magic: [0, 0, .58, .6], cuelist: [.58, 0, .42, .6], chases: [0, .6, .5, .4], effects: [.5, .6, .5, .4] }
     },
     busking: {
       label: "Busking — groups, palettes, effects, chases, magic sheet",

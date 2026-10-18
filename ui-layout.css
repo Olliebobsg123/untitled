@@ -1,0 +1,418 @@
+/* ============================================================
+   Layout: compact density, floating windows and Preferences.
+   Loaded after styles.css. Compact is the default; Comfortable
+   (Preferences → Interface) leaves styles.css as it was.
+   ============================================================ */
+
+/* ---------- Compact density ---------- */
+
+html[data-density="compact"] body {
+  gap: 6px;
+  padding: 6px;
+  grid-template-rows: 42px minmax(0, 1fr) 128px 32px;
+}
+
+html[data-density="compact"] .topbar { padding: 0 10px; }
+html[data-density="compact"] .topbar-status { gap: 6px; }
+html[data-density="compact"] .status-pill { height: 24px; }
+html[data-density="compact"] .page-title strong { font-size: 12px; }
+
+html[data-density="compact"] .panel-header {
+  min-height: 31px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+html[data-density="compact"] .panel-body { padding: 8px; }
+html[data-density="compact"] .eyebrow { margin-right: 6px; }
+html[data-density="compact"] .section-divider { margin: 11px 0; }
+
+html[data-density="compact"] .btn-primary,
+html[data-density="compact"] .btn-secondary,
+html[data-density="compact"] .btn-danger-soft {
+  min-height: 26px;
+  padding: 0 10px;
+}
+html[data-density="compact"] .btn-icon { min-height: 23px; }
+html[data-density="compact"] .action-row { gap: 5px; margin-top: 7px; }
+html[data-density="compact"] .toolbar-card { padding: 6px 8px; margin-bottom: 7px; gap: 10px; }
+html[data-density="compact"] .toolbar-card .action-row { margin-top: 0; }
+
+html[data-density="compact"] .form-grid { gap: 7px; }
+html[data-density="compact"] .form-row { gap: 4px; }
+html[data-density="compact"] .form-row input,
+html[data-density="compact"] .form-row select {
+  min-height: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+html[data-density="compact"] .form-row label { font-size: 9px; }
+
+html[data-density="compact"] .live-grid,
+html[data-density="compact"] .live-grid-left,
+html[data-density="compact"] .page-grid.two-col,
+html[data-density="compact"] .bottom-row { gap: 6px; }
+
+/* Lists: one line per item. */
+html[data-density="compact"] .item-list { gap: 2px; }
+html[data-density="compact"] .fixture-item,
+html[data-density="compact"] .group-item,
+html[data-density="compact"] .cue-item {
+  min-height: 25px;
+  padding: 0 8px;
+  gap: 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+html[data-density="compact"] .fixture-item > span,
+html[data-density="compact"] .cue-item > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-density="compact"] .fixture-item > span:first-child,
+html[data-density="compact"] .cue-item > strong { flex: 1 1 auto; min-width: 0; }
+html[data-density="compact"] .fixture-item > span + span,
+html[data-density="compact"] .cue-item > small { flex: 0 1 auto; font-size: 10px !important; opacity: .8; }
+
+/* Groups as a grid of buttons, so far more fit. */
+html[data-density="compact"] #groupList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  grid-auto-rows: 26px;
+  align-content: start;
+  gap: 3px;
+}
+html[data-density="compact"] #groupList .group-item {
+  min-height: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 24px;
+}
+html[data-density="compact"] .groups-panel { flex: 0 0 auto; max-height: min(520px, 46vh); min-height: 150px; }
+html[data-density="compact"] .fixtures-panel { flex: 1 1 0; }
+html[data-density="compact"] .groups-panel .btn-secondary.full-width,
+html[data-density="compact"] .palette-launch,
+html[data-density="compact"] .target-launch { margin-top: 5px; min-height: 26px; }
+html[data-density="compact"] .list-toolbar { margin-bottom: 4px; }
+
+/* Effects and chases as tiles instead of a tall list. */
+html[data-density="compact"] #effectsList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 4px;
+}
+html[data-density="compact"] #effectsList .effect-card {
+  min-height: 46px;
+  padding: 7px 9px;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 6px;
+}
+html[data-density="compact"] #effectsList .effect-card:hover { transform: none; }
+html[data-density="compact"] #effectsList .effect-card strong,
+html[data-density="compact"] #effectsList .effect-card small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-density="compact"] #effectsList .effect-card strong { font-size: 11px; }
+html[data-density="compact"] #effectsList .effect-card small { font-size: 9px; letter-spacing: .3px; }
+html[data-density="compact"] #effectsList .empty-state { grid-column: 1 / -1; }
+
+html[data-density="compact"] #chaseList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px;
+}
+html[data-density="compact"] #chaseList .cue-item {
+  min-height: 42px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+}
+html[data-density="compact"] #chaseList .cue-item > strong { flex: none; }
+html[data-density="compact"] #chaseList .cue-item > small { font-size: 9px !important; }
+html[data-density="compact"] #chaseList .empty-state { grid-column: 1 / -1; }
+
+/* Cue stack in the bottom bar: columns, read left to right. */
+html[data-density="compact"] .bottom-row .cues .panel-body { height: auto; }
+html[data-density="compact"] .bottom-row #cueList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-auto-rows: 25px;
+  align-content: start;
+  gap: 3px;
+}
+html[data-density="compact"] .terminal .panel-body { height: auto; font-size: 9px; }
+html[data-density="compact"] .bottom-row > .panel { display: flex; flex-direction: column; min-height: 0; }
+html[data-density="compact"] .bottom-row > .panel > .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* Control deck. */
+html[data-density="compact"] .master-card,
+html[data-density="compact"] .parameter-card { margin-top: 6px; padding: 8px 9px; border-radius: 7px; }
+html[data-density="compact"] .control-group { gap: 6px; }
+html[data-density="compact"] .deck-tabs { margin-top: 8px; gap: 4px; }
+html[data-density="compact"] .deck-tab { padding: 6px 4px; }
+html[data-density="compact"] .big-value { font-size: 16px; }
+
+html[data-density="compact"] .cmd-line { padding: 0 10px; }
+html[data-density="compact"] .cmd-line input { font-size: 11px; }
+
+/* ---------- Sidebar labels (Preferences → Interface) ---------- */
+
+html[data-sidebar="labels"] body,
+html[data-sidebar="labels"] body:has(.sidebar:hover) { grid-template-columns: 184px minmax(0, 1fr); }
+
+/* ---------- Command-line ticker: the latest log line ---------- */
+
+.cmd-ticker {
+  flex: 0 1 46%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #7d8b88;
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  text-align: right;
+  margin-right: 104px; /* room for the Remote button */
+}
+.cmd-ticker:hover { color: var(--text); }
+.cmd-ticker.warn { color: var(--warning); }
+.cmd-ticker.error { color: var(--danger); }
+.cmd-ticker.ok { color: var(--accent); }
+
+/* ---------- Panels that have moved into a window ---------- */
+
+body.lxw-out-log .bottom-row,
+body.lxw-out-cues .bottom-row { grid-template-columns: minmax(0, 1fr); }
+body.lxw-out-log .bottom-row > .terminal,
+body.lxw-out-cues .bottom-row > .cues { display: none; }
+body.lxw-out-log.lxw-out-cues { grid-template-rows: 42px minmax(0, 1fr) 0 32px; }
+html[data-density="comfortable"] body.lxw-out-log.lxw-out-cues { grid-template-rows: 58px minmax(0, 1fr) 0 44px; }
+body.lxw-out-log.lxw-out-cues .bottom-row { display: none; }
+
+body.lxw-out-groups.lxw-out-fixtures .live-grid-left { display: none; }
+body.lxw-out-groups.lxw-out-fixtures .live-grid,
+body.lxw-out-control .live-grid { grid-template-columns: minmax(0, 1fr); }
+body.lxw-out-groups .fixtures-panel { flex: 1 1 auto; }
+body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
+
+.lxw-placeholder {
+  display: none;
+  height: 100%;
+  min-height: 140px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  color: #6f7d7a;
+  font-size: 12px;
+}
+.lxw-placeholder.show { display: flex; }
+
+/* ---------- Floating windows ---------- */
+
+#lxWindowLayer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 900;
+}
+
+.lxw {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  min-height: 140px;
+  pointer-events: auto;
+  background: #0c1215;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .55), 0 0 0 1px rgba(0, 0, 0, .4);
+  overflow: hidden;
+}
+.lxw.front { border-color: #3a4a52; }
+
+.lxw-bar {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 10px;
+  background: #121a1f;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  touch-action: none;
+}
+.lxw.front .lxw-bar { background: #152026; }
+.lxw-bar:active { cursor: grabbing; }
+.lxw-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .4px;
+}
+.lxw-bar button {
+  width: 22px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #73817e;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.lxw-bar button:hover { background: #22303a; color: var(--text); }
+.lxw-bar .lxw-close:hover { background: #5b1e27; color: #fff; }
+
+.lxw-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.lxw-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, #3a4a52 50%, #3a4a52 58%, transparent 58%, transparent 70%, #3a4a52 70%, #3a4a52 78%, transparent 78%);
+}
+
+/* A panel inside a window fills it; its own header becomes the window's. */
+.lxw-body > .panel {
+  flex: 1 1 auto;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.lxw-body > .panel > .panel-header { min-height: 29px; }
+.lxw-body > .panel > .panel-header > div:first-child,
+.lxw-body > .panel > .panel-header > .panel-meta { display: none; }
+/* Keep the header only for what it carries besides the title (cue buttons, selection count). */
+.lxw-body > .panel > .panel-header:not(:has(button, .selection-badge)) { display: none; }
+.lxw-body > .panel > .panel-header:has(.selection-badge) { justify-content: flex-end; }
+.lxw-body > .panel > .panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto !important;
+  overflow: auto;
+}
+.lxw-body > .panel.fixtures-panel .fixture-list,
+.lxw-body > .panel.groups-panel #groupList { overflow: visible; }
+.lxw-body > .control-deck-panel > .panel-body { overflow: auto; }
+.lxw-body #cueList { display: flex; flex-direction: column; }
+
+/* ---------- Windows menu ---------- */
+
+.lxw-menu-btn {
+  height: 24px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .02);
+  color: var(--text-soft);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .9px;
+  cursor: pointer;
+}
+.lxw-menu-btn:hover,
+.lxw-menu-btn.open { border-color: var(--accent-line); color: var(--text); }
+.lxw-menu-btn + .lxw-menu-btn { margin-left: -2px; }
+
+.lxw-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 240px;
+  padding: 4px;
+  background: #10181c;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .6);
+}
+.lxw-menu button {
+  width: 100%;
+  height: 26px;
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.lxw-menu button:hover { background: var(--accent-soft); color: var(--text); }
+.lxw-menu button .tick { color: var(--accent); font-size: 10px; }
+.lxw-menu button kbd { color: #5d6b68; font-family: var(--mono); font-size: 9px; }
+.lxw-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+.lxw-menu .lxw-menu-label { padding: 6px 8px 3px; color: #53615e; font-size: 8px; font-weight: 850; letter-spacing: 1.2px; }
+
+/* ---------- Palettes direct-select window ---------- */
+
+.lx-direct { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.lx-direct h5 { color: #5d6b68; font-size: 9px; font-weight: 850; letter-spacing: 1.2px; margin: 0; }
+.lx-direct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 3px; }
+.lx-direct-grid button {
+  height: 34px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--swatch, var(--border-strong));
+  border-radius: 4px;
+  background: #10171b;
+  color: #c4ceca;
+  font-size: 10px;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.lx-direct-grid button:hover { background: #172026; color: var(--text); border-color: var(--accent-line); }
+.lx-direct-empty { color: #5d6b68; font-size: 11px; padding: 18px 4px; text-align: center; }
+
+/* Patch page: shorter library so the patched-fixtures table shows too. */
+html[data-density="compact"] #page-patch .patch-layout { gap: 6px; grid-template-columns: minmax(0, 1fr) 380px; }
+html[data-density="compact"] #patchLibraryPanel .panel-body { gap: 6px; }
+html[data-density="compact"] #patchLibraryPanel .library-list { height: max(220px, calc(100vh - 560px)); }
+html[data-density="compact"] #libList .fixture-item { min-height: 24px; }
+html[data-density="compact"] #patchFormPanel #btnPatch { height: 32px; }
+html[data-density="compact"] .search-box { height: 30px; margin-bottom: 6px; }
+html[data-density="compact"] .pt-row { min-height: 29px; }

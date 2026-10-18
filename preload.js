@@ -66,6 +66,17 @@ try {
   console.error('[SHOW DEBUG] FAILED to expose LXShowFiles bridge:', error);
 }
 
+// Interface size (Preferences → Interface).
+try {
+  const { webFrame } = require('electron');
+  contextBridge.exposeInMainWorld('LXZoom', {
+    set: factor => webFrame.setZoomFactor(Math.max(0.6, Math.min(1.6, Number(factor) || 1))),
+    get: () => webFrame.getZoomFactor()
+  });
+} catch (error) {
+  console.error('[ZOOM] could not expose zoom bridge:', error);
+}
+
 try {
   contextBridge.exposeInMainWorld('LXFeedbackMail', feedbackApi);
   console.log('[FEEDBACK] Electron feedback API bridge exposed');

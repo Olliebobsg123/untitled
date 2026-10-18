@@ -152,20 +152,21 @@
 
   // ---------------------------------------------------------------- view
 
-  let root = null, svg = null, layer = null, lasso = null, layoutKey = null, view = [], groupBar = null, groupKey = null, info = null;
+  let root = null, panel = null, svg = null, layer = null, lasso = null, layoutKey = null, view = [], groupBar = null, groupKey = null, info = null;
 
   function injectStyles() {
     if (document.getElementById("magicSheetStyles")) return;
     const style = document.createElement("style");
     style.id = "magicSheetStyles";
     style.textContent = `
-      #page-magic .magic-panel{display:flex;flex-direction:column;height:100%;min-height:420px}
-      #page-magic .magic-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
-      #page-magic .magic-tools .sep{width:1px;height:22px;background:var(--border);margin:0 4px}
-      #page-magic .magic-tools button{height:28px;padding:0 11px;font-size:10px}
-      #page-magic .magic-info{margin-left:auto;color:#6f7d7a;font-size:10px;letter-spacing:.3px}
-      #page-magic .magic-stage{flex:1;overflow:auto;background:#070b0d;position:relative}
-      #page-magic svg{display:block;user-select:none}
+      .magic-panel{display:flex;flex-direction:column;height:100%;min-height:0}
+      #page-magic .magic-panel{min-height:420px}
+      .magic-panel .magic-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+      .magic-panel .magic-tools .sep{width:1px;height:22px;background:var(--border);margin:0 4px}
+      .magic-panel .magic-tools button{height:28px;padding:0 11px;font-size:10px}
+      .magic-panel .magic-info{margin-left:auto;color:#6f7d7a;font-size:10px;letter-spacing:.3px}
+      .magic-panel .magic-stage{flex:1;overflow:auto;background:#070b0d;position:relative}
+      .magic-panel svg{display:block;user-select:none}
       .ms-bar{stroke:#1d272c;stroke-width:3;stroke-linecap:round}
       .ms-rowname{fill:#5d6b68;font-size:10px;font-weight:800;letter-spacing:1px}
       .ms-edge{stroke:#26333a;stroke-dasharray:6 6}
@@ -234,15 +235,17 @@
         <div class="magic-stage"><svg></svg></div>
       </section>`;
     live.parentElement.appendChild(root);
-    svg = root.querySelector("svg");
-    groupBar = root.querySelector("[data-ms-groups]");
-    info = root.querySelector("[data-ms-info]");
-    root.querySelector('[data-ms="all"]').addEventListener("click", () => select((S().fixtures || []).filter(Boolean).map(f => f.id), false));
-    root.querySelector('[data-ms="none"]').addEventListener("click", () => select([], false));
+    // The panel can be moved into a floating window, so look things up in it.
+    panel = root.querySelector(".magic-panel");
+    svg = panel.querySelector("svg");
+    groupBar = panel.querySelector("[data-ms-groups]");
+    info = panel.querySelector("[data-ms-info]");
+    panel.querySelector('[data-ms="all"]').addEventListener("click", () => select((S().fixtures || []).filter(Boolean).map(f => f.id), false));
+    panel.querySelector('[data-ms="none"]').addEventListener("click", () => select([], false));
     const level = v => { if (!S().selected?.size) return window.log?.("Select fixtures first", "warn"); window.applyLevel?.(v); };
-    root.querySelector('[data-ms="full"]').addEventListener("click", () => level(100));
-    root.querySelector('[data-ms="half"]').addEventListener("click", () => level(50));
-    root.querySelector('[data-ms="out"]').addEventListener("click", () => level(0));
+    panel.querySelector('[data-ms="full"]').addEventListener("click", () => level(100));
+    panel.querySelector('[data-ms="half"]').addEventListener("click", () => level(50));
+    panel.querySelector('[data-ms="out"]').addEventListener("click", () => level(0));
     installPointer();
     return true;
   }
@@ -304,7 +307,7 @@
 
   // Rebuild the drawing when the patch, positions or size change.
   function rebuild() {
-    const width = Math.max(700, root.querySelector(".magic-stage").clientWidth);
+    const width = Math.max(360, panel.querySelector(".magic-stage").clientWidth);
     const state = S();
     const key = JSON.stringify([width, (state.fixtures || []).map(f => f && [f.id, f.name, f.fixtureNumber, f.uni, f.addr]), state.visualizer?.positions || {}, Boolean(decode)]);
     if (key === layoutKey) return;
@@ -379,7 +382,8 @@
   }
 
   function tick() {
-    if (installPage() && root.classList.contains("active")) {
+    // Runs while the sheet is on screen: its page, or a floating window.
+    if (installPage() && panel.offsetParent) {
       rebuild();
       renderGroups();
       paint();

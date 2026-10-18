@@ -348,7 +348,7 @@ function goPreviousCue(forceFade = null) {
     return goToCue(previous, forceFade);
 }
 
-function recordCue(number, name, fadeMs = 800, follow = 0, followEnabled = false) {
+function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs") ?? 800), follow = 0, followEnabled = false) {
     window.finishFade?.();
     number = Number(number);
     if (!Number.isInteger(number) || number < 1) {
@@ -469,11 +469,11 @@ function updateCurrentCue(options = {}) {
     return updateCue(State.currentCue + 1, options);
 }
 
-function recordNextCue() {
+async function recordNextCue() {
     const number = State.cues.length + 1;
-    const name = prompt("Cue name:", "Cue " + number);
-    if (name === null) return false;
-    return recordCue(number, name, 800, 0, false);
+    const answer = await window.LXAsk("Record cue " + number, [{ key: "name", label: "Name", value: "Cue " + number }], { ok: "Record" });
+    if (!answer) return false;
+    return recordCue(number, answer.name.trim() || "Cue " + number, Number(window.LXPrefs?.get("cueFadeMs") ?? 800), 0, false);
 }
 
 function deleteCue(number) {

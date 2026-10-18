@@ -364,13 +364,13 @@ function startEffect(type, options = {}) {
       fxLog(`Unknown effect: ${type}`, "warn"); return false;
   }
 }
-function createCustomEffect() {
-  const type = prompt("Effect type:\n\nrainbow\nstrobe\npulse\nchase\nwave", "rainbow");
-  if (type === null) return false;
-  const clean = String(type).trim().toLowerCase();
+async function createCustomEffect() {
+  const answer = await window.LXAsk("Run an effect", [{ key: "type", label: "Effect type (rainbow, strobe, pulse, chase, wave, sine, fire…)", value: "rainbow" }, { key: "speed", label: "Speed", value: 1, type: "number", step: 0.1 }], { ok: "Run" });
+  if (!answer) return false;
+  const clean = String(answer.type).trim().toLowerCase();
   if (!["rainbow","strobe","pulse","chase","wave", ...Object.keys(FX_TYPES)].includes(clean)) { fxLog("Unknown custom effect", "warn"); return false; }
-  const speed = Number(prompt("Speed:", clean === "strobe" ? "8" : "1"));
-  return startEffect(clean, { speed: Number.isFinite(speed) ? speed : 1 });
+  const speed = Number(answer.speed);
+  return startEffect(clean, { speed: Number.isFinite(speed) && speed > 0 ? speed : 1 });
 }
 function startCueEffect(effect) {
   if (!effect || !effect.type) { stopEffect(true); return; }

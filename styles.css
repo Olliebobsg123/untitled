@@ -26,9 +26,10 @@
   --surface: rgba(14, 19, 23, .96);
   --surface-raised: #12191e;
   --accent: #19d6a3;
+  --accent-rgb: 25, 214, 163;
   --accent-2: #54f2c8;
-  --accent-soft: rgba(25, 214, 163, .10);
-  --accent-line: rgba(25, 214, 163, .28);
+  --accent-soft: rgba(var(--accent-rgb), .10);
+  --accent-line: rgba(var(--accent-rgb), .28);
   --text: #edf4f2;
   --text-soft: #b9c5c2;
   --text-muted: #6f7d7b;
@@ -49,7 +50,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--sans); user-select: none; }
 html, body { width: 100%; height: 100%; overflow: hidden; }
-body { background: radial-gradient(circle at 55% 5%, rgba(25,214,163,.045), transparent 28%), linear-gradient(135deg, #06080a 0%, #090c0f 48%, #07090b 100%); color: var(--text); display: grid; grid-template-columns: 214px minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr) 156px 44px; grid-template-areas: "sidebar topbar" "sidebar workspace" "sidebar bottom-row" "sidebar cmd-line"; gap: 9px; padding: 9px; }
+body { background: radial-gradient(circle at 55% 5%, rgba(var(--accent-rgb), .045), transparent 28%), linear-gradient(135deg, #06080a 0%, #090c0f 48%, #07090b 100%); color: var(--text); display: grid; grid-template-columns: 214px minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr) 156px 44px; grid-template-areas: "sidebar topbar" "sidebar workspace" "sidebar bottom-row" "sidebar cmd-line"; gap: 9px; padding: 9px; }
 button, input, select { font: inherit; }
 button { border: 0; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent-line); }
@@ -248,7 +249,7 @@ select:focus-visible {
 
 .nav-link.active {
   color: var(--accent-2);
-  background: linear-gradient(90deg, rgba(25,214,163,.12), rgba(25,214,163,.045));
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), .12), rgba(var(--accent-rgb), .045));
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -358,7 +359,7 @@ select:focus-visible {
 
 .status-dot.online {
   background: var(--accent);
-  box-shadow: 0 0 9px rgba(25,214,163,.65);
+  box-shadow: 0 0 9px rgba(var(--accent-rgb), .65);
 }
 
 .status-dot.offline {
@@ -543,7 +544,7 @@ select:focus-visible {
 .group-item.sel,
 .cue-item.active {
   background: var(--accent-soft);
-  border-color: rgba(25,214,163,.16);
+  border-color: rgba(var(--accent-rgb), .16);
   border-left-color: var(--accent);
   color: var(--accent-2);
 }
@@ -580,7 +581,7 @@ select:focus-visible {
 .btn-primary {
   background: var(--accent);
   color: #04110c;
-  box-shadow: 0 4px 15px rgba(25,214,163,.12);
+  box-shadow: 0 4px 15px rgba(var(--accent-rgb), .12);
 }
 
 .btn-primary:hover {
@@ -707,7 +708,7 @@ select:focus-visible {
 .form-row input:focus,
 .form-row select:focus {
   border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px rgba(25,214,163,.05);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .05);
 }
 
 .library-list {
@@ -1055,9 +1056,9 @@ select:focus-visible {
 }
 
 .deck-tab.active {
-  color: var(--accent, #19d6a3);
-  border-color: rgba(25,214,163,.4);
-  background: rgba(25,214,163,.08);
+  color: var(--accent, var(--accent));
+  border-color: rgba(var(--accent-rgb), .4);
+  background: rgba(var(--accent-rgb), .08);
 }
 
 .deck-tab-panel {
@@ -1079,8 +1080,8 @@ select:focus-visible {
 }
 
 .master-card {
-  border-color: rgba(25,214,163,.16);
-  background: linear-gradient(180deg, rgba(25,214,163,.06), #0e1519);
+  border-color: rgba(var(--accent-rgb), .16);
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), .06), #0e1519);
 }
 
 .control-heading {
@@ -1247,7 +1248,7 @@ select:focus-visible {
   border-radius: 50%;
   background: #d9fff4;
   border: 3px solid var(--accent);
-  box-shadow: 0 0 9px rgba(25,214,163,.25);
+  box-shadow: 0 0 9px rgba(var(--accent-rgb), .25);
 }
 
 .fader input[type="range"]::-moz-range-thumb,
@@ -1367,7 +1368,7 @@ select:focus-visible {
   height: 14px;
   border-radius: 50%;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 2px rgba(0,0,0,.5), 0 0 12px rgba(25,214,163,.65);
+  box-shadow: 0 0 0 2px rgba(0,0,0,.5), 0 0 12px rgba(var(--accent-rgb), .65);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1392,7 +1393,7 @@ select:focus-visible {
   background:
     linear-gradient(90deg, transparent 49.5%, #1c292e 49.5%, #1c292e 50.5%, transparent 50.5%),
     linear-gradient(0deg, transparent 49.5%, #1c292e 49.5%, #1c292e 50.5%, transparent 50.5%),
-    radial-gradient(circle, rgba(25,214,163,.045), transparent 60%),
+    radial-gradient(circle, rgba(var(--accent-rgb), .045), transparent 60%),
     #0a1013;
 }
 
@@ -1413,7 +1414,7 @@ select:focus-visible {
   transform: translate(-50%, -50%);
   cursor: grab;
   border: 3px solid #d8fff4;
-  box-shadow: 0 0 14px rgba(25,214,163,.35);
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), .35);
 }
 
 .xy-dot:active {
@@ -1727,7 +1728,7 @@ select:focus-visible {
   background:
     radial-gradient(
       circle at 50% 20%,
-      rgba(25, 214, 163, .07),
+      rgba(var(--accent-rgb), .07),
       transparent 45%
     ),
     rgba(4, 7, 9, .86) !important;
@@ -1756,7 +1757,7 @@ select:focus-visible {
 
   box-shadow:
     0 30px 80px rgba(0, 0, 0, .55),
-    0 0 0 1px rgba(25, 214, 163, .035) !important;
+    0 0 0 1px rgba(var(--accent-rgb), .035) !important;
 
   color: var(--text) !important;
 }
@@ -1818,7 +1819,7 @@ select:focus-visible {
 #chasePicker input:focus {
   outline: none !important;
   border-color: var(--accent-line) !important;
-  box-shadow: 0 0 0 2px rgba(25, 214, 163, .06) !important;
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .06) !important;
 }
 
 /* Mode selector */
@@ -1934,7 +1935,7 @@ select:focus-visible {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
 
-  box-shadow: 0 0 10px rgba(25, 214, 163, .16);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), .16);
 }
 
 #chasePicker label input[type="checkbox"]:checked::after {
@@ -1957,11 +1958,11 @@ select:focus-visible {
   background:
     linear-gradient(
       90deg,
-      rgba(25, 214, 163, .10),
-      rgba(25, 214, 163, .035)
+      rgba(var(--accent-rgb), .10),
+      rgba(var(--accent-rgb), .035)
     ) !important;
 
-  border-color: rgba(25, 214, 163, .28) !important;
+  border-color: rgba(var(--accent-rgb), .28) !important;
 
   color: var(--accent-2) !important;
 

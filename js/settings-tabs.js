@@ -1,16 +1,21 @@
 "use strict";
 
 /*
- * Settings sub-tabs: Outputs, MIDI, QLab Connect (and Other, for any panel
- * nothing else claims). Panels are added to the Settings page by several
- * scripts at different times, so each one is sorted into its tab as it
- * appears. The last tab used is remembered.
+ * Preferences tabs: Interface, Programming, Show (built by preferences.js),
+ * Outputs, MIDI, QLab Connect (and Other, for any panel nothing else
+ * claims). Panels are added to the Settings page by several scripts at
+ * different times, so each one is sorted into its tab as it appears. The
+ * tabs live in a .lx-settings box that preferences.js shows in the
+ * Preferences window. The last tab used is remembered.
  */
 (function () {
   if (window.__settingsTabsInstalled) return;
   window.__settingsTabsInstalled = true;
 
   const TABS = [
+    { id: "interface", label: "Interface", hint: "How the console looks: layout density, size, colour and where things sit." },
+    { id: "programming", label: "Programming", hint: "Defaults used when you record cues and change the patch." },
+    { id: "show", label: "Show", hint: "Saving the show, and autosave in case the computer crashes." },
     { id: "outputs", label: "Outputs", hint: "Where the console sends DMX: Art-Net, sACN and USB interfaces, one per universe." },
     { id: "midi", label: "MIDI", hint: "Connect a MIDI controller and choose what each knob, pad and joystick does." },
     { id: "qlab", label: "QLab Connect", hint: "Let QLab Connect fire Light Spark's cues, chases and effects." },
@@ -20,6 +25,7 @@
 
   // Which tab a panel belongs in, from its id or heading.
   function tabFor(panel) {
+    if (panel.dataset.prefsTab) return panel.dataset.prefsTab;
     const text = `${panel.id} ${panel.querySelector(".panel-header")?.textContent || ""}`.toLowerCase();
     if (/midi/.test(text)) return "midi";
     if (/qlab|qclink/.test(text)) return "qlab";
@@ -27,21 +33,26 @@
     return "other";
   }
 
-  let page = null, body = null, bar = null, hint = null, active = "outputs";
+  let page = null, box = null, body = null, bar = null, hint = null, active = "interface";
 
   function injectStyles() {
     if (document.getElementById("settingsTabStyles")) return;
     const style = document.createElement("style");
     style.id = "settingsTabStyles";
     style.textContent = `
-      #page-settings .settings-head{display:flex;align-items:center;gap:16px;margin-bottom:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:linear-gradient(180deg,rgba(16,22,26,.98),rgba(11,16,19,.98))}
-      #page-settings .settings-head .deck-tabs{display:flex;gap:6px;margin:0}
-      #page-settings .settings-head .deck-tab{padding:8px 16px;min-width:96px}
-      #page-settings .settings-hint{color:#6f7d7a;font-size:11px;margin-left:auto;text-align:right}
-      #page-settings .settings-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:12px;align-items:start}
-      #page-settings .settings-body > .panel[data-settings-hidden]{display:none!important}
+      .lx-settings{display:grid;grid-template-columns:168px minmax(0,1fr);height:100%;min-height:0}
+      .lx-settings .settings-head{display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--border);background:#0a1013;overflow:auto}
+      .lx-settings .settings-head .deck-tabs{display:flex;flex-direction:column;gap:2px;margin:0}
+      .lx-settings .settings-head .deck-tab{padding:0 10px;height:30px;min-width:0;text-align:left;text-transform:none;letter-spacing:.2px;font-size:12px;font-weight:650;border:0;border-radius:5px;background:transparent;color:#9aa7a4}
+      .lx-settings .settings-head .deck-tab:hover{background:#141d22;color:var(--text)}
+      .lx-settings .settings-head .deck-tab.active{background:var(--accent-soft);color:var(--accent-2);box-shadow:inset 2px 0 0 var(--accent)}
+      .lx-settings .settings-main{display:flex;flex-direction:column;min-height:0;overflow:auto;padding:12px}
+      .lx-settings .settings-hint{color:#7d8b88;font-size:11px;margin:0 0 10px}
+      .lx-settings .settings-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:10px;align-items:start}
+      .lx-settings .settings-body > .panel[data-settings-hidden]{display:none!important}
+      .lx-settings .settings-body > .panel{box-shadow:none}
       #page-settings > .page-grid:empty{display:none}
-      #page-settings input[type="checkbox"]{width:16px;height:16px;min-height:0;flex:none;padding:0;accent-color:var(--accent)}
+      .lx-settings input[type="checkbox"]{width:16px;height:16px;min-height:0;flex:none;padding:0;accent-color:var(--accent)}
       /* DMX Outputs: calmer intro, card titles and status lines. */
       #multiOutputPanel .panel-body > p{font-size:11px;line-height:1.55;color:#7d8987;opacity:1!important;margin:0 0 12px}
       #multiOutputPanel strong{font-size:12px;letter-spacing:.4px}
@@ -56,7 +67,7 @@
   }
 
   function select(id) {
-    active = TABS.some(t => t.id === id) ? id : "outputs";
+    active = TABS.some(t => t.id === id) ? id : "interface";
     try { localStorage.setItem(STORE, active); } catch (_) {}
     for (const button of bar.querySelectorAll(".deck-tab")) {
       button.classList.toggle("active", button.dataset.tab === active);
@@ -72,7 +83,7 @@
   // Move every panel on the page into the tab body, tagged with its tab.
   function collect() {
     let moved = false;
-    for (const panel of page.querySelectorAll("section.panel")) {
+    for (const panel of [...page.querySelectorAll("section.panel"), ...body.querySelectorAll(":scope > section.panel")]) {
       // Some panels are inserted next to another one, so they can already
       // be in the body without a tab.
       if (panel.parentElement === body && panel.dataset.settingsTab) continue;
@@ -93,23 +104,24 @@
     page = document.getElementById("page-settings");
     if (!page) return false;
     injectStyles();
-    const head = document.createElement("div");
-    head.className = "settings-head";
-    head.innerHTML = `<div class="deck-tabs" role="tablist">${TABS.map(t => `<button type="button" class="deck-tab" role="tab" data-tab="${t.id}">${t.label}</button>`).join("")}</div><div class="settings-hint"></div>`;
-    body = document.createElement("div");
-    body.className = "settings-body";
-    page.prepend(head, body);
-    bar = head.querySelector(".deck-tabs");
-    hint = head.querySelector(".settings-hint");
+    box = document.createElement("div");
+    box.className = "lx-settings";
+    box.innerHTML = `<div class="settings-head"><div class="deck-tabs" role="tablist">${TABS.map(t => `<button type="button" class="deck-tab" role="tab" data-tab="${t.id}">${t.label}</button>`).join("")}</div></div><div class="settings-main"><div class="settings-hint"></div><div class="settings-body"></div></div>`;
+    page.prepend(box);
+    body = box.querySelector(".settings-body");
+    bar = box.querySelector(".deck-tabs");
+    hint = box.querySelector(".settings-hint");
     bar.addEventListener("click", e => { const b = e.target.closest(".deck-tab"); if (b) select(b.dataset.tab); });
     try { active = localStorage.getItem(STORE) || active; } catch (_) {}
     collect();
     select(active);
+    // The box moves into the Preferences window, so watch both places.
     new MutationObserver(collect).observe(page, { childList: true, subtree: true });
+    new MutationObserver(collect).observe(body, { childList: true });
     return true;
   }
 
-  window.SettingsTabs = Object.freeze({ select: id => select(id) });
+  window.SettingsTabs = Object.freeze({ select: id => select(id), box: () => box, active: () => active });
   function boot() { if (!install()) setTimeout(boot, 300); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });
   else boot();

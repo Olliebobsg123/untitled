@@ -739,33 +739,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
   button("btnRecordCue", () => {
     const number = State.cues.length + 1;
-    const name = prompt("Cue name:", `Cue ${number}`);
+    const defaultFade = Number(window.LXPrefs?.get("cueFadeMs") ?? 800);
 
-    if (name === null) return;
-
-    const fadeRaw = prompt("Fade time (ms):", "800");
-    if (fadeRaw === null) return;
-
-    const followRaw = prompt(
-      "Follow time in seconds (0 = immediate):",
-      "0"
-    );
-
-    if (followRaw === null) return;
-
-    const fade = Math.max(0, Number(fadeRaw) || 0);
-    const follow = Math.max(0, Number(followRaw) || 0);
-    const followEnabled = followRaw.trim() !== "";
-
-    if (typeof recordCue === "function") {
-      recordCue(
-        number,
-        name,
-        fade,
-        follow,
-        followEnabled
-      );
+    // Preferences → Programming → "Ask when saving a cue" off: save now.
+    if (window.LXPrefs?.get("askCueDetails") === false) {
+      if (typeof recordCue === "function") recordCue(number, `Cue ${number}`, defaultFade, 0, false);
+      return;
     }
+
+    LXAsk(`Record cue ${number}`, [
+      { key: "name", label: "Name", value: `Cue ${number}` },
+      { key: "fade", label: "Fade (seconds)", value: defaultFade / 1000, type: "number", step: 0.1, min: 0 },
+      { key: "follow", label: "Follow after (seconds, empty = no follow)", value: "", type: "number", step: 0.1, min: 0 }
+    ], { ok: "Record" }).then(answer => {
+      if (!answer) return;
+      const fade = Math.max(0, Math.round((Number(answer.fade) || 0) * 1000));
+      const follow = Math.max(0, Number(answer.follow) || 0);
+      const followEnabled = String(answer.follow).trim() !== "";
+      if (typeof recordCue === "function") recordCue(number, answer.name.trim() || `Cue ${number}`, fade, follow, followEnabled);
+    });
   });
 
   button("btnClearProgrammer", () => {
@@ -773,10 +765,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   button("btnDelCue", () => {
-    const number = prompt("Cue number to delete:");
-    if (number && typeof deleteCue === "function") {
-      deleteCue(number);
-    }
+    const current = State.currentCue >= 0 ? State.currentCue + 1 : State.cues.length;
+    LXAsk("Delete a cue", [{ key: "number", label: "Cue number", value: current || "", type: "number", min: 1 }], { ok: "Delete" }).then(answer => {
+      if (answer && answer.number && typeof deleteCue === "function") deleteCue(answer.number);
+    });
   });
 
   /* ==========================================================
@@ -974,12 +966,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // GO key (Preferences → Programming): Space by default. Never while
+  // typing in a field, and Shift only on its own (not shift-click).
+  let shiftAlone = false;
+  const typing = target => Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
   document.addEventListener("keydown", e => {
-    if (e.key === "Shift" && !e.repeat) {
+    const key = window.LXPrefs?.get("goKey") ?? "space";
+    if (e.repeat || typing(e.target)) return;
+    if (key === "space" && e.code === "Space" && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       parseCommand("go");
     }
+    shiftAlone = key === "shift" && e.key === "Shift";
   });
+  document.addEventListener("keyup", e => {
+    if (e.key === "Shift" && shiftAlone && !typing(e.target)) parseCommand("go");
+    shiftAlone = false;
+  });
+  document.addEventListener("pointerdown", () => { shiftAlone = false; }, true);
 
   /* ==========================================================
      STARTUP

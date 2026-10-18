@@ -19,6 +19,8 @@
   const escape = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const channelsOf = f => Math.max(1, Number(lib()[f?.name]?.channels || 1));
   const onDmx = f => f && f.addr != null && Number.isInteger(Number(f.uni)) && f.name !== TAPO;
+  // Preferences → Programming → "Confirm before unpatching".
+  const sure = message => window.LXPrefs?.get("confirmUnpatch") === false || confirm(message);
 
   // ------------------------------------------------------------ backend
 
@@ -280,7 +282,7 @@
       const id = row.dataset.id;
       if (e.target.closest("[data-del]")) {
         const f = S().fixtures.find(x => String(x.id) === id);
-        if (f && confirm(`Unpatch #${f.fixtureNumber} ${f.name}?`)) unpatch([f.id]);
+        if (f && sure(`Unpatch #${f.fixtureNumber} ${f.name}?`)) unpatch([f.id]);
         return;
       }
       if (e.target.closest("input")) return;
@@ -308,7 +310,7 @@
       // Nothing ticked: the fixtures selected in the console.
       if (!ids.length) ids = [...(S().selected || [])].map(String);
       if (!ids.length) return window.log?.("Tick fixtures in the table (or select them) to unpatch", "warn");
-      if (!confirm(`Unpatch ${ids.length} fixture${ids.length === 1 ? "" : "s"}?`)) return;
+      if (!sure(`Unpatch ${ids.length} fixture${ids.length === 1 ? "" : "s"}?`)) return;
       unpatch(ids);
       $("patchSelectAll").textContent = "Select all";
     });
@@ -345,7 +347,7 @@
     setInterval(() => {
       syncPicked();
       tidyTools();
-      if ($("page-patch")?.classList.contains("active")) refresh();
+      if ($("patchTable")?.offsetParent) refresh(); // on screen: page or window
       const count = $("patchLibraryCount");
       if (count) count.textContent = `${Object.keys(lib()).length} FIXTURES`;
     }, 250);

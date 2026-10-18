@@ -364,7 +364,10 @@
       }
       if (strobe > 0 && (time * strobe) % 1 > 0.25) level *= 0.15;
       const isSel = selected.has(v.fixture.id);
-      const key = `${level.toFixed(3)}|${rgb.map(c => c.toFixed(2))}|${isSel}`;
+      // The number shows the fixture's intensity (what you set), not how
+      // bright its colour comes out; the fill and glow still show output.
+      const pct = Math.round(Math.max(0, Math.min(100, Number(window.ensureFixtureState?.(v.fixture.id)?.intensity) || 0)));
+      const key = `${level.toFixed(3)}|${rgb.map(c => c.toFixed(2))}|${isSel}|${pct}`;
       if (key === v.last) continue;
       v.last = key;
       const k = level > 0 ? 0.25 + 0.75 * level : 0;
@@ -374,7 +377,6 @@
       for (const node of v.lit) { node.style.fill = colour; if (!node.classList.contains("ms-body")) node.style.stroke = edge; }
       v.glow.setAttribute("fill", level > 0.05 ? `rgb(${rgb.map(c => Math.round(c * 255)).join(",")})` : "transparent");
       v.glow.setAttribute("opacity", (0.06 + level * 0.22).toFixed(3));
-      const pct = Math.round(level * 100);
       v.lvl.textContent = v.kind === "fogger" || v.kind === "hazer" ? "" : pct >= 100 ? "FL" : pct > 0 ? String(pct) : "--";
       v.lvl.classList.toggle("on", pct > 0);
       v.g.classList.toggle("ms-sel", isSel);

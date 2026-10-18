@@ -59,7 +59,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function activeFixture() {
-    if (State.selectedFixtureId != null) {
+    // The last fixture clicked, but only while it's still selected (picking
+    // a group or typing a selection doesn't change selectedFixtureId).
+    if (State.selectedFixtureId != null && (!(State.selected instanceof Set) || State.selected.has(State.selectedFixtureId))) {
       const fixture = getFixture(State.selectedFixtureId);
       if (fixture) return fixture;
     }
@@ -205,7 +207,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!Number.isFinite(n)) return;
 
       el.value = n;
-      $(`${id}Val`)?.replaceChildren(String(n));
+      // The intensity readout is "intVal", the others are "<id>Val".
+      $(id === "intensity" ? "intVal" : `${id}Val`)?.replaceChildren(String(Math.round(n)));
     });
 
     updateXYDot(state.pan ?? 128, state.tilt ?? 128);
@@ -221,6 +224,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // math depends on both hue AND sat together) visibly wrong until
   // the next real click-driven refresh.
   window.syncControlsFromSelection = syncControlsFromSelection;
+
+  // Whenever the selection changes — fixture list, magic sheet, groups,
+  // the command line, the patch table, MIDI, the phone remote — show the
+  // selected fixture's own values in the Control Deck, not the last one's.
+  let lastSelectionKey = "";
+  setInterval(() => {
+    const selected = State.selected instanceof Set ? [...State.selected] : [];
+    const key = `${State.selectedFixtureId}|${selected.join(",")}`;
+    if (key === lastSelectionKey) return;
+    // Don't yank a slider out from under the mouse while it's being dragged.
+    const dragging = document.activeElement?.closest?.("#controlPanel") && document.activeElement.type === "range" && document.activeElement.matches(":active");
+    if (dragging) return;
+    lastSelectionKey = key;
+    syncControlsFromSelection();
+  }, 100);
 
   /* ==========================================================
      XY PAD

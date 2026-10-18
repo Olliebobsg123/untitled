@@ -78,8 +78,6 @@
     <div class="status-pill"><span class="status-dot online"></span> ART-NET</div>
     <div class="status-pill" id="topQlabStatus"><span class="status-dot offline"></span><span class="status-label">QLAB</span></div>
     <div class="status-pill" id="topMidiStatus"><span class="status-dot offline"></span><span class="status-label">MIDI</span></div>
-    <div class="topbar-divider"></div>
-    <div class="top-master">MASTER <strong><span id="topMasterVal">100</span>%</strong></div>
   </div>
 </header>
 <main class="workspace">
@@ -88,7 +86,7 @@
 <section class="panel groups-panel"><div class="panel-header"><div><span class="eyebrow">01</span> Groups</div><span class="panel-meta">SELECT</span></div><div class="panel-body"><div id="groupList" class="item-list"></div><button class="btn-secondary full-width" id="btnNewGroup">＋ Create Group</button></div></section>
 <section class="panel fixtures-panel"><div class="panel-header"><div><span class="eyebrow">03</span> Fixtures</div><span id="selCount" class="selection-badge">(0 selected)</span></div><div class="panel-body fixture-body"><div class="list-toolbar"><span class="toolbar-label">PATCHED DEVICES</span><span class="toolbar-hint">Click to select</span></div><div id="fixtureList" class="item-list fixture-list"></div></div></section>
 </div>
-<section class="panel control-deck-panel" id="controlPanel"><div class="panel-header"><div><span class="eyebrow">02</span> Control Deck</div><span class="panel-meta">LIVE PARAMETERS</span></div><div class="panel-body"><div class="master-card control-group"><div class="control-heading"><div><span class="control-label">Master Level</span><small>OUTPUT</small></div><strong class="big-value"><span id="masterVal">100</span><em>%</em></strong></div><div class="fader master-fader"><input type="range" id="master" min="0" max="100" value="100"></div></div><div class="control-group parameter-card"><div class="control-heading"><div><span class="control-label">Intensity</span><small>DIMMER</small></div><strong class="fader-val"><span id="intVal">100</span>%</strong></div><div class="fader"><input type="range" id="intensity" min="0" max="100" value="100"></div></div>
+<section class="panel control-deck-panel" id="controlPanel"><div class="panel-header"><div><span class="eyebrow">02</span> Control Deck</div><span class="panel-meta">LIVE PARAMETERS</span></div><div class="panel-body"><div class="control-group parameter-card"><div class="control-heading"><div><span class="control-label">Intensity</span><small>DIMMER</small></div><strong class="fader-val"><span id="intVal">100</span>%</strong></div><div class="fader"><input type="range" id="intensity" min="0" max="100" value="100"></div></div>
 <div class="deck-tabs" role="tablist">
 <button type="button" class="deck-tab" data-tab="beam" role="tab">Beam</button>
 <button type="button" class="deck-tab" data-tab="colour" role="tab">Colour</button>

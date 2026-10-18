@@ -153,7 +153,6 @@ html[data-density="compact"] .bottom-row > .panel { display: flex; flex-directio
 html[data-density="compact"] .bottom-row > .panel > .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 /* Control deck. */
-html[data-density="compact"] .master-card,
 html[data-density="compact"] .parameter-card { margin-top: 6px; padding: 8px 9px; border-radius: 7px; }
 html[data-density="compact"] .control-group { gap: 6px; }
 html[data-density="compact"] .deck-tabs { margin-top: 8px; gap: 4px; }
@@ -439,7 +438,6 @@ html[data-theme="black"] .fixture-item,
 html[data-theme="black"] .group-item,
 html[data-theme="black"] .cue-item,
 html[data-theme="black"] .effect-card,
-html[data-theme="black"] .master-card,
 html[data-theme="black"] .parameter-card,
 html[data-theme="black"] .toolbar-card { background: #0b0d0e; }
 
@@ -456,7 +454,6 @@ html[data-theme="slate"] .fixture-item,
 html[data-theme="slate"] .group-item,
 html[data-theme="slate"] .cue-item,
 html[data-theme="slate"] .effect-card,
-html[data-theme="slate"] .master-card,
 html[data-theme="slate"] .parameter-card,
 html[data-theme="slate"] .toolbar-card,
 html[data-theme="slate"] .form-row input,
@@ -494,7 +491,6 @@ html[data-corners="square"] .group-item,
 html[data-corners="square"] .cue-item,
 html[data-corners="square"] .effect-card,
 html[data-corners="square"] .toolbar-card,
-html[data-corners="square"] .master-card,
 html[data-corners="square"] .parameter-card,
 html[data-corners="square"] .deck-tab,
 html[data-corners="square"] .status-pill,
@@ -522,8 +518,6 @@ html[data-top-status="off"] .topbar .status-pill { display: none; }
 html[data-top-safety="off"] #safetyControls { display: none; }
 html[data-top-licence="off"] #licenseTierBadge,
 html[data-top-licence="off"] #changeLicenseButton { display: none; }
-html[data-top-master="off"] .top-master,
-html[data-top-master="off"] .topbar-divider { display: none; }
 .top-clock {
   padding: 0 8px;
   color: var(--text);

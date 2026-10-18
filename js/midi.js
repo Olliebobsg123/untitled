@@ -70,7 +70,7 @@ const MIDI_CONTROLS=[
 const TARGETS=[
   ["intensity","Intensity"],["hue","Hue"],["saturation","Saturation"],
   ["pan","Pan"],["tilt","Tilt"],["zoom","Zoom"],["focus","Focus"],
-  ["speed","Speed"],["strobe","Strobe"],["master","Master"],
+  ["speed","Speed"],["strobe","Strobe"],
 
   ["frost","Frost"],["iris","Iris"],
   ["gobo","Gobo 1 Pattern"],["gobor","Gobo 1 Rotate"],

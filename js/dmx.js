@@ -258,7 +258,9 @@ const def=getFixtureDefinition(fixture);if(!def)return;
 const map=def.map||{};const base=getFixtureBaseAddress(fixture);if(base<0)return;
 const saved=fixtureState(fixture.id)||State.current||{};
 
-const master=clamp100(saved.master??State.current?.master??100)/100;
+// No master dimmer: intensity alone sets the level (an old "master" value
+// left in a show, e.g. 0 after Clear, must not hold a light dark).
+const master=1;
 const intensity=clamp100(saved.intensity??100)/100;
 const level=blackout?0:master*intensity;
 

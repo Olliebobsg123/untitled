@@ -34,7 +34,6 @@
     topStatus: true,           // Art-Net / QLab / MIDI lights
     topSafety: true,           // WHITE and BLACKOUT buttons
     topLicence: true,          // licence buttons
-    topMaster: true,           // MASTER readout
     logDocked: false,          // console log in the bottom bar, or only as a window
     bottomHeight: 0,           // 0 = automatic
     cueColumns: true,          // cue stack in columns across the bottom bar
@@ -49,7 +48,6 @@
     paletteFadeMs: 300,
     commandFadeMs: 300,        // fade for levels typed in the command line
     chaseSpeedStart: 50,
-    masterStart: 100,
     confirmUnpatch: true,
     // Keyboard
     goKey: "space",            // space | shift | off
@@ -109,7 +107,6 @@
     d.topStatus = prefs.topStatus ? "on" : "off";
     d.topSafety = prefs.topSafety ? "on" : "off";
     d.topLicence = prefs.topLicence ? "on" : "off";
-    d.topMaster = prefs.topMaster ? "on" : "off";
     d.cueColumns = prefs.cueColumns ? "on" : "off";
     d.ticker = prefs.ticker ? "on" : "off";
     d.remote = prefs.remoteButton ? "on" : "off";
@@ -140,7 +137,7 @@
     if (!clockEl) {
       clockEl = document.createElement("div");
       clockEl.className = "top-clock";
-      status.insertBefore(clockEl, status.querySelector(".top-master") || null);
+      status.appendChild(clockEl);
     }
     if (!clockTimer) clockTimer = setInterval(clockTick, 1000);
     const now = new Date();
@@ -249,8 +246,7 @@
       row("Clock", "Time of day in the top bar.", seg("clock", [["off", "Off"], ["24", "24-hour"], ["12", "12-hour"]])) +
       row("Status lights", "Art-Net, QLab and MIDI connection lights.", onOff("topStatus")) +
       row("WHITE and BLACKOUT buttons", "Hide them if you don't want them pressed by accident. The commands still work.", onOff("topSafety")) +
-      row("Licence buttons", "LICENSE and PRO.", onOff("topLicence")) +
-      row("Master readout", "The MASTER level at the right.", onOff("topMaster"))));
+      row("Licence buttons", "LICENSE and PRO.", onOff("topLicence"))));
 
     host.appendChild(panel("layout", "prefBottom", "Bottom Bar", "LAYOUT",
       row("Console log", "In the bottom bar, or only in its own window.", seg("logDocked", [["false", "Window only"], ["true", "Bottom bar"]])) +
@@ -274,7 +270,6 @@
       row("Command line fade", "How long a level typed in the command line takes, unless you add time (e.g. 1 thru 5 @ 50 time 3).", number("commandFadeMs", 0, 30, 0.1, "s", 1000))));
 
     host.appendChild(panel("programming", "prefStart", "Start-up", "PROGRAMMING",
-      row("Master level", "Where the master sits when Light Spark opens.", seg("masterStart", [["100", "Full"], ["0", "Zero (start dark)"]])) +
       row("Chase speed", "Chase speed slider when Light Spark opens.", slider("chaseSpeedStart", 10, 100, 1, "%"))));
 
     host.appendChild(panel("programming", "prefPatch", "Patch", "PROGRAMMING",
@@ -440,7 +435,7 @@
 
   // ------------------------------------------------------- start-up values
 
-  // Master and chase speed as chosen in Programming → Start-up.
+  // Chase speed as chosen in Programming → Start-up.
   function startValues() {
     const set = (id, value) => {
       const el = document.getElementById(id);
@@ -449,7 +444,6 @@
       el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
     };
-    if (Number(prefs.masterStart) !== 100) set("master", prefs.masterStart);
     if (Number(prefs.chaseSpeedStart) !== 50) set("chaseSpeed", prefs.chaseSpeedStart);
   }
 

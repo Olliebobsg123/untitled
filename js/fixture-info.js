@@ -7,7 +7,7 @@
  * attribute at a glance; pick one for its value right now, the DMX channels it's sending, what is
  * controlling it — a cue, a chase, an effect, the command line, the Control
  * Deck, a palette — what the running and next cues hold for it, anything
- * changing it on the way out (master, blackout, Blind) and its history.
+ * changing it on the way out (blackout, Blind) and its history.
  *
  * Open it with "info 5", "info" (the selected fixture), right-click a
  * fixture in the list or on the magic sheet, or the Windows menu.
@@ -402,14 +402,12 @@
 
     // On the way out.
     const out = [];
-    const master = Number(document.getElementById("master")?.value ?? s.current?.master ?? 100);
     const blind = document.getElementById("consoleModeBlind")?.classList.contains("active");
     if (s.blackout) out.push(["warn", "Blackout is ON — the output is 0 whatever the value above says."]);
     if (blind) out.push(["warn", "BLIND — you're editing without changing the stage; the stage holds its last look."]);
     if (document.documentElement.classList.contains("emergency-active")) out.push(["warn", "Emergency mode is on."]);
-    if (attr.id === "intensity" && master < 100) out.push([master === 0 ? "warn" : "info", `Master at ${master}% — on stage this is ${Math.round((Number(st.intensity) || 0) * master / 100)}%.`]);
     if (attr.id !== "intensity" && Number(st.intensity) <= 0) out.push(["info", "The fixture's intensity is 0, so you won't see this on stage."]);
-    if (!out.length) out.push(["ok", attr.id === "intensity" ? `Master ${master}% · no blackout · Live — it goes out as it is.` : "Live — it goes out as it is."]);
+    if (!out.length) out.push(["ok", attr.id === "intensity" ? "No blackout · Live — it goes out as it is." : "Live — it goes out as it is."]);
     setHTML(k("out"), out.map(([lvl, t]) => `<div class="fi-out ${lvl}">${esc(t)}</div>`).join(""));
 
     // History.

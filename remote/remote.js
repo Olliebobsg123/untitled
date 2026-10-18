@@ -79,7 +79,6 @@
     ['touchend', 'touchcancel', 'pointerup'].forEach(ev => input.addEventListener(ev, end));
     return input;
   }
-  slider('master', 'masterVal', 'master');
   slider('intensity', 'intVal', 'intensity');
   slider('strobe', 'strobeVal', 'strobe');
   const colourMsg = () => ({ type: 'colour', hue: Number($('hue').value), sat: Number($('sat').value) });
@@ -135,7 +134,6 @@
 
   function render() {
     const s = state;
-    setSlider('master', 'masterVal', s.master);
     setSlider('intensity', 'intVal', s.intensity);
     setSlider('strobe', 'strobeVal', s.strobe);
     setSlider('hue', 'hueVal', s.hue);

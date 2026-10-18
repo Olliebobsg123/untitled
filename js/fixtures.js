@@ -4286,7 +4286,7 @@ validateFixtureLibrary();
             if (!fixtureState) continue;
 
             const current = state.current || {};
-            const master = clamp100(fixtureState.master ?? current.master ?? 100) / 100;
+            const master = 1; // no master dimmer: intensity alone sets the level
             const intensity = clamp100(fixtureState.intensity ?? current.intensity ?? 100) / 100;
             const level = state.blackout ? 0 : master * intensity;
 

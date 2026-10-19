@@ -108,7 +108,7 @@
           if (!source) {
             const chase = chaseHas(id), effect = effectHas(id);
             if (effect) source = { kind: "effect", label: `Effect “${effect.name || effect.type}”`, detail: `${effect.type} · speed ${effect.speed}` };
-            else if (chase) source = { kind: "chase", label: `Chase ${s.currentChase + 1} “${chase.name || "Chase"}”`, detail: `running · ${chase.speed ?? 50}% speed` };
+            else if (chase) source = { kind: "chase", label: `Chase ${s.currentChase + 1} “${chase.name || "Chase"}”`, detail: `running · ${Math.round(window.LXChaseSpeed?.bpmOf(chase) ?? 0)} BPM` };
             else source = { kind: "manual", label: "Manual change", detail: "MIDI, the phone remote or another control" };
           }
           changed.forEach(a => own(id, a, source, summary(a, st)));
@@ -409,7 +409,7 @@
       cards.push(card("PLAYBACK", "#2fbf63", `Cue ${s.currentCue + 1}  → ${esc(held)}   ${how}   ${(Number(cue.fade ?? 800) / 1000).toFixed(1)} s`, inControl));
     }
     const effect = effectHas(f.id), chase = chaseHas(f.id);
-    if (chase) cards.push(card("EXECUTOR", "#5ca8ff", `Chase ${s.currentChase + 1} “${esc(chase.name || "Chase")}”   running   speed ${chase.speed ?? 50} %`, own?.kind === "chase"));
+    if (chase) cards.push(card("EXECUTOR", "#5ca8ff", `Chase ${s.currentChase + 1} “${esc(chase.name || "Chase")}”   running   ${Math.round(window.LXChaseSpeed?.bpmOf(chase) ?? 0)} BPM`, own?.kind === "chase"));
     if (effect) cards.push(card("EXECUTOR", "#e24fd0", `Effect “${esc(effect.name || effect.type)}”   ${esc(effect.type)}   running`, own?.kind === "effect"));
     if (posLocked) cards.push(card("TARGET", "#ffad1f", `Captured on “${esc(capturedOn.target.name)}”  → locked   nothing else can move it until you release it`, true));
     const mib = window.LXMoveInBlack?.presetFor(f.id);

@@ -110,9 +110,9 @@
       const count = chase.mode === "snapshot" ? (chase.snapshots?.length || 0) : (chase.steps?.length || 0);
       const mode = chase.mode === "spread" ? "🌈 Per-fixture" : chase.mode === "snapshot" ? "● Recorded" : "→ Sequence";
       const fxCount = Array.isArray(chase.fixtureIds) && chase.fixtureIds.length ? `${chase.fixtureIds.length} fixture(s)` : "All fixtures";
-      meta.textContent = `${count} ${chase.mode === "snapshot" ? "look(s)" : "cue(s)"} · ${mode} · ${fxCount} · ${chase.loop ? "Loop" : "Once"} · ${n(chase.speed, 50)}% · ${n(chase.fade, 0)}ms`;
+      meta.textContent = `${count} ${chase.mode === "snapshot" ? "look(s)" : "cue(s)"} · ${mode} · ${fxCount} · ${chase.loop ? "Loop" : "Once"} · ${Math.round(bpmOf(chase))} BPM · ${n(chase.fade, 0)}ms fade`;
       el.append(title, meta);
-      el.onclick = () => { selectedChase = i; renderChases(); log(`Selected Chase ${i + 1}: ${chase.name || `Chase ${i + 1}`}`); };
+      el.onclick = () => { selectedChase = i; showSpeed(chase); renderChases(); log(`Selected Chase ${i + 1}: ${chase.name || `Chase ${i + 1}`}`); };
       list.appendChild(el);
     });
   }
@@ -130,11 +130,73 @@
     if (message) log("⏹ Chase stopped");
   }
 
+  /*
+   * Chase speed is in BPM: one step per beat, from 6 BPM (a step every 10
+   * seconds) to 1200 BPM (20 steps a second). Shows saved before BPM kept
+   * a "speed" percentage that meant 100000/speed ms a step, i.e.
+   * 0.6 × speed BPM, so they run exactly as they did.
+   * The crossfade never holds a step up: it's cut to the step time.
+   */
+  const BPM_MIN = 6, BPM_MAX = 1200;
+  const clampBpm = v => Math.max(BPM_MIN, Math.min(BPM_MAX, Math.round(Number(v) * 10) / 10 || 120));
+  function bpmOf(chase) {
+    if (Number.isFinite(Number(chase?.bpm))) return clampBpm(chase.bpm);
+    return clampBpm(0.6 * Math.max(10, Math.min(100, n(chase?.speed, 50))));
+  }
+  const stepMs = chase => 60000 / bpmOf(chase);
+  const fadeMs = chase => Math.min(Math.max(0, Math.min(60000, n(chase?.fade, 0))), stepMs(chase));
+  // The speed slider runs on a log scale so slow and fast both get room.
+  const sliderToBpm = v => clampBpm(BPM_MIN * Math.pow(BPM_MAX / BPM_MIN, Number(v) / 1000));
+  const bpmToSlider = bpm => Math.round(1000 * Math.log(clampBpm(bpm) / BPM_MIN) / Math.log(BPM_MAX / BPM_MIN));
+  const describeBpm = bpm => `${Math.round(bpm)} BPM · ${(60 / bpm).toFixed(60 / bpm < 1 ? 2 : 1)} s`;
+
+  const defaultBpm = () => clampBpm(window.LXPrefs?.get("chaseBpm") ?? 120);
+
+  // The speed slider shows the selected chase's speed.
+  function showSpeed(chase) {
+    const speed = document.getElementById("chaseSpeed");
+    if (!speed || !chase) return;
+    speed.value = String(bpmToSlider(bpmOf(chase)));
+    const out = document.getElementById("chaseSpeedVal");
+    if (out) out.textContent = describeBpm(bpmOf(chase));
+  }
+  let metaTimer = null;
+  const renderChaseMetaSoon = () => { clearTimeout(metaTimer); metaTimer = setTimeout(() => renderChases(), 150); };
+
+  // Tap tempo: tap along to the music, the chase follows.
+  function installTap(speed) {
+    const row = speed.closest("label");
+    if (!row || document.getElementById("chaseTap")) return;
+    const tap = document.createElement("button");
+    tap.type = "button";
+    tap.id = "chaseTap";
+    tap.className = "btn-secondary";
+    tap.textContent = "Tap";
+    tap.title = "Tap in time to set the chase's speed";
+    tap.style.cssText = "margin-left:10px;height:26px;padding:0 12px;flex:none";
+    const taps = [];
+    tap.addEventListener("click", e => {
+      e.preventDefault();
+      const now = performance.now();
+      if (taps.length && now - taps[taps.length - 1] > 2500) taps.length = 0;
+      taps.push(now);
+      if (taps.length > 6) taps.shift();
+      if (taps.length < 2) return;
+      const gap = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+      const bpm = clampBpm(60000 / gap);
+      speed.value = String(bpmToSlider(bpm));
+      const c = S()?.chases?.[selectedChase];
+      if (c) c.bpm = bpm;
+      const out = document.getElementById("chaseSpeedVal");
+      if (out) out.textContent = describeBpm(bpm);
+      renderChaseMetaSoon();
+    });
+    row.appendChild(tap); // right beside the readout
+  }
+
   function schedule(token, chase, fn) {
     const s = S();
-    const speed = Math.max(10, Math.min(100, n(chase.speed, 50)));
-    const interval = Math.max(50, Math.round(1000 * 100 / speed));
-    s.chaseTimer = setTimeout(() => { if (token === runToken && s.currentChase >= 0) fn(); }, Math.max(n(chase.fade, 0), interval));
+    s.chaseTimer = setTimeout(() => { if (token === runToken && s.currentChase >= 0) fn(); }, Math.max(40, stepMs(chase)));
   }
 
   function runSequence(token, chase, step) {
@@ -143,7 +205,7 @@
     const cueIndex = Number(chase.steps[step]);
     const cue = s.cues?.[cueIndex];
     if (!cue) return stopChase(false);
-    const fade = Math.max(0, Math.min(60000, n(chase.fade, 0)));
+    const fade = fadeMs(chase);
     const fixtureIds = chaseFixtureIds(chase);
     console.debug(`CHASE: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
     if (fade > 0 && typeof window.fadeTo === "function") {
@@ -229,7 +291,8 @@
     return true;
   }
 
-  function saveChase(name, cueIndices, loop = true, speed = 50, fade = 0, mode = "sequence", fixtureIds = null) {
+  // `bpm`: steps per minute (see bpmOf).
+  function saveChase(name, cueIndices, loop = true, bpm = defaultBpm(), fade = 0, mode = "sequence", fixtureIds = null) {
     const s = S();
     if (!s) return false;
     const steps = [...new Set((Array.isArray(cueIndices) ? cueIndices : []).map(Number).filter(i => Number.isInteger(i) && s.cues?.[i]))];
@@ -241,7 +304,7 @@
     if (!ids.length) { log("Select at least one fixture for the chase", "warn"); return false; }
     const chase = {
       name: String(name || `Chase ${(s.chases?.length || 0) + 1}`).trim(),
-      steps, fixtureIds: ids, loop: Boolean(loop), speed: Math.max(10, Math.min(100, n(speed, 50))),
+      steps, fixtureIds: ids, loop: Boolean(loop), bpm: clampBpm(bpm),
       fade: Math.max(0, Math.min(60000, n(fade, 0))), mode: mode === "spread" ? "spread" : "sequence"
     };
     s.chases = Array.isArray(s.chases) ? s.chases : [];
@@ -252,7 +315,7 @@
     return true;
   }
 
-  function recordSnapshotChase(name, loop = true, speed = 50, fade = 0, fixtureIds = null) {
+  function recordSnapshotChase(name, loop = true, bpm = defaultBpm(), fade = 0, fixtureIds = null) {
     const s = S();
     if (!s || !fixtures().length) { log("Patch at least one fixture before recording", "warn"); return false; }
     const ids = Array.isArray(fixtureIds) && fixtureIds.length ? fixtureIds : selectedFixtureIds();
@@ -263,7 +326,7 @@
     all.fixtureStates = all.fixtureStates.filter(x => allowed.has(String(x[0])));
     const chase = {
       name: String(name || `Chase ${s.chases.length + 1}`).trim(), mode: "snapshot", steps: [],
-      snapshots: [all], fixtureIds: ids, loop: Boolean(loop), speed: Math.max(10, Math.min(100, n(speed, 50))),
+      snapshots: [all], fixtureIds: ids, loop: Boolean(loop), bpm: clampBpm(bpm),
       fade: Math.max(0, Math.min(60000, n(fade, 0)))
     };
     s.chases.push(chase);
@@ -337,7 +400,7 @@
     });
 
     const opts = document.createElement("div");
-    opts.innerHTML = `<label>Speed <input id="cpSpeed" type="number" min="10" max="100" value="50"></label> <label>Fade ms <input id="cpFade" type="number" min="0" max="60000" value="0"></label> <label><input id="cpLoop" type="checkbox" checked> Loop</label>`;
+    opts.innerHTML = `<label>Speed <input id="cpSpeed" type="number" min="${BPM_MIN}" max="${BPM_MAX}" step="1" value="${defaultBpm()}"> BPM</label> <label>Fade ms <input id="cpFade" type="number" min="0" max="60000" value="0"></label> <label><input id="cpLoop" type="checkbox" checked> Loop</label>`;
     const actions = document.createElement("div"); actions.style.cssText = "display:flex;gap:8px;margin-top:16px";
     const save = document.createElement("button"); save.className = "btn-primary"; save.textContent = "Save Chase";
     const cancel = document.createElement("button"); cancel.className = "btn-secondary"; cancel.textContent = "Cancel";
@@ -369,8 +432,21 @@
     if (run) run.onclick = e => { e.preventDefault(); if (selectedChase >= 0) startChase(selectedChase); else log("Select a chase first", "warn"); };
     if (stop) stop.onclick = e => { e.preventDefault(); stopChase(); };
     const speed = document.getElementById("chaseSpeed");
-    const speedVal = document.getElementById("chaseSpeedVal");
-    if (speed) speed.oninput = () => { if (speedVal) speedVal.textContent = speed.value; const s = S(); const c = s?.chases?.[selectedChase]; if (c) c.speed = n(speed.value, 50); };
+    if (speed) {
+      speed.min = "0"; speed.max = "1000"; speed.step = "1";
+      const label = speed.closest("label")?.querySelector("strong");
+      if (label && !label.dataset.bpm) { label.dataset.bpm = "1"; label.innerHTML = '<span id="chaseSpeedVal"></span>'; label.style.cssText = "white-space:nowrap;min-width:120px;text-align:right"; }
+      speed.oninput = () => {
+        const bpm = sliderToBpm(speed.value);
+        const out = document.getElementById("chaseSpeedVal");
+        if (out) out.textContent = describeBpm(bpm);
+        const c = S()?.chases?.[selectedChase];
+        if (c) { c.bpm = bpm; renderChaseMetaSoon(); }
+      };
+      installTap(speed);
+      const c = S()?.chases?.[selectedChase];
+      if (c) showSpeed(c); else { speed.value = String(bpmToSlider(defaultBpm())); speed.oninput(); }
+    }
   }
 
   function installCueBridge() {
@@ -393,6 +469,7 @@
   window.renderChases = renderChases;
   window.startChase = startChase;
   window.stopChase = stopChase;
+  window.LXChaseSpeed = Object.freeze({ bpmOf, stepMs, sliderToBpm, bpmToSlider, min: BPM_MIN, max: BPM_MAX });
   window.saveChase = saveChase;
   window.recordSnapshotChase = recordSnapshotChase;
   window.addSnapshotToSelectedChase = addSnapshotToSelected;

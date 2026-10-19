@@ -47,7 +47,7 @@
     askCueDetails: true,       // ask for name, fade and follow when saving a cue
     paletteFadeMs: 300,
     commandFadeMs: 300,        // fade for levels typed in the command line
-    chaseSpeedStart: 50,
+    chaseBpm: 120,             // speed of new chases
     confirmUnpatch: true,
     clearMode: "cue",          // Clear programmer: cue (back to the live cue) | dark (everything to 0)
     clearFadeMs: 1000,
@@ -369,8 +369,8 @@
       row("Double-click a cue", "Edit the name or time you clicked, or go to the cue.", seg("clDoubleClick", [["edit", "Edit"], ["go", "Go to it"]])) +
       row("Confirm before deleting", "Ask before a cue is deleted from the right-click menu.", check("clConfirmDelete"))));
 
-    host.appendChild(panel("programming", "prefStart", "Start-up", "PROGRAMMING",
-      row("Chase speed", "Chase speed slider when Light Spark opens.", slider("chaseSpeedStart", 10, 100, 1, "%"))));
+    host.appendChild(panel("programming", "prefStart", "Chases", "PROGRAMMING",
+      row("New chase speed", "How fast new chases step, in beats per minute (one step a beat). 60 BPM is a step a second; 600 is ten a second. Change a running chase on the Chases page or tap the tempo.", number("chaseBpm", 6, 1200, 1, "BPM"))));
 
     host.appendChild(panel("programming", "prefPatch", "Patch", "PROGRAMMING",
       row("Confirm before unpatching", "Ask before removing fixtures from the patch.", check("confirmUnpatch"))));
@@ -538,20 +538,6 @@
     renderAutosave();
   }
 
-  // ------------------------------------------------------- start-up values
-
-  // Chase speed as chosen in Programming → Start-up.
-  function startValues() {
-    const set = (id, value) => {
-      const el = document.getElementById(id);
-      if (!el || el.value === String(value)) return;
-      el.value = String(value);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    };
-    if (Number(prefs.chaseSpeedStart) !== 50) set("chaseSpeed", prefs.chaseSpeedStart);
-  }
-
   // ------------------------------------------------------------ keyboard
 
   function onKey(e) {
@@ -647,7 +633,6 @@
     if (!buildPanels() || !registerWindow() || !removeNav()) return setTimeout(boot, 300);
     document.addEventListener("keydown", onKey);
     clockTick();
-    setTimeout(startValues, 600); // after the sliders are wired
   }
 
   window.LXPrefs = Object.freeze({

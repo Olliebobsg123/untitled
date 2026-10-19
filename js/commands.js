@@ -839,15 +839,15 @@ function parseCommand(cmd){
       const number = Number(m[1]);
       const cueIndices = m[2].split(',').map(v => Number(v.trim()) - 1).filter(i => Number.isInteger(i) && i >= 0);
       const stepMs = m[3] ? Number(m[3]) : 2000;
-      const speed = Math.max(10, Math.min(100, Math.round(100000 / Math.max(1, stepMs))));
+      const bpm = Math.max(6, Math.min(1200, 60000 / Math.max(50, stepMs)));
       if (typeof window.saveChase !== 'function') return log('Chase engine is not loaded', 'error');
       const ids = State.selected?.size ? [...State.selected] : State.fixtures.filter(Boolean).map(f => f.id);
       State.chases = Array.isArray(State.chases) ? State.chases : [];
       const replacing = number - 1 < State.chases.length;
-      if (!window.saveChase(`Chase ${number}`, cueIndices, true, speed, 0, 'sequence', ids)) return;
+      if (!window.saveChase(`Chase ${number}`, cueIndices, true, bpm, 0, 'sequence', ids)) return;
       if (replacing) State.chases.splice(number - 1, 1, State.chases.pop());
       window.renderChases?.();
-      if (stepMs < 1000) log('Chase steps can be 1 second at the fastest', 'warn');
+      if (stepMs < 50) log('Chase steps can be 50 ms at the fastest (1200 BPM)', 'warn');
       return log(`Chase ${replacing ? number : State.chases.length}: cues ${cueIndices.map(i => i + 1).join(', ')}`, 'ok');
     }
     if ((m = c.match(/^run\s+chase\s+(\d+)$/))) {

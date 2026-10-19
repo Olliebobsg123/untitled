@@ -266,6 +266,8 @@
       chase.name = String(chase.name || "Unnamed Chase").trim();
       chase.fixtureIds = Array.isArray(chase.fixtureIds) ? chase.fixtureIds.map(String) : [];
       chase.speed = Math.max(10, Math.min(100, Number.isFinite(Number(chase.speed)) ? Number(chase.speed) : 50));
+      if (chase.bpm != null) chase.bpm = Math.max(6, Math.min(1200, Number.isFinite(Number(chase.bpm)) ? Number(chase.bpm) : 120));
+      else delete chase.bpm;
       chase.fade = Math.max(0, Math.min(60000, Number.isFinite(Number(chase.fade)) ? Number(chase.fade) : 0));
       chase.loop = chase.loop !== false;
       chase.mode = ["sequence", "spread", "snapshot"].includes(String(chase.mode)) ? String(chase.mode) : "sequence";

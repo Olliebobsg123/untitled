@@ -14,8 +14,8 @@ import { buildModel, MATERIALS } from "./models.js";
 
 const MOVING = new Set(["movingSpot", "movingWash", "movingBeam"]);
 const ON_FLOOR = new Set(["fogger", "hazer"]);
-const PAN_SPEED = 3.8; // rad/s, ~220°/s like a mid-size moving head
-const TILT_SPEED = 3.2;
+const PAN_SPEED = 7.5; // rad/s, ~430°/s like a fast modern moving head
+const TILT_SPEED = 6.3;
 const POOL_PLANE = new THREE.PlaneGeometry(1, 1);
 const tmpU = new THREE.Vector3(), tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3();
 const PRISM_FACETS = 3;

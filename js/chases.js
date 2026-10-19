@@ -34,6 +34,10 @@
 
   function cueState(cue, id) {
     if (!cue) return {};
+    if (cue.mode === "track" && typeof window.getCueTarget === "function") {
+      const st = window.getCueTarget(cue).fixtureMap.get(id);
+      if (st) return clone(st);
+    }
     if (Array.isArray(cue.fixtureStates)) {
       const hit = cue.fixtureStates.find(x => Array.isArray(x) && String(x[0]) === String(id));
       if (hit?.[1]) return clone(hit[1]);

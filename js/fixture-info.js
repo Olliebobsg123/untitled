@@ -41,7 +41,7 @@
   const KINDS = {
     cue: ["PLAYBACK", "#19d6a3"], chase: ["CHASE", "#5ca8ff"], effect: ["EFFECT", "#e24fd0"],
     command: ["COMMAND LINE", "#ffb454"], deck: ["CONTROL DECK", "#ffb454"], palette: ["PALETTE", "#ffb454"],
-    magic: ["MAGIC SHEET", "#ffb454"], manual: ["MANUAL", "#8c9a97"], start: ["START-UP", "#5d6b68"]
+    magic: ["MAGIC SHEET", "#ffb454"], focus: ["POINT & SHOOT", "#ffad1f"], mib: ["MOVE IN BLACK", "#9b7bff"], manual: ["MANUAL", "#8c9a97"], start: ["START-UP", "#5d6b68"]
   };
 
   // ------------------------------------------------------------ tracking
@@ -401,13 +401,18 @@
     const held = cue ? cueValue(s.currentCue, f, attr) : null;
     if (held != null) {
       const inControl = own?.kind === "cue" || (!own && held === live);
-      cards.push(card("PLAYBACK", "#2fbf63", `Cue ${s.currentCue + 1}  → ${esc(held)}   LTP set   ${(Number(cue.fade ?? 800) / 1000).toFixed(1)} s`, inControl));
+      const srcs = window.LXTracking && cue.mode === "track" ? attr.keys.map(key => window.LXTracking.sourceOf(s.currentCue, f.id, key)).filter(i => i >= 0) : [];
+      const from = srcs.length ? Math.max(...srcs) : s.currentCue;
+      const how = from === s.currentCue ? (cue.mode === "track" ? "moved in this cue" : "LTP set") : `tracked from cue ${from + 1}`;
+      cards.push(card("PLAYBACK", "#2fbf63", `Cue ${s.currentCue + 1}  → ${esc(held)}   ${how}   ${(Number(cue.fade ?? 800) / 1000).toFixed(1)} s`, inControl));
     }
     const effect = effectHas(f.id), chase = chaseHas(f.id);
     if (chase) cards.push(card("EXECUTOR", "#5ca8ff", `Chase ${s.currentChase + 1} “${esc(chase.name || "Chase")}”   running   speed ${chase.speed ?? 50} %`, own?.kind === "chase"));
     if (effect) cards.push(card("EXECUTOR", "#e24fd0", `Effect “${esc(effect.name || effect.type)}”   ${esc(effect.type)}   running`, own?.kind === "effect"));
-    if (own && !["cue", "chase", "effect"].includes(own.kind)) {
-      const where = { command: "command line", deck: "control deck", palette: "palette", magic: "magic sheet", manual: "manual" }[own.kind] || "manual";
+    const mib = window.LXMoveInBlack?.presetFor(f.id);
+    if (mib != null) cards.push(card("MOVE IN BLACK", "#9b7bff", `Preset for cue ${mib + 1}  ·  waiting dark until that cue`, own?.kind === "mib"));
+    if (own && !["cue", "chase", "effect", "mib"].includes(own.kind)) {
+      const where = { command: "command line", deck: "control deck", palette: "palette", magic: "magic sheet", focus: "point & shoot", manual: "manual" }[own.kind] || "manual";
       cards.push(card("PROGRAMMER", "#ffb454", `${esc(own.label)}  → ${esc(view.kind === "channel" ? big : live)}   ${where}`, true));
     }
     if (s.blackout) cards.push(card("OUTPUT", "#ff5265", "Blackout is on  → 0 %", true));

@@ -147,7 +147,7 @@ function snapshotCurrentLighting() {
     return { globalState: clone(State.current || {}), fixtureMap };
 }
 
-function getCueTarget(cue) {
+function blockTarget(cue) {
     const globalState = clone(cue && (cue.globalState || cue.state) || {});
     const fixtureMap = new Map();
     if (Array.isArray(cue && cue.fixtureStates)) {
@@ -165,6 +165,194 @@ function getCueTarget(cue) {
     }
     return { globalState, fixtureMap };
 }
+
+/*
+ * Tracking, like Eos. A tracked cue (cue.mode === "track") stores only what
+ * it changes: fixtureStates holds [id, {changed keys}] pairs. Everything
+ * else carries on from the cues before it, back to the last block cue (a
+ * cue that stores its whole look — every cue recorded before tracking
+ * existed is one). Change a tracked value in cue 3 and it tracks on into
+ * cues 4, 5… until a cue moves it.
+ *
+ * Deleting, moving or copying cues never changes how the other cues look:
+ * healLooks() notices the list was rearranged and blocks any cue whose
+ * look would otherwise have shifted.
+ */
+const isTracked = cue => Boolean(cue && cue.mode === "track");
+const cloneValue = v => (v && typeof v === "object" ? JSON.parse(JSON.stringify(v)) : v);
+const recordMode = () => window.LXPrefs?.get("recordMode") || "track";
+
+function cueLook(index) {
+    const cues = State.cues || [];
+    let start = Math.min(index, cues.length - 1);
+    while (start >= 0 && (!cues[start] || isTracked(cues[start]))) start--;
+    let globalState = {}, fixtureMap = new Map();
+    if (start >= 0) ({ globalState, fixtureMap } = blockTarget(cues[start]));
+    for (let i = start + 1; i <= index; i++) {
+        const cue = cues[i];
+        if (!cue) continue;
+        globalState = clone(cue.globalState || cue.state || globalState);
+        (cue.fixtureStates || []).forEach(entry => {
+            if (!Array.isArray(entry) || entry.length < 2 || entry[0] == null || !entry[1]) return;
+            fixtureMap.set(entry[0], { ...(fixtureMap.get(entry[0]) || {}), ...clone(entry[1]) });
+        });
+    }
+    // A tracked cue with no block before it (after deleting cues): anything
+    // it doesn't mention stays dark.
+    if (start < 0) {
+        (State.fixtures || []).forEach(f => {
+            if (f && f.id != null && !fixtureMap.has(f.id)) fixtureMap.set(f.id, { ...clone(State.fixtureStates.get(f.id) || globalState), intensity: 0 });
+        });
+    }
+    return { globalState, fixtureMap };
+}
+
+function getCueTarget(cue) {
+    const index = (State.cues || []).indexOf(cue);
+    if (index < 0 || !isTracked(cue)) return blockTarget(cue);
+    healLooks();
+    return cueLook(index);
+}
+
+// The look just before cue `index` (the nearest earlier cue's), or null.
+function lookBefore(index) {
+    for (let i = index - 1; i >= 0; i--) if (State.cues[i]) return cueLook(i);
+    return null;
+}
+
+const sameValue = (a, b) => (typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-6 : a && b && typeof a === "object" && typeof b === "object" ? JSON.stringify(a) === JSON.stringify(b) : a === b);
+function lookDiff(states, before) {
+    const changes = [];
+    states.forEach(([id, state]) => {
+        const was = before.fixtureMap.get(id) || {};
+        const part = {};
+        Object.keys(state).forEach(key => { if (!(key in was) || !sameValue(state[key], was[key])) part[key] = cloneValue(state[key]); });
+        if (Object.keys(part).length) changes.push([id, part]);
+    });
+    return changes;
+}
+function sameLook(a, b) {
+    if (!a || !b || a.fixtureMap.size !== b.fixtureMap.size) return false;
+    for (const [id, sa] of a.fixtureMap) {
+        const sb = b.fixtureMap.get(id);
+        if (!sb) return false;
+        const keys = new Set([...Object.keys(sa), ...Object.keys(sb)]);
+        for (const key of keys) if (!sameValue(sa[key], sb[key])) return false;
+    }
+    return true;
+}
+
+// Every cue's look in one pass (cheaper than cueLook for each).
+function allLooks() {
+    const looks = new Map();
+    let globalState = {}, fixtureMap = null;
+    (State.cues || []).forEach((cue, i) => {
+        if (!cue) return;
+        if (!isTracked(cue) || !fixtureMap) {
+            ({ globalState, fixtureMap } = isTracked(cue) ? cueLook(i) : blockTarget(cue));
+        } else {
+            globalState = clone(cue.globalState || cue.state || globalState);
+            fixtureMap = new Map([...fixtureMap].map(([id, st]) => [id, { ...st }]));
+            (cue.fixtureStates || []).forEach(entry => {
+                if (Array.isArray(entry) && entry.length > 1 && entry[0] != null && entry[1]) fixtureMap.set(entry[0], { ...(fixtureMap.get(entry[0]) || {}), ...clone(entry[1]) });
+            });
+        }
+        looks.set(cue, { globalState, fixtureMap });
+    });
+    return looks;
+}
+
+let knownOrder = [], knownLooks = new Map();
+function rememberLooks() {
+    knownOrder = [...(State.cues || [])];
+    knownLooks = allLooks();
+}
+function healLooks() {
+    const cues = State.cues || [];
+    if (cues.length === knownOrder.length && cues.every((cue, i) => cue === knownOrder[i])) return 0;
+    let healed = 0;
+    if (knownLooks.size) {
+        cues.forEach((cue, i) => {
+            const was = cue && knownLooks.get(cue);
+            if (!was || !isTracked(cue)) return;
+            if (sameLook(was, cueLook(i))) return;
+            cue.fixtureStates = [...was.fixtureMap].map(([id, st]) => [id, clone(st)]);
+            cue.mode = "block";
+            healed++;
+        });
+    }
+    rememberLooks();
+    return healed;
+}
+
+// Switch a cue between tracked and block without changing any cue's look.
+function setCueMode(index, mode) {
+    const cue = State.cues[index];
+    if (!cue) return false;
+    healLooks();
+    const look = cueLook(index);
+    const before = lookBefore(index);
+    if (mode === "track" && before) {
+        cue.fixtureStates = lookDiff([...look.fixtureMap], before);
+        cue.mode = "track";
+    } else {
+        cue.fixtureStates = [...look.fixtureMap].map(([id, st]) => [id, clone(st)]);
+        cue.mode = "block";
+    }
+    cue.blocked = mode === "block";
+    rememberLooks();
+    renderCues();
+    return true;
+}
+
+// Store the stage into cue `index` (new or existing), tracked or as a block.
+// In "cue only" mode the cue after it keeps looking exactly as it did.
+function storeLook(index, entry, block = false) {
+    healLooks();
+    const states = snapshotFixtureStates();
+    const before = lookBefore(index);
+    const cueOnly = window.LXPrefs?.get("trackMode") === "cueonly";
+    let nextIndex = index + 1;
+    while (nextIndex < State.cues.length && !State.cues[nextIndex]) nextIndex++;
+    const nextCue = State.cues[nextIndex];
+    const nextLook = cueOnly && isTracked(nextCue) ? cueLook(nextIndex) : null;
+    if (!block && recordMode() === "track" && before) {
+        entry.mode = "track";
+        entry.fixtureStates = lookDiff(states, before);
+    } else {
+        entry.mode = "block";
+        entry.fixtureStates = states;
+    }
+    State.cues[index] = entry;
+    if (nextLook) {
+        const now = cueLook(index);
+        nextCue.fixtureStates = lookDiff([...nextLook.fixtureMap], now);
+    }
+    rememberLooks();
+    return entry;
+}
+
+// Which cue last set this value in cue `index`'s look.
+function cueSourceOf(index, id, key) {
+    for (let i = index; i >= 0; i--) {
+        const cue = State.cues[i];
+        if (!cue) continue;
+        const hit = (cue.fixtureStates || []).find(entry => Array.isArray(entry) && String(entry[0]) === String(id));
+        if (hit && hit[1] && key in hit[1]) return i;
+        if (!isTracked(cue)) return i;
+    }
+    return -1;
+}
+
+window.LXTracking = Object.freeze({
+    look: index => cueLook(index),
+    setMode: setCueMode,
+    isTracked: index => isTracked(State.cues?.[index]),
+    sourceOf: cueSourceOf,
+    changes: index => (isTracked(State.cues?.[index]) ? (State.cues[index].fixtureStates || []).length : null),
+    heal: healLooks,
+    remember: rememberLooks
+});
 
 function applyLightingState(globalState, fixtureMap) {
     State.current ||= {};
@@ -237,6 +425,7 @@ function fadeLighting(from, to, duration, finished) {
 }
 
 function renderCues() {
+    healLooks();
     const list = document.getElementById("cueList");
     if (!list) return;
     list.replaceChildren();
@@ -314,6 +503,7 @@ function goToCue(index, forceFade = null) {
         renderCues();
         cueLog("Cue " + (index + 1) + " active", "ok");
         scheduleCueFollow(cue, index);
+        window.dispatchEvent(new CustomEvent("lx-cue-complete", { detail: { index } }));
     });
     syncCueControls(target.globalState);
     renderCues();
@@ -358,21 +548,21 @@ function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs"
     const index = number - 1;
     while (State.cues.length <= index) State.cues.push(null);
     const globalState = clone(State.current || {});
-    const fixtureStates = snapshotFixtureStates();
     const effect = snapshotCueEffect();
-    State.cues[index] = {
+    const existing = State.cues[index];
+    const cue = storeLook(index, {
+        ...(existing ? { noMib: existing.noMib, blocked: existing.blocked } : {}),
         name: String(name || "").trim() || "Cue " + number,
         globalState,
         state: clone(globalState),
-        fixtureStates,
         fade: Math.max(0, num(fadeMs, 800)),
         follow: Math.max(0, num(follow, 0)),
         followEnabled: followEnabled === true,
         effect
-    };
+    }, existing ? existing.mode === "block" && existing.blocked === true : false);
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
-    let message = "Recorded Cue " + number + ": " + State.cues[index].name + " - " + fixtureStates.length + " fixtures saved";
+    let message = "Recorded Cue " + number + ": " + cue.name + (cue.mode === "track" ? " - tracked, " + cue.fixtureStates.length + " fixtures changed" : " - " + cue.fixtureStates.length + " fixtures saved");
     message += effect ? " - Effect: " + (effect.name || effect.type) : " - No effect";
     cueLog(message, "ok");
     return true;
@@ -438,26 +628,28 @@ function updateCue(number, options = {}) {
     const keepLook = keys.length > 0 && keys.every(key => ["name", "fade", "follow", "followEnabled"].includes(key));
     if (!keepLook) window.finishFade?.();
     const globalState = keepLook ? existing.globalState : clone(State.current || {});
-    const fixtureStates = keepLook ? existing.fixtureStates : snapshotFixtureStates();
     const effect = Object.prototype.hasOwnProperty.call(options, "effect")
         ? clone(options.effect)
         : keepLook ? existing.effect : snapshotCueEffect();
 
-    State.cues[number - 1] = {
+    const entry = {
         ...existing,
         name,
         globalState,
         state: keepLook ? existing.state : clone(globalState),
-        fixtureStates,
         fade,
         follow,
         followEnabled,
         effect: effect && effect.type ? effect : null
     };
+    if (keepLook) State.cues[number - 1] = entry;
+    else storeLook(number - 1, entry, existing.mode === "block" && existing.blocked === true);
+    rememberLooks();
 
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
-    cueLog("Updated Cue " + number + ": " + name + (keepLook ? "" : " - " + (fixtureStates?.length || 0) + " fixtures saved"), "ok");
+    const saved = State.cues[number - 1];
+    cueLog("Updated Cue " + number + ": " + name + (keepLook ? "" : saved.mode === "track" ? " - tracked, " + saved.fixtureStates.length + " fixtures changed" : " - " + (saved.fixtureStates?.length || 0) + " fixtures saved"), "ok");
     return true;
 }
 
@@ -497,6 +689,7 @@ function deleteCue(number) {
 }
 
 Object.assign(window, {
+    getCueTarget,
     renderCues,
     syncCueControls,
     goToCue,

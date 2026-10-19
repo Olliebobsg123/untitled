@@ -534,3 +534,9 @@ html[data-remote="off"] #lxRemoteBtn { display: none; }
 /* Windows behind the front one */
 .lxw:not(.front):not(.lxw-docked) { opacity: var(--window-dim, 1); transition: opacity .15s; }
 .lxw:not(.front):hover { opacity: 1; }
+
+/* Magic sheet and command line preferences */
+html[data-ms-levels="off"] .ms-lvl{display:none}
+html[data-ms-numbers="off"] .ms-num{display:none}
+html[data-ms-glow="off"] .ms-fx > circle:first-child{display:none}
+html[data-cmd-preview="off"] .cmd-preview{display:none}

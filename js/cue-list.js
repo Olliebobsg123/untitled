@@ -18,6 +18,7 @@
 
   const S = () => window.State;
   const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const pref = (k, d) => window.LXPrefs?.get(k) ?? d;
   const secs = ms => { const s = Math.max(0, Number(ms) || 0) / 1000; return s === Math.round(s) ? `${s}` : s.toFixed(1); };
   let running = null; // { index, start, fade } of the cue fading in now
 
@@ -109,7 +110,7 @@
             <button type="button" class="cl-go" data-cl="go" title="Fire the next cue">GO</button>
           </div>
         </div>
-        <div class="cl-head"><span></span><span>#</span><span>Name</span><span>Fade</span><span>Follow</span><span>Effect</span></div>
+        <div class="cl-head"><span></span><span>#</span><span title="T = tracked (stores only changes) · B = block (stores the whole look)">Mode</span><span>Name</span><span>Fade</span><span>Follow</span><span class="cl-fxh">Effect</span></div>
         <div class="cl-rows"></div>
         <div class="cl-foot">
           <button type="button" class="btn-secondary" data-cl="record">＋ Record next cue</button>
@@ -131,6 +132,8 @@
       if (row && !e.target.closest("input")) setNext(Number(row.dataset.i));
     });
     host.addEventListener("dblclick", e => {
+      const row = e.target.closest(".cl-row");
+      if (row && pref("clDoubleClick", "edit") === "go") return window.parseCommand?.(`go ${Number(row.dataset.i) + 1}`);
       const cell = e.target.closest("[data-edit]");
       if (cell) edit(cell);
     });
@@ -153,11 +156,19 @@
     const s = S();
     const cues = s.cues || [];
     const rows = body.querySelector(".cl-rows");
-    const key = cues.map(c => (c ? `${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}` : "·")).join("¦");
+    const mib = window.LXMoveInBlack?.status();
+    const mibOn = pref("mib", true) !== false;
+    const key = cues.map((c, i) => (c ? `${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
+    const modeTag = (c, i) => {
+      const tags = [c.mode === "track" ? `<b class="cl-mode t" title="Tracked: stores only what changed (${c.fixtureStates?.length || 0} lights)">T</b>` : `<b class="cl-mode b" title="Block: stores the whole look">B</b>`];
+      if (c.noMib && mibOn) tags.push('<b class="cl-mib off" title="Move in black is off for this cue">MIB</b>');
+      else if (mibOn && mib?.cue === i && mib.ids.length) tags.push(`<b class="cl-mib" title="${mib.ids.length} light${mib.ids.length === 1 ? "" : "s"} preset in the dark for this cue">MIB</b>`);
+      return tags.join("");
+    };
     if (rows.dataset.key !== key && !rows.querySelector("input")) {
       rows.innerHTML = cues.map((c, i) => c ? `
         <div class="cl-row" data-i="${i}" draggable="true">
-          <span class="cl-dot"></span><span class="cl-num">${i + 1}</span>
+          <span class="cl-dot"></span><span class="cl-num">${i + 1}</span><span class="cl-tags">${modeTag(c, i)}</span>
           <span data-edit="name">${esc(c.name || `Cue ${i + 1}`)}</span>
           <span data-edit="fade">${secs(c.fade ?? 800)} s</span>
           <span data-edit="follow">${c.followEnabled ? `${secs((c.follow || 0) * 1000)} s` : "—"}</span>
@@ -166,6 +177,10 @@
         </div>` : "").join("") || '<div class="cl-empty">No cues yet. Set a look and press ＋ Record next cue.</div>';
       rows.dataset.key = key;
     }
+    const cl = body.querySelector(".cl");
+    cl.classList.toggle("big-go", pref("clBigGo", false) === true);
+    cl.classList.toggle("no-fx", pref("clShowEffect", true) === false);
+    cl.classList.toggle("no-mode", pref("clShowMode", true) === false);
     const live = s.currentCue, next = nextIndex();
     rows.querySelectorAll(".cl-row").forEach(row => {
       const i = Number(row.dataset.i);
@@ -247,8 +262,10 @@
     if (!cue) return;
     const menu = document.createElement("div");
     menu.className = "lxw-menu cl-menu";
-    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-", ["delete", "Delete…"]];
-    menu.innerHTML = `<div class="lxw-menu-label">CUE ${i + 1} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick"></span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
+    const tracked = cue.mode === "track";
+    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-",
+      ["block", "Block cue (stores its whole look)", !tracked], ["mib", "Move in black before this cue", !cue.noMib], "-", ["delete", "Delete…"]];
+    menu.innerHTML = `<div class="lxw-menu-label">CUE ${i + 1} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick">${it[2] ? "✓" : ""}</span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
     document.body.appendChild(menu);
     menu.style.left = `${Math.min(x, innerWidth - 250)}px`;
     menu.style.top = `${Math.min(y, innerHeight - 260)}px`;
@@ -267,7 +284,14 @@
         const r = await window.LXAsk?.(`Rename cue ${n}`, [{ key: "name", label: "Name", value: cue.name || "" }], { ok: "Rename" });
         if (r) window.parseCommand?.(`rename cue ${n} ${r.name.trim() || `Cue ${n}`}`);
       } else if (a === "copy") window.parseCommand?.(`copy cue ${n} to ${S().cues.length + 1}`);
-      else if (a === "delete") {
+      else if (a === "block") window.parseCommand?.(`${tracked ? "block" : "track"} cue ${n}`);
+      else if (a === "mib") {
+        cue.noMib = !cue.noMib;
+        window.log?.(`Move in black ${cue.noMib ? "off" : "on"} for cue ${n}`, "ok");
+        if (cue.noMib && window.LXMoveInBlack?.status()?.cue === i) window.LXMoveInBlack.stop();
+        render();
+      } else if (a === "delete") {
+        if (pref("clConfirmDelete", true) === false) return window.parseCommand?.(`delete cue ${n}`);
         const r = await window.LXAsk?.(`Delete cue ${n}?`, [], { ok: "Delete", message: `“${cue.name || `Cue ${n}`}” will be removed from the cue list.` });
         if (r) window.parseCommand?.(`delete cue ${n}`);
       }
@@ -294,7 +318,7 @@
       .cl-go{height:40px;min-width:92px;border:0;border-radius:6px;background:#2fbf63;color:#04140a;font-size:16px;font-weight:900;letter-spacing:2px;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
       .cl-go:hover{background:#39d672}
       .cl-go:active{transform:translateY(1px)}
-      .cl-head,.cl-row{display:grid;grid-template-columns:16px 34px minmax(0,1fr) 60px 64px minmax(0,.6fr);gap:8px;align-items:center;padding:0 10px}
+      .cl-head,.cl-row{display:grid;grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px minmax(0,.6fr);gap:8px;align-items:center;padding:0 10px}
       .cl-head{height:24px;border-bottom:1px solid var(--border);color:#5d6b68;font-size:9px;font-weight:850;letter-spacing:1.1px;text-transform:uppercase}
       .cl-rows{flex:1 1 auto;min-height:0;overflow:auto}
       .cl-row{position:relative;height:30px;border-bottom:1px solid #141c20;color:#b9c5c2;font-size:12px;cursor:pointer;user-select:none}
@@ -309,6 +333,17 @@
       .cl-row.next .cl-dot{border:2px solid #ffad1f;width:6px;height:6px}
       .cl-row.chosen .cl-num::after{content:" ★";color:#ffad1f}
       .cl-progress{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(47,191,99,.22);pointer-events:none}
+      .cl-tags{display:flex;gap:3px}
+      .cl-mode,.cl-mib{display:inline-block;padding:1px 4px;border-radius:3px;font-size:8.5px;font-weight:900;letter-spacing:.6px;line-height:12px}
+      .cl-mode.t{background:rgba(92,168,255,.16);color:#8bc5ff}
+      .cl-mode.b{background:rgba(255,255,255,.07);color:#9aa8a5}
+      .cl-mib{background:rgba(155,123,255,.2);color:#c7b6ff}
+      .cl-mib.off{background:transparent;color:#5d6b68;text-decoration:line-through}
+      .cl.no-fx .cl-head,.cl.no-fx .cl-row{grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px}
+      .cl.no-fx .cl-fx,.cl.no-fx .cl-fxh{display:none}
+      .cl.no-mode .cl-mode{display:none}
+      .cl.big-go .cl-go{height:64px;min-width:150px;font-size:24px}
+      .cl.big-go .cl-buttons .btn-secondary{height:64px}
       .cl-row.dragging{opacity:.4}
       .cl-row.drop{box-shadow:inset 0 2px 0 var(--accent)}
       .cl-input{width:100%;height:22px;padding:0 6px;background:#0a1013;border:1px solid var(--accent-line);border-radius:3px;color:var(--text);font-size:12px;user-select:text}

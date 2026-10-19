@@ -471,9 +471,41 @@ function facingPlane(point, lockAxis) {
   return dragPlane.setFromNormalAndCoplanarPoint(toCamera.normalize(), point);
 }
 
+// Point & shoot: in aim mode a click or drag on the stage tells the console
+// where to aim its selected moving heads (js/point-shoot.js does the maths).
+let aimMode = false;
+const aimMarker = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.24, 32), new THREE.MeshBasicMaterial({ color: 0xffad1f, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.95 }));
+aimMarker.renderOrder = 11;
+aimMarker.visible = false;
+scene.add(aimMarker);
+function setAimMode(on) {
+  aimMode = Boolean(on);
+  $("aimMode").classList.toggle("on", aimMode);
+  $("aimHelp").hidden = !aimMode;
+  document.body.classList.toggle("aiming", aimMode);
+  if (!aimMode) aimMarker.visible = false;
+  wake();
+}
+function aimAtPointer(phase) {
+  const hit = raycaster.intersectObjects(shared.solids, false)[0];
+  if (!hit) return;
+  const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+  aimMarker.position.copy(hit.point).addScaledVector(normal, 0.02);
+  aimMarker.lookAt(aimMarker.position.clone().add(normal));
+  aimMarker.visible = true;
+  send({ type: "VIZ_AIM", phase, point: { x: hit.point.x, y: hit.point.y, z: hit.point.z } });
+}
+
 renderer.domElement.addEventListener("pointerdown", event => {
   if (event.button !== 0) return;
   setPointer(event);
+  if (aimMode) {
+    drag = { kind: "point", start: { x: event.clientX, y: event.clientY }, active: true };
+    aimAtPointer("start");
+    controls.enabled = false;
+    renderer.domElement.setPointerCapture(event.pointerId);
+    return;
+  }
   const start = { x: event.clientX, y: event.clientY };
   if (handle.visible && raycaster.intersectObject(handle, false).length) {
     drag = { kind: "aim", id: selected, start, active: false };
@@ -503,6 +535,7 @@ renderer.domElement.addEventListener("pointermove", event => {
     drag.active = true;
   }
   setPointer(event);
+  if (drag.kind === "point") { aimAtPointer("move"); return; }
   const model = modelFor(drag.id);
   if (!model) return;
   if (drag.kind === "aim") {
@@ -530,6 +563,7 @@ renderer.domElement.addEventListener("pointermove", event => {
 
 const endDrag = () => {
   if (!drag) return;
+  if (drag.kind === "point") { send({ type: "VIZ_AIM", phase: "end" }); drag = null; controls.enabled = true; return; }
   const changed = drag.active;
   drag = null;
   controls.enabled = true;
@@ -573,6 +607,7 @@ function toggle(key) {
 }
 
 for (const key of ["house", "work", "grid", "beams"]) $(key).addEventListener("click", () => toggle(key));
+$("aimMode").addEventListener("click", () => setAimMode(!aimMode));
 document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
 $("quality").addEventListener("change", () => {
   const choice = $("quality").value;
@@ -596,7 +631,8 @@ $("resetLayout").addEventListener("click", () => {
 });
 window.addEventListener("keydown", event => {
   if (event.target instanceof HTMLInputElement) return;
-  if (event.key === "Escape") select(null);
+  if (event.key === "Escape") { select(null); setAimMode(false); }
+  if (event.key === "p" || event.key === "P") setAimMode(!aimMode);
   const views = { 1: "foh", 2: "close", 3: "top", 4: "side" };
   if (views[event.key]) setView(views[event.key]);
   if (event.key === "h") toggle("house");
@@ -650,6 +686,9 @@ window.addEventListener("message", event => {
       if (patch.length) rebuild();
       break;
     }
+    case "AIM_MODE":
+      setAimMode(message.on);
+      break;
     case "CONSOLE_MODE":
       $("blind").hidden = message.mode !== "BLIND";
       break;

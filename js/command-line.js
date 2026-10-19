@@ -351,6 +351,17 @@
       if (c === "undo") return undo();
       if (c === "redo") return redo();
       if (c === "cue list" || c === "cuelist") { window.LXWindows?.open("cuelist"); return; }
+      if (c === "focus" || c === "point and shoot" || c === "point & shoot") { window.LXWindows?.open("focus"); return; }
+      if ((m = c.match(/^focus\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/))) { window.LXFocus?.aimAt({ x: Number(m[1]), z: -Number(m[2]) }); return; }
+      if ((m = c.match(/^mib(?:\s+(on|off))?$/))) {
+        const on = m[1] ? m[1] === "on" : !window.LXPrefs?.get("mib");
+        window.LXPrefs?.set("mib", on);
+        return say(`Move in black ${on ? "on" : "off"}`, "ok");
+      }
+      if ((m = c.match(/^(block|track|unblock)\s+cue\s+(\d+)$/))) {
+        const ok = window.LXTracking?.setMode(Number(m[2]) - 1, m[1] === "block" ? "block" : "track");
+        return ok ? say(`Cue ${m[2]} is now ${m[1] === "block" ? "a block cue — it stores its whole look" : "tracked — it stores only what changed"}`, "ok") : say(`Cue ${m[2]} not found`, "warn");
+      }
       if (c === "help" || c === "?" || c === "commands") { window.LXWindows?.open("commands"); return say("Command reference opened — click any example to try it", "info"); }
       if ((m = c.match(/^(?:info\s+(\d+)|(\d+)\s+info)$/))) return info(Number(m[1] || m[2]));
       if (c === "info") {
@@ -404,7 +415,7 @@
     input.addEventListener("keydown", e => {
       if (e.key === "Enter") {
         const v = input.value.trim();
-        if (v && history[history.length - 1] !== v) { history.push(v); if (history.length > 200) history.shift(); try { localStorage.setItem(HISTORY, JSON.stringify(history)); } catch (_) {} }
+        if (v && history[history.length - 1] !== v) { history.push(v); while (history.length > (Number(window.LXPrefs?.get("cmdHistory")) || 200)) history.shift(); try { localStorage.setItem(HISTORY, JSON.stringify(history)); } catch (_) {} }
         hIndex = -1; preview.textContent = "";
         setTimeout(() => document.getElementById("cmdAutocompleteList")?.classList.remove("is-visible"), 0);
         return;
@@ -463,7 +474,7 @@
     ["Select", [["1", "fixture 1"], ["1 thru 10", "fixtures 1 to 10 (also 1>10 or 1-10)"], ["1 + 3 + 5", "several fixtures"], ["1 thru 10 - 4", "1 to 10 except 4"], ["group 2", "a group by number"], ["all lights + odd", "groups by name"], ["clear", "deselect everything"]]],
     ["Levels", [["1 thru 10 @ 50", "set a level"], ["group 1 @ full", "full is 100"], ["2 @ out", "out is 0"], ["@ 75", "the selected fixtures"], ["@ +10", "up 10% (each from its own level)"], ["@ -20", "down 20%"], ["1 thru 5 @ 80 time 4", "fade over 4 seconds"], ["rem dim", "everything not selected to 0"]]],
     ["Colour & movement", [["1 thru 4 red", "colour by name"], ["group 2 @ 60 blue", "level and colour together"], ["5 pan 100 tilt 40", "position (0–255)"], ["5 zoom 200", "also focus, frost, iris, gobo, prism"], ["group 3 home", "pan and tilt to centre"], ["1 strobe 120", "strobe (strobe off to stop)"]]],
-    ["Cues", [["record cue 5 Opening", "record a cue"], ["go", "next cue"], ["go 3", "jump to cue 3"], ["back", "previous cue"], ["update cue 3", "save the stage into cue 3"], ["fade 3 2.5", "set cue 3's fade"], ["sneak", "fade back to the current cue"], ["cue list", "open the Cue List window"], ["sneak 5", "…over 5 seconds"]]],
+    ["Cues", [["record cue 5 Opening", "record a cue"], ["go", "next cue"], ["go 3", "jump to cue 3"], ["back", "previous cue"], ["update cue 3", "save the stage into cue 3"], ["fade 3 2.5", "set cue 3's fade"], ["sneak", "fade back to the current cue"], ["cue list", "open the Cue List window"], ["block cue 4", "cue 4 stores its whole look"], ["track cue 4", "cue 4 stores only changes"], ["mib off", "turn move in black off"], ["sneak 5", "…over 5 seconds"]]],
     ["Other", [["undo", "undo a level change (⌘Z)"], ["redo", "redo it (⇧⌘Z)"], ["info 5", "what fixture 5 is doing, and why (window)"], ["blackout", "everything off"], ["full", "everything on"], ["auto create", "groups, palettes, effects and chases"], ["viz", "3D visualiser"], ["save MyShow.json", "save the show"]]]
   ];
 
@@ -510,6 +521,10 @@
       { cmd: "help", hint: "— every command, with examples" },
       { cmd: "undo", hint: "— undo a level change" }, { cmd: "redo", hint: "" },
       { cmd: "info", hint: "[fixture] — what it's doing" },
+      { cmd: "focus", hint: "[across] [depth] — point & shoot (metres from centre, downstage edge)" },
+      { cmd: "mib", hint: "[on|off] — move in black" },
+      { cmd: "block cue", hint: "N — cue stores its whole look" },
+      { cmd: "track cue", hint: "N — cue stores only what changed" },
       { cmd: "rem dim", hint: "— everything not selected to 0" },
       { cmd: "sneak", hint: "[seconds] — fade back to the current cue" }
     );

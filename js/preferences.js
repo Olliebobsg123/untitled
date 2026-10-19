@@ -49,6 +49,37 @@
     commandFadeMs: 300,        // fade for levels typed in the command line
     chaseSpeedStart: 50,
     confirmUnpatch: true,
+    // Tracking
+    recordMode: "track",       // track (store only changes, like Eos) | block (store the whole look)
+    trackMode: "track",        // re-recording a cue: track (changes carry on) | cueonly (later cues stay as they were)
+    // Move in black
+    mib: true,
+    mibDelayMs: 1000,          // wait after a cue finishes
+    mibTimeMs: 2000,           // how long the moves take
+    mibPosition: true,
+    mibColour: true,
+    mibBeam: true,             // gobo, zoom, focus, prism, iris…
+    mibOther: true,            // anything else that isn't intensity
+    mibLog: true,              // a line in the log when it happens
+    // Point & shoot
+    aimHeight: "face",         // floor | knee | waist | face | head | custom
+    aimHeightCustom: 1.6,
+    aimSpread: "spot",         // spot (all on one point) | spaced (keep their spacing)
+    aimFadeMs: 400,
+    vizAim: true,              // clicking the visualiser in aim mode moves lights
+    // Cue List window
+    clBigGo: false,
+    clShowEffect: true,
+    clShowMode: true,          // T / B marks
+    clDoubleClick: "edit",     // edit | go
+    clConfirmDelete: true,
+    // Magic sheet
+    msLevels: true,
+    msNumbers: true,
+    msGlow: true,
+    // Command line
+    cmdPreview: true,
+    cmdHistory: 200,
     // Keyboard
     goKey: "space",            // space | shift | off
     backKey: "off",            // off | left | backspace
@@ -110,6 +141,10 @@
     d.cueColumns = prefs.cueColumns ? "on" : "off";
     d.ticker = prefs.ticker ? "on" : "off";
     d.remote = prefs.remoteButton ? "on" : "off";
+    d.msLevels = prefs.msLevels ? "on" : "off";
+    d.msNumbers = prefs.msNumbers ? "on" : "off";
+    d.msGlow = prefs.msGlow ? "on" : "off";
+    d.cmdPreview = prefs.cmdPreview ? "on" : "off";
 
     const [accent, accent2] = prefs.accent === "custom" ? [prefs.accentCustom, lighter(prefs.accentCustom)] : ACCENTS[prefs.accent] || ACCENTS.teal;
     root.style.setProperty("--accent", accent);
@@ -237,6 +272,11 @@
       row("Fixture details", "Universe, address, level and output beside each fixture in the list.", onOff("fixtureDetail")) +
       row("Cue details", "Fade and follow times beside each cue.", onOff("cueDetail"))));
 
+    host.appendChild(panel("interface", "prefMagic", "Magic Sheet", "APPEARANCE",
+      row("Levels", "The intensity under each light (FL, 50, --).", onOff("msLevels")) +
+      row("Channel numbers", "The number above each light.", onOff("msNumbers")) +
+      row("Glow", "The soft glow round lights that are on.", onOff("msGlow"))));
+
     // ---- Layout
     host.appendChild(panel("layout", "prefSidebar", "Sidebar", "LAYOUT",
       row("Sidebar", "Icons only (hover to see names), or always show the page names.", seg("sidebar", [["icons", "Icons"], ["labels", "Icons and names"]])) +
@@ -269,6 +309,36 @@
       row("Palette fade", "How long applying a palette takes.", number("paletteFadeMs", 0, 30, 0.1, "s", 1000)) +
       row("Command line fade", "How long a level typed in the command line takes, unless you add time (e.g. 1 thru 5 @ 50 time 3).", number("commandFadeMs", 0, 30, 0.1, "s", 1000))));
 
+    host.appendChild(panel("programming", "prefTracking", "Tracking", "PROGRAMMING",
+      row("New cues", "Tracked cues store only what changed — everything else carries on from the cues before, like Eos. Block cues store the whole look.", seg("recordMode", [["track", "Tracked"], ["block", "Whole look (block)"]])) +
+      row("Re-recording a cue", "Track: your changes carry on into the next cues until something moves them. Cue only: the next cues keep looking exactly as they did.", seg("trackMode", [["track", "Track"], ["cueonly", "Cue only"]])) +
+      `<div class="lx-pref-note">Make any cue a block from the Cue List's right-click menu, or type <b>block cue 5</b>. Cues from older shows are blocks and work as before.</div>`));
+
+    host.appendChild(panel("programming", "prefMib", "Move in Black", "PROGRAMMING",
+      row("Move in black", "When a cue has finished, lights that are off and come on in the next cue get their position, colour and beam set while they're dark.", onOff("mib")) +
+      row("Wait after a cue", "How long after a cue finishes before lights start moving.", number("mibDelayMs", 0, 60, 0.1, "s", 1000)) +
+      row("Move time", "How long the moves take. Slower is quieter for noisy moving heads.", number("mibTimeMs", 0, 60, 0.1, "s", 1000)) +
+      row("Position", "Pan and tilt.", check("mibPosition")) +
+      row("Colour", "Colour mixing, colour wheel and CTO.", check("mibColour")) +
+      row("Beam", "Gobos, prism, zoom, focus, iris and frost.", check("mibBeam")) +
+      row("Everything else", "Any other attribute that isn't intensity, strobe, smoke or a built-in programme.", check("mibOther")) +
+      row("Note it in the log", "A line in the console log each time lights move in black.", check("mibLog")) +
+      `<div class="lx-pref-note">Turn it off for one cue from the Cue List's right-click menu. Nothing moves in Blind, and lights that are on are never touched.</div>`));
+
+    host.appendChild(panel("programming", "prefFocus", "Point & Shoot", "PROGRAMMING",
+      row("Aim at", "How high above the stage the beams meet — face height lights a person, the floor makes a pool.", select("aimHeight", [["floor", "The floor"], ["knee", "Knee height (0.5 m)"], ["waist", "Waist height (1 m)"], ["face", "Face height (1.6 m)"], ["head", "Above heads (1.8 m)"], ["custom", "Custom height"]])) +
+      row("Custom height", "Used when Aim at is Custom height.", number("aimHeightCustom", 0, 10, 0.1, "m")) +
+      row("Several heads", "All on one spot, or keep their spacing and move together.", seg("aimSpread", [["spot", "One spot"], ["spaced", "Keep spacing"]])) +
+      row("Move time", "How long a click takes to move the lights. Dragging is always instant.", number("aimFadeMs", 0, 10, 0.1, "s", 1000)) +
+      row("Aim from the 3D visualiser", "In the visualiser, press 🎯 Point & shoot (or P) and click the stage.", check("vizAim"))));
+
+    host.appendChild(panel("programming", "prefCueList", "Cue List", "PROGRAMMING",
+      row("Big GO button", "A larger GO and BACK for running a show.", check("clBigGo")) +
+      row("Effect column", "Show which effect each cue starts.", check("clShowEffect")) +
+      row("T / B marks", "Show whether each cue is tracked or a block.", check("clShowMode")) +
+      row("Double-click a cue", "Edit the name or time you clicked, or go to the cue.", seg("clDoubleClick", [["edit", "Edit"], ["go", "Go to it"]])) +
+      row("Confirm before deleting", "Ask before a cue is deleted from the right-click menu.", check("clConfirmDelete"))));
+
     host.appendChild(panel("programming", "prefStart", "Start-up", "PROGRAMMING",
       row("Chase speed", "Chase speed slider when Light Spark opens.", slider("chaseSpeedStart", 10, 100, 1, "%"))));
 
@@ -281,6 +351,10 @@
       row("Back key", "Goes back a cue.", seg("backKey", [["off", "None"], ["left", "← Left arrow"], ["backspace", "Backspace"]])) +
       row("Type to command line", "Start typing anywhere and it goes into the command line, like Eos.", check("typeToCommand")) +
       row("Page shortcuts", `${cmdKey}+1, 2, 3… go to the pages in the sidebar, in order.`, check("pageKeys"))));
+
+    host.appendChild(panel("keyboard", "prefCmd", "Command Line", "KEYBOARD",
+      row("Preview", "Say what a command will do as you type it.", check("cmdPreview")) +
+      row("History", "How many earlier commands ↑ remembers.", select("cmdHistory", [[50, "50"], [100, "100"], [200, "200"], [500, "500"], [1000, "1000"]]))));
 
     host.appendChild(panel("keyboard", "prefKeys", "Shortcuts", "KEYBOARD",
       `<div class="lx-keys">

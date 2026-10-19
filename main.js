@@ -218,7 +218,7 @@ function buildApplicationMenu() {
       submenu: [
         page('Cue List', 'win:cuelist'), page('Cue Stack', 'win:cues'), page('Console Log', 'win:log'), page('Groups', 'win:groups'), page('Fixtures', 'win:fixtures'),
         page('Control Deck', 'win:control'), page('Palettes', 'win:palettes'), page('Magic Sheet', 'win:magic'), page('Effects', 'win:effects'),
-        page('Chases', 'win:chases'), page('Cue Inspector', 'win:inspector'), page('Patched Fixtures', 'win:patch'), page('Command Reference', 'win:commands'), page('Fixture Info', 'win:fixtureinfo'),
+        page('Chases', 'win:chases'), page('Cue Inspector', 'win:inspector'), page('Patched Fixtures', 'win:patch'), page('Command Reference', 'win:commands'), page('Fixture Info', 'win:fixtureinfo'), page('Focus (Point & Shoot)', 'win:focus'),
         { type: 'separator' },
         page('Put Every Window Back', 'dock'),
         { type: 'separator' },

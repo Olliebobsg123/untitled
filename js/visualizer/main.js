@@ -55,7 +55,7 @@ const VIEWS = {
   top: { position: [0, 21, -3.2], target: [0, 0, -3.4] },
   side: { position: [-8.5, 6, 4], target: [0, 2.8, -4] }
 };
-const DEFAULT_SETTINGS = { house: false, work: false, grid: false, beams: true, haze: 0.55, quality: "auto" };
+const DEFAULT_SETTINGS = { house: false, work: false, grid: false, beams: true, targets: true, haze: 0.55, quality: "auto" };
 
 // --- Renderer and scene -------------------------------------------------
 
@@ -203,7 +203,8 @@ function applySettings() {
   theatre.setHouse(s.house);
   theatre.setWork(s.work);
   theatre.setGrid(s.grid);
-  for (const [id, key] of [["house", "house"], ["work", "work"], ["grid", "grid"], ["beams", "beams"]]) $(id).classList.toggle("on", Boolean(s[key]));
+  for (const [id, key] of [["house", "house"], ["work", "work"], ["grid", "grid"], ["beams", "beams"], ["targets", "targets"]]) $(id).classList.toggle("on", Boolean(s[key]));
+  targetGroup.visible = Boolean(s.targets);
   $("haze").value = String(Math.round(s.haze * 100));
   $("hazeValue").textContent = `${Math.round(s.haze * 100)}%`;
   $("quality").value = s.quality;
@@ -478,6 +479,64 @@ const aimMarker = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.24, 32), new THR
 aimMarker.renderOrder = 11;
 aimMarker.visible = false;
 scene.add(aimMarker);
+// Targets from the console: a ring on the stage where the target is, a thin
+// stalk and the target's name above it. T or the Targets button hides them.
+const targetGroup = new THREE.Group();
+targetGroup.renderOrder = 10;
+scene.add(targetGroup);
+let targetKey = "";
+function targetLabel(text, sub) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512; canvas.height = 128;
+  const g = canvas.getContext("2d");
+  g.font = "800 46px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  const w = Math.min(500, Math.max(g.measureText(text).width, sub ? g.measureText(sub).width * 0.62 : 0) + 44);
+  g.fillStyle = "rgba(14, 10, 26, 0.86)";
+  g.strokeStyle = "rgba(199, 182, 255, 0.9)";
+  g.lineWidth = 4;
+  g.beginPath(); g.roundRect((512 - w) / 2, 6, w, sub ? 116 : 70, 16); g.fill(); g.stroke();
+  g.fillStyle = "#ffffff"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText(text, 256, 42, 480);
+  if (sub) { g.font = "700 28px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"; g.fillStyle = "#c7b6ff"; g.fillText(sub, 256, 92, 480); }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // Same size on screen however far away it is, and not dimmed by the haze.
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true, sizeAttenuation: false, toneMapped: false, fog: false }));
+  sprite.scale.set(0.2, 0.05, 1);
+  sprite.renderOrder = 12;
+  return sprite;
+}
+function showTargets(list) {
+  const key = JSON.stringify(list);
+  if (key === targetKey) return;
+  targetKey = key;
+  for (const child of [...targetGroup.children]) {
+    targetGroup.remove(child);
+    child.traverse(o => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose(); });
+  }
+  for (const t of Array.isArray(list) ? list : []) {
+    if (![t.x, t.y, t.z].every(Number.isFinite)) continue;
+    const marker = new THREE.Group();
+    marker.position.set(t.x, t.y + 0.015, t.z);
+    const colour = t.captured ? 0xffad1f : 0x9b7bff;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.44, 48), new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }));
+    ring.rotation.x = -Math.PI / 2;
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.07, 24), ring.material.clone());
+    dot.rotation.x = -Math.PI / 2;
+    const cross = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.035), ring.material.clone());
+    cross.rotation.x = -Math.PI / 2;
+    const cross2 = cross.clone(); cross2.material = ring.material.clone(); cross2.rotation.z = Math.PI / 2;
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.6, 6), new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false }));
+    stalk.position.y = 0.8;
+    const label = targetLabel(t.name || "Target", t.captured ? `${t.captured} locked` : "");
+    label.position.y = 1.85;
+    marker.add(ring, dot, cross, cross2, stalk, label);
+    marker.userData.target = t.name;
+    targetGroup.add(marker);
+  }
+  wake();
+}
+
 function setAimMode(on) {
   aimMode = Boolean(on);
   $("aimMode").classList.toggle("on", aimMode);
@@ -606,7 +665,7 @@ function toggle(key) {
   wake();
 }
 
-for (const key of ["house", "work", "grid", "beams"]) $(key).addEventListener("click", () => toggle(key));
+for (const key of ["house", "work", "grid", "beams", "targets"]) $(key).addEventListener("click", () => toggle(key));
 $("aimMode").addEventListener("click", () => setAimMode(!aimMode));
 document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
 $("quality").addEventListener("change", () => {
@@ -639,6 +698,7 @@ window.addEventListener("keydown", event => {
   if (event.key === "w") toggle("work");
   if (event.key === "g") toggle("grid");
   if (event.key === "b") toggle("beams");
+  if (event.key === "t") toggle("targets");
   if (event.key === "f" && selected) {
     const model = modelFor(selected);
     if (model) controls.target.copy(model.root.position);
@@ -686,6 +746,9 @@ window.addEventListener("message", event => {
       if (patch.length) rebuild();
       break;
     }
+    case "TARGETS":
+      showTargets(message.targets);
+      break;
     case "AIM_MODE":
       setAimMode(message.on);
       break;

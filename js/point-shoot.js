@@ -119,7 +119,75 @@
     if (!answer) return;
     const result = window.Targets?.create(answer.name.trim() || "Focus point");
     if (result && !result.ok) say(result.message, "warn");
+    if (result?.ok && lastPoint) result.target.point = { ...lastPoint };
+    syncTargets();
   }
+
+  // --------------------------------------------- targets in the visualiser
+
+  // Where a head's beam lands on the stage (or the house floor) for a
+  // pan/tilt, the reverse of AutoCreate.aim.
+  function landing(x, from, st) {
+    const panRange = (Number(x.def?.panRange) || 540) * Math.PI / 180;
+    const tiltRange = (Number(x.def?.tiltRange) || 270) * Math.PI / 180;
+    const word = (c, f) => ((Number(c) || 0) * 256 + (Number(f) || 0)) / 65535;
+    const p = (word(st.pan ?? 128, st.panf) - 0.5) * panRange;
+    const t = (word(st.tilt ?? 128, st.tiltf) - 0.5) * tiltRange;
+    const dir = { x: -Math.sin(p) * Math.sin(t), y: -Math.cos(t), z: -Math.cos(p) * Math.sin(t) };
+    if (dir.y > -0.02) return null; // pointing up or flat: it never lands
+    const origin = { x: from.x, y: from.y - 0.35, z: from.z };
+    const at = height => { const k = (origin.y - height) / -dir.y; return { x: origin.x + dir.x * k, y: height, z: origin.z + dir.z * k }; };
+    // Beams meet at the aim height (face height by default): the target is
+    // the spot on the floor under that.
+    const h = heightOf();
+    const top = at(STAGE.top + h);
+    if (top.z <= 0 && top.z >= -STAGE.depth && Math.abs(top.x) <= STAGE.width / 2) return { ...top, y: STAGE.top };
+    return { ...at(h), y: 0 };
+  }
+  function average(points) {
+    const ok = points.filter(Boolean);
+    if (!ok.length) return null;
+    const sum = ok.reduce((a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }), { x: 0, y: 0, z: 0 });
+    return { x: sum.x / ok.length, y: sum.y / ok.length, z: sum.z / ok.length };
+  }
+  // A target's place on stage. New targets take it from the moving heads
+  // selected when they were made; older ones are worked out from the heads
+  // captured on them (or every head) at the target's pan and tilt.
+  function targetPoint(target, r) {
+    const p = target.point;
+    if (p && [p.x, p.y, p.z].every(Number.isFinite)) return p;
+    const heads = r.all.filter(x => x.moving);
+    const sel = S().selected || new Set();
+    const chosen = heads.filter(x => sel.has(x.fixture.id));
+    let point = null;
+    const fresh = Date.now() - Date.parse(target.createdAt || 0) < 5000; // just made
+    if (chosen.length && fresh) point = average(chosen.map(x => landing(x, r.at.get(x.fixture.id), window.ensureFixtureState?.(x.fixture.id) || {})));
+    if (!point) {
+      const captured = new Set((target.captures || []).map(c => c.fixtureId));
+      const use = captured.size ? heads.filter(x => captured.has(x.fixture.id)) : heads;
+      point = average(use.map(x => r.at.get(x.fixture.id) && landing(x, r.at.get(x.fixture.id), { pan: target.pan, tilt: target.tilt })));
+    }
+    if (point) target.point = { x: +point.x.toFixed(3), y: +point.y.toFixed(3), z: +point.z.toFixed(3) };
+    return target.point || null;
+  }
+
+  let sentKey = "", sentTo = null;
+  function syncTargets() {
+    const viz = window.visualizerWindow;
+    const r = rig();
+    if (!r) return;
+    const list = (S().targets || []).map(t => {
+      const p = targetPoint(t, r);
+      return p && { name: String(t.name || "Target"), x: p.x, y: p.y, z: p.z, captured: (t.captures || []).length };
+    }).filter(Boolean);
+    if (!viz || viz.closed) return;
+    const key = JSON.stringify(list);
+    if (key === sentKey && viz === sentTo) return;
+    sentKey = key; sentTo = viz;
+    try { viz.postMessage({ type: "TARGETS", targets: list }, "*"); } catch (_) {}
+  }
+  setInterval(syncTargets, 500);
+  window.addEventListener("message", e => { if (e.data?.type === "VISUALIZER_READY") { sentKey = ""; setTimeout(syncTargets, 300); } });
 
   // ------------------------------------------------------------ window
 
@@ -270,5 +338,5 @@
   }
   window.addEventListener("load", () => setTimeout(boot, 400));
 
-  window.LXFocus = Object.freeze({ aimAt, open: () => window.LXWindows?.open("focus"), saveAsPalette, saveAsTarget, last: () => lastPoint && { ...lastPoint } });
+  window.LXFocus = Object.freeze({ aimAt, open: () => window.LXWindows?.open("focus"), saveAsPalette, saveAsTarget, last: () => lastPoint && { ...lastPoint }, landing: id => { const r = rig(); const x = r?.all.find(d => d.fixture.id === id); return x && r.at.get(id) ? landing(x, r.at.get(id), window.ensureFixtureState?.(id) || {}) : null; }, syncTargets });
 })();

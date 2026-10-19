@@ -265,7 +265,7 @@
     const menu = document.createElement("div");
     menu.className = "lxw-menu cl-menu";
     const tracked = cue.mode === "track";
-    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-",
+    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["insert", "Insert into Control Deck"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-",
       ["block", "Block cue (stores its whole look)", !tracked], ["mib", "Move in black before this cue", !cue.noMib], "-", ["delete", "Delete…"]];
     menu.innerHTML = `<div class="lxw-menu-label">CUE ${i + 1} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick">${it[2] ? "✓" : ""}</span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
     document.body.appendChild(menu);
@@ -286,6 +286,7 @@
         const r = await window.LXAsk?.(`Rename cue ${n}`, [{ key: "name", label: "Name", value: cue.name || "" }], { ok: "Rename" });
         if (r) window.parseCommand?.(`rename cue ${n} ${r.name.trim() || `Cue ${n}`}`);
       } else if (a === "copy") window.parseCommand?.(`copy cue ${n} to ${S().cues.length + 1}`);
+      else if (a === "insert") window.LXDeck?.insertCue(i);
       else if (a === "block") window.parseCommand?.(`${tracked ? "block" : "track"} cue ${n}`);
       else if (a === "mib") {
         cue.noMib = !cue.noMib;

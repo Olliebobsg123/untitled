@@ -577,8 +577,12 @@ function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs"
  * Preferences → Programming: "Clear goes to" (the live cue, or the old
  * everything-to-0) and how long the fade back takes.
  */
-function clearProgrammer() {
-    const mode = window.LXPrefs?.get("clearMode") || "cue";
+function clearProgrammer(options = {}) {
+    // options.insert = { index, map: Map(id -> {key: value}) }: after
+    // clearing, put that cue's programmed values into the programmer
+    // (Cue Inspector → Insert into Control Deck).
+    const insert = options && options.insert && options.insert.map instanceof Map ? options.insert : null;
+    const mode = insert ? "cue" : window.LXPrefs?.get("clearMode") || "cue";
     const ms = Math.max(0, num(window.LXPrefs?.get("clearFadeMs"), 1000));
     const index = State.currentCue;
     const cue = mode === "cue" && index >= 0 ? State.cues[index] : null;
@@ -603,20 +607,34 @@ function clearProgrammer() {
         target = { globalState: { ...clone(State.current || {}), intensity: 0 }, fixtureMap };
     }
 
+    if (insert) insert.map.forEach((part, id) => target.fixtureMap.set(id, { ...(target.fixtureMap.get(id) || clone(State.fixtureStates.get(id) || {})), ...clone(part) }));
+
     const ids = [...target.fixtureMap.keys()];
     const source = cue
         ? { kind: "cue", label: "Cue " + (index + 1) + " “" + (cue.name || "Cue " + (index + 1)) + "”", detail: "programmer cleared" }
-        : { kind: "manual", label: "Clear", detail: "programmer cleared" };
+        : { kind: "clear", label: "Clear", detail: "programmer cleared" };
     window.LXFixtureInfo?.act(source.kind, source.label, source.detail, ms + 500, ids);
     const keys = new Set();
     target.fixtureMap.forEach(state => Object.keys(state).forEach(k => keys.add(k)));
     window.LXFixtureInfo?.claimKeys(ids, [...keys], source);
+    // The inserted values belong to the programmer; claimed again when the
+    // fade lands, since the fade itself is credited to the cue.
+    const claimInserted = () => {
+        if (!insert) return;
+        const from = State.cues[insert.index];
+        const inserted = { kind: "insert", label: "Cue " + (insert.index + 1) + " “" + (from?.name || "Cue " + (insert.index + 1)) + "”", detail: "inserted into the Control Deck" };
+        insert.map.forEach((part, id) => window.LXFixtureInfo?.claimKeys([id], Object.keys(part), inserted));
+    };
+    claimInserted();
 
     fadeLighting(snapshotCurrentLighting(), target, cue ? ms : 0, () => {
+        claimInserted();
+        setTimeout(claimInserted, 250); // after Fixture Info has seen the last frame
         if (cue) startCueEffectIfNeeded(cue);
         if (typeof window.syncControlsFromSelection === "function") window.syncControlsFromSelection();
     });
     if (typeof window.syncControlsFromSelection === "function") window.syncControlsFromSelection();
+    if (insert) return true;
     cueLog(cue ? "Programmer cleared — back to Cue " + (index + 1) + (ms ? " over " + (ms / 1000) + "s" : "")
         : mode === "cue" ? "Programmer cleared — no cue is live, so everything is at 0" : "Programmer cleared — all fixtures set to 0", "ok");
     return true;

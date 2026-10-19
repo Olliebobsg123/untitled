@@ -41,7 +41,7 @@
   const KINDS = {
     cue: ["PLAYBACK", "#19d6a3"], chase: ["CHASE", "#5ca8ff"], effect: ["EFFECT", "#e24fd0"],
     command: ["COMMAND LINE", "#ffb454"], deck: ["CONTROL DECK", "#ffb454"], palette: ["PALETTE", "#ffb454"],
-    magic: ["MAGIC SHEET", "#ffb454"], focus: ["POINT & SHOOT", "#ffad1f"], mib: ["MOVE IN BLACK", "#9b7bff"], manual: ["MANUAL", "#8c9a97"], start: ["START-UP", "#5d6b68"]
+    magic: ["MAGIC SHEET", "#ffb454"], focus: ["POINT & SHOOT", "#ffad1f"], mib: ["MOVE IN BLACK", "#9b7bff"], insert: ["FROM A CUE", "#ffb454"], clear: ["CLEARED", "#5d6b68"], manual: ["MANUAL", "#8c9a97"], start: ["START-UP", "#5d6b68"]
   };
 
   // ------------------------------------------------------------ tracking
@@ -414,8 +414,8 @@
     if (posLocked) cards.push(card("TARGET", "#ffad1f", `Captured on “${esc(capturedOn.target.name)}”  → locked   nothing else can move it until you release it`, true));
     const mib = window.LXMoveInBlack?.presetFor(f.id);
     if (mib != null) cards.push(card("MOVE IN BLACK", "#9b7bff", `Preset for cue ${mib + 1}  ·  waiting dark until that cue`, own?.kind === "mib"));
-    if (own && !["cue", "chase", "effect", "mib"].includes(own.kind)) {
-      const where = { command: "command line", deck: "control deck", palette: "palette", magic: "magic sheet", focus: "point & shoot", manual: "manual" }[own.kind] || "manual";
+    if (own && !["cue", "chase", "effect", "mib", "clear"].includes(own.kind)) {
+      const where = { command: "command line", deck: "control deck", palette: "palette", magic: "magic sheet", focus: "point & shoot", insert: "inserted from a cue", manual: "manual" }[own.kind] || "manual";
       cards.push(card("PROGRAMMER", "#ffb454", `${esc(own.label)}  → ${esc(view.kind === "channel" ? big : live)}   ${where}`, true));
     }
     if (s.blackout) cards.push(card("OUTPUT", "#ff5265", "Blackout is on  → 0 %", true));
@@ -507,5 +507,5 @@
     for (const id of ids) claim(id, groups, source);
   }
 
-  window.LXFixtureInfo = Object.freeze({ open, act, claim, claimKeys, owners: id => ({ ...(owners.get(id) || {}) }), attrs: ATTRS.map(a => a.id) });
+  window.LXFixtureInfo = Object.freeze({ open, act, claim, claimKeys, owners: id => ({ ...(owners.get(id) || {}) }), attrOf: key => ATTR_OF[key] || key, attrs: ATTRS.map(a => a.id) });
 })();

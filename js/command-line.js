@@ -246,7 +246,7 @@
     // Land any fade still running, or its half-way values become the new ones.
     window.finishFade?.();
     const ms = p.time != null ? p.time : fadeMs();
-    window.LXFixtureInfo?.act("command", `“${p.raw || describe(p)}”`, "typed in the command line", ms + 600);
+    window.LXFixtureInfo?.act("command", `“${p.raw || describe(p)}”`, "typed in the command line", ms + 600, p.remDim ? null : ids);
     const targets = [];
     const cmy = typeof withCMY === "function" ? withCMY : (id, s) => s;
     const clone = s => (typeof window.cloneFixtureState === "function" ? window.cloneFixtureState(s) : { ...s });
@@ -267,6 +267,7 @@
       }
     }
     fadeIds(targets, ms);
+    if (p.words?.length) window.LXFixtureInfo?.claimKeys(ids, Object.keys(p.relative != null ? { ...p.values, intensity: 0 } : p.values), { kind: "command", label: `“${p.raw || describe(p)}”`, detail: "typed in the command line" });
     // Palettes and the Control Deck read the programmer values from here.
     if (p.words?.length) Object.assign(state.current, p.relative != null ? { ...p.values, intensity: targets[0]?.[1]?.intensity ?? state.current.intensity } : p.values);
     const level = p.values?.intensity;

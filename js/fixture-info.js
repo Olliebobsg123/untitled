@@ -35,6 +35,7 @@
     { id: "gobo2", label: "Gobo 2", keys: ["gobo2", "gobo2r"], channels: ["gobo2", "gobo2r"] },
     { id: "prism", label: "Prism", keys: ["prism", "prismr"], channels: ["prism", "prismr"] }
   ];
+  const SKIP_KEYS = new Set(["master"]);
   const ATTR_OF = {};
   ATTRS.forEach(a => a.keys.forEach(k => { ATTR_OF[k] = a.id; }));
   const KINDS = {
@@ -66,9 +67,11 @@
   }
 
   // Someone is about to change things: what they change in the next `ms` is theirs.
-  function act(kind, label, detail = "", ms = 1200) {
-    actor = { kind, label, detail, until: performance.now() + ms };
+  // ids: only these fixtures' changes count (null = whatever changes).
+  function act(kind, label, detail = "", ms = 1200, ids = null) {
+    actor = { kind, label, detail, until: performance.now() + ms, ids: ids ? new Set(ids) : null };
   }
+  const selectedIds = () => [...(S()?.selected || [])];
 
   // Claim attributes outright (a cue owns what it holds even if the value didn't move).
   function claim(id, attrIds, source) {
@@ -99,9 +102,9 @@
       const before = last.get(id);
       if (before) {
         const changed = new Set();
-        for (const k in st) if (ATTR_OF[k] && typeof st[k] === "number" && Math.abs(st[k] - (before[k] ?? st[k])) > 0.01) changed.add(ATTR_OF[k]);
+        for (const k in st) if (!SKIP_KEYS.has(k) && typeof st[k] === "number" && Math.abs(st[k] - (before[k] ?? st[k])) > 0.01) changed.add(ATTR_OF[k] || k);
         if (changed.size) {
-          let source = live;
+          let source = live && (!live.ids || live.ids.has(id)) ? live : null;
           if (!source) {
             const chase = chaseHas(id), effect = effectHas(id);
             if (effect) source = { kind: "effect", label: `Effect “${effect.name || effect.type}”`, detail: `${effect.type} · speed ${effect.speed}` };
@@ -130,7 +133,7 @@
         if (result && cue && typeof window.getCueTarget === "function") {
           try {
             const { fixtureMap } = window.getCueTarget(cue);
-            fixtureMap.forEach((state, id) => claim(id, [...new Set(Object.keys(state).map(k => ATTR_OF[k]).filter(Boolean))], source));
+            fixtureMap.forEach((state, id) => claim(id, [...new Set(Object.keys(state).filter(k => !SKIP_KEYS.has(k)).map(k => ATTR_OF[k] || k))], source));
           } catch (_) {}
         }
         return result;
@@ -152,17 +155,17 @@
     announce("stopEffect", () => S().activeEffect && { kind: "effect", label: `Effect “${S().activeEffect.name || S().activeEffect.type}” stopped`, detail: "" });
     if (window.Palettes?.apply && !window.Palettes.apply.__lxInfo) {
       const original = window.Palettes.apply;
-      const wrapped = function (name) { act("palette", `Palette “${name}”`, "", Number(window.LXPrefs?.get("paletteFadeMs") ?? 300) + 500); return original.apply(this, arguments); };
+      const wrapped = function (name) { act("palette", `Palette “${name}”`, "", Number(window.LXPrefs?.get("paletteFadeMs") ?? 300) + 500, selectedIds()); return original.apply(this, arguments); };
       wrapped.__lxInfo = true;
       try { window.Palettes.apply = wrapped; } catch (_) {}
     }
   }
 
   document.addEventListener("pointerdown", e => {
-    if (e.target.closest?.("#controlPanel")) act("deck", "Control Deck", "a slider or button you moved", 2000);
-    else if (e.target.closest?.(".magic-tools")) act("magic", "Magic Sheet", "Full / 50% / Out buttons", 1500);
+    if (e.target.closest?.("#controlPanel")) act("deck", "Control Deck", "a slider or button you moved", 2000, selectedIds());
+    else if (e.target.closest?.(".magic-tools")) act("magic", "Magic Sheet", "Full / 50% / Out buttons", 1500, selectedIds());
   }, true);
-  document.addEventListener("input", e => { if (e.target.closest?.("#controlPanel")) act("deck", "Control Deck", "a slider or button you moved", 1500); }, true);
+  document.addEventListener("input", e => { if (e.target.closest?.("#controlPanel")) act("deck", "Control Deck", "a slider or button you moved", 1500, selectedIds()); }, true);
 
   // ------------------------------------------------------------ values
 
@@ -171,7 +174,7 @@
     if (attrId === "intensity") return `${Math.round(Number(st.intensity) || 0)} %`;
     if (attrId === "colour") return Number(st.sat) > 0 ? `hue ${Math.round(st.hue)}° sat ${Math.round(st.sat)}%` : "white";
     const a = ATTRS.find(x => x.id === attrId);
-    return String(clamp255(st[a.keys[0]]));
+    return String(clamp255(st[a ? a.keys[0] : attrId]));
   }
 
   function channelsOf(f, attr) {
@@ -187,7 +190,89 @@
     return out;
   }
 
-  const attrsFor = f => ATTRS.filter(a => channelsOf(f, a).length || a.id === "intensity");
+  // ------------------------------------------------------------- views
+  //
+  // Every row the window can show for a fixture: the attribute groups
+  // above (who owns them), each DMX channel the fixture has, and things
+  // worked out from elsewhere (target, hang position, beam angle…).
+
+  const LABELS = {
+    dimmer: "Dimmer", intensity: "Intensity", dimmerFine: "Dimmer fine",
+    r: "Red", g: "Green", b: "Blue", w: "White", amber: "Amber", lime: "Lime", uv: "UV",
+    cyan: "Cyan", magenta: "Magenta", yellow: "Yellow", warmWhite: "Warm white", coolWhite: "Cool white", naturalWhite: "Natural white",
+    cto: "CTO", cct: "Colour temp", colour: "Colour wheel", colourr: "Colour wheel spin", colmacro: "Colour macro", colorPreset: "Colour preset",
+    presetColors: "Preset colours", colorMacros: "Colour macros", a: "Amber", l: "Lime", c: "Cyan",
+    rFine: "Red fine", gFine: "Green fine", bFine: "Blue fine", aFine: "Amber fine", lFine: "Lime fine", amberFine: "Amber fine", limeFine: "Lime fine",
+    cyanFine: "Cyan fine", magentaFine: "Magenta fine", warmWhiteFine: "Warm white fine", naturalWhiteFine: "Natural white fine",
+    pan: "Pan", tilt: "Tilt", panf: "Pan fine", tiltf: "Tilt fine",
+    zoom: "Zoom", focus: "Focus", iris: "Iris", frost: "Frost", fresnel: "Fresnel",
+    strobe: "Strobe", shutter: "Shutter",
+    gobo: "Gobo", gobor: "Gobo spin", gobo2: "Gobo 2", gobo2r: "Gobo 2 spin", prism: "Prism", prismr: "Prism spin", rot: "Rotation", shake: "Shake",
+    effect: "Effect", effectSpeed: "Effect speed", speed: "Speed", autoSpeed: "Auto speed", dimmerSpeed: "Dimmer speed", macro: "Macro", macroSpeed: "Macro speed",
+    mode: "Mode", control: "Control", auto: "Auto", preset: "Preset", performance: "Performance", zone: "Zone",
+    fog: "Fog", haze: "Haze", fana: "Fan", fluid: "Fluid"
+  };
+  const SECTION_OF = key =>
+    /^(dimmer|intensity|dimmerFine)$/.test(key) ? "INTENSITY"
+    : /^(r|g|b|w|a|l|c|amber|lime|uv|cyan|magenta|yellow|warmWhite|coolWhite|naturalWhite|cto|cct|colour|colourr|colmacro|colorPreset|presetColors|colorMacros)(Fine)?$/.test(key) ? "COLOUR"
+    : /^(pan|tilt|panf|tiltf)$/.test(key) ? "POSITION"
+    : /^(zoom|focus|iris|frost|fresnel)$/.test(key) || /^shutter\d/.test(key) ? "BEAM"
+    : /^(strobe|shutter)$/.test(key) ? "SHUTTER"
+    : /^(gobo|gobor|gobo2|gobo2r|prism|prismr|rot|shake|effect|effectSpeed|speed|macro|macroSpeed|autoSpeed|dimmerSpeed)$/.test(key) ? "GOBO & EFFECTS"
+    : "OTHER";
+  // Which owner group a channel belongs to (colour channels follow the colour).
+  const GROUP_OF = key => (SECTION_OF(key) === "COLOUR" ? "colour" : { dimmer: "intensity", intensity: "intensity", dimmerFine: "intensity", panf: "pan", tiltf: "tilt", gobor: "gobo", gobo2r: "gobo2", prismr: "prism", shutter: "strobe" }[key] || ATTR_OF[key] || key);
+  const SECTIONS = ["INTENSITY", "COLOUR", "POSITION", "BEAM", "SHUTTER", "GOBO & EFFECTS", "OTHER"];
+  const nice = key => LABELS[key] || key.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
+  const deg = v => `${Math.round(Number(v) || 0)}°`;
+
+  function viewsFor(f) {
+    const map = defOf(f).map || {};
+    const views = [];
+    const add = v => { if (!views.some(x => x.id === v.id)) views.push(v); };
+    const stateView = (id, label, section, group, show) => add({ id, label, section, group, kind: "state", show });
+    stateView("intensity", "Intensity", "INTENSITY", "intensity", st => `${Math.round(Number(st.intensity) || 0)} %`);
+    const hasColour = Object.keys(map).some(k => SECTION_OF(k) === "COLOUR");
+    if (hasColour) {
+      stateView("colour", "Colour", "COLOUR", "colour", st => summary("colour", st));
+      if (["r", "g", "b"].every(k => typeof map[k] === "number") || ["cyan", "magenta", "yellow"].some(k => typeof map[k] === "number")) {
+        stateView("hue", "Hue", "COLOUR", "colour", st => deg(st.hue));
+        stateView("sat", "Saturation", "COLOUR", "colour", st => `${Math.round(Number(st.sat) || 0)} %`);
+      }
+    }
+    if (typeof map.pan === "number" || typeof map.tilt === "number") {
+      add({ id: "target", label: "Target", section: "POSITION", group: "pan", kind: "derived", show: (st) => st.__targetPositionLock?.targetName ? `“${st.__targetPositionLock.targetName}” (captured)` : "None" });
+      if (typeof map.pan === "number") stateView("pan", "Pan", "POSITION", "pan", st => `${clamp255(st.pan)}`);
+      if (typeof map.tilt === "number") stateView("tilt", "Tilt", "POSITION", "tilt", st => `${clamp255(st.tilt)}`);
+    }
+    add({ id: "hang", label: "Hangs at", section: "POSITION", group: null, kind: "derived", show: () => { const p = S().visualizer?.positions?.[f.id]; return p ? `x ${(+p.x).toFixed(1)} · y ${(+p.y).toFixed(1)} · z ${(+p.z).toFixed(1)} m` : "Not placed in the visualiser"; } });
+    // One row per DMX channel the fixture has (the intensity/dimmer pair once).
+    const seen = new Set();
+    Object.entries(map).filter(([, off]) => typeof off === "number").sort((a, b) => a[1] - b[1]).forEach(([key, off]) => {
+      if (seen.has(off)) return;
+      seen.add(off);
+      if (/^(hue|sat)$/.test(key)) return;
+      if ((key === "pan" || key === "tilt") && views.some(v => v.id === key)) return; // already a row
+      add({ id: `ch:${key}`, label: key === "intensity" || key === "dimmer" ? "Dimmer channel" : nice(key), section: SECTION_OF(key), group: GROUP_OF(key), kind: "channel", key, off });
+    });
+    const ph = defOf(f).photometrics || {};
+    if (!/fog|haze|mirror/i.test(f.name)) {
+      add({ id: "beam", label: "Beam angle", section: "BEAM", group: null, kind: "derived", show: () => f.beamAngle != null ? `${f.beamAngle}° (set)` : ph.beamAngle ? `${ph.beamAngle}° (library)` : ph.beamAngleMin ? `${ph.beamAngleMin}–${ph.beamAngleMax}° (zoom)` : "Not known" });
+      add({ id: "edge", label: "Edge", section: "BEAM", group: null, kind: "derived", show: () => (f.edge == null ? "Auto" : `${Math.round(f.edge * 100)}% soft`) });
+    }
+    if (Array.isArray(f.manualShutters) && f.manualShutters.some(v => Number(v) > 0)) add({ id: "barn", label: "Barn doors", section: "BEAM", group: null, kind: "derived", show: () => f.manualShutters.map(v => `${Math.round(v)}%`).join(" · ") });
+    return views.sort((a, b) => SECTIONS.indexOf(a.section) - SECTIONS.indexOf(b.section));
+  }
+
+  function dmxOf(f, off) {
+    const base = (Number(f.uni) - 1) * 512 + (Number(f.addr) - 1);
+    return S().dmx?.[base + off] ?? 0;
+  }
+
+  function showView(v, f, st) {
+    if (v.kind === "channel") { const d = dmxOf(f, v.off); return `${d} · ${Math.round(d / 2.55)}%`; }
+    return v.show(st);
+  }
 
   // -------------------------------------------------------------- window
   //
@@ -195,7 +280,7 @@
   // text that changed is touched, so nothing under the mouse flickers and
   // a click never lands on a button that's being replaced.
 
-  let body = null, fixtureId = null, attrId = "intensity", timer = null, follow = false;
+  let body = null, fixtureId = null, attrId = "intensity", timer = null, follow = false, currentGroup = null;
   const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const ago = t => { const s = Math.round((Date.now() - t) / 1000); return s < 5 ? "just now" : s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
   const sortedFixtures = () => (S().fixtures || []).filter(Boolean).slice().sort((a, b) => Number(a.fixtureNumber) - Number(b.fixtureNumber));
@@ -285,10 +370,11 @@
     if (!cue || typeof window.getCueTarget !== "function") return window.log?.("No cue is running to go back to", "warn");
     const target = window.getCueTarget(cue).fixtureMap.get(f.id);
     if (!target) return window.log?.(`Cue ${s.currentCue + 1} doesn't hold fixture ${f.fixtureNumber}`, "warn");
-    const attr = ATTRS.find(a => a.id === attrId);
+    const attr = currentGroup;
+    if (!attr) return window.log?.("Cues don't change this — it belongs to the fixture", "warn");
     const next = { ...window.ensureFixtureState(f.id) };
     attr.keys.forEach(k => { if (k in target) next[k] = target[k]; });
-    act("cue", `Cue ${s.currentCue + 1} “${cue.name || ""}”`, "put back from the Fixture Info window", 900);
+    act("cue", `Cue ${s.currentCue + 1} “${cue.name || ""}”`, "put back from the Fixture Info window", 900, [f.id]);
     window.finishFade?.();
     window.fadeTo?.({}, 400, [[f.id, next]]);
     window.log?.(`Fixture ${f.fixtureNumber} ${attr.label.toLowerCase()} back to cue ${s.currentCue + 1}`, "ok");
@@ -321,9 +407,12 @@
     if (!f) return;
     if (fSel.value !== String(f.id) && document.activeElement !== fSel) fSel.value = String(f.id);
 
-    const attrs = attrsFor(f);
-    if (!attrs.some(a => a.id === attrId)) attrId = "intensity";
-    const attr = ATTRS.find(a => a.id === attrId);
+    const views = viewsFor(f);
+    if (!views.some(v => v.id === attrId)) attrId = "intensity";
+    const view = views.find(v => v.id === attrId);
+    // The owner group behind the chosen row (colour channels → Colour, …).
+    const attr = view.group ? ATTRS.find(a => a.id === view.group) || { id: view.group, label: view.label, keys: [view.group], channels: [] } : null;
+    currentGroup = attr;
     const st = window.ensureFixtureState?.(f.id) || {};
     const def = defOf(f);
     const k = name => main.querySelector(`[data-k="${name}"]`);
@@ -333,58 +422,74 @@
     setHTML(main.querySelector(".fi-title"), `<b>${esc(f.fixtureNumber)}</b> ${esc(f.name)}`);
     setText(main.querySelector(".fi-sub"), `${def.type ? String(def.type).toUpperCase() : "FIXTURE"} · Univ ${f.uni} · Addr ${f.addr}${def.channels ? `–${Number(f.addr) + Number(def.channels) - 1}` : ""}${groups.length ? ` · ${groups.join(", ")}` : ""}`);
 
-    // Overview: one row per attribute, rows built once per fixture, cells patched.
+    // Overview: every attribute and channel in sections; rows built once per
+    // fixture, cells patched.
     const ov = main.querySelector(".fi-overview");
-    const ovKey = `${f.id}:${attrs.map(a => a.id).join(",")}`;
+    const ovKey = `${f.id}:${views.map(v => v.id).join(",")}`;
     if (ov.dataset.key !== ovKey) {
-      ov.innerHTML = attrs.map(a => `<div class="fi-row" data-attr="${a.id}"><span>${a.label}</span><b></b><em></em></div>`).join("");
+      ov.innerHTML = SECTIONS.filter(sec => views.some(v => v.section === sec)).map(sec => `<div class="fi-sec">${sec}</div>` + views.filter(v => v.section === sec).map(v => `<div class="fi-row${v.kind === "channel" ? " ch" : ""}" data-attr="${esc(v.id)}"><span>${esc(v.label)}</span><b></b><em></em></div>`).join("")).join("");
       ov.dataset.key = ovKey;
+      ov.__rows = new Map([...ov.querySelectorAll(".fi-row")].map(r => [r.dataset.attr, r]));
     }
     const own = owners.get(f.id) || {};
-    attrs.forEach(a => {
-      const row = ov.querySelector(`[data-attr="${a.id}"]`);
-      row.classList.toggle("on", a.id === attrId);
-      setText(row.children[1], summary(a.id, st));
-      const o = own[a.id];
-      setText(row.children[2], o ? o.label : "—");
+    views.forEach(v => {
+      const row = ov.__rows.get(v.id);
+      if (!row) return;
+      row.classList.toggle("on", v.id === attrId);
+      setText(row.children[1], showView(v, f, st));
+      const o = v.group ? own[v.group] : null;
+      setText(row.children[2], o ? o.label : v.group ? "—" : "patch");
       row.children[2].style.color = o ? (KINDS[o.kind] || KINDS.manual)[1] : "";
     });
 
-    // The chosen attribute, big.
-    const chans = channelsOf(f, attr);
-    setText(k("attr"), attr.label.toUpperCase());
+    // The chosen row, big.
+    const chans = view.kind === "channel" ? [{ key: view.key, ch: Number(f.addr) + view.off, value: dmxOf(f, view.off) }] : attr && ATTRS.some(a => a.id === attr.id) ? channelsOf(f, attr) : [];
+    setText(k("attr"), view.label.toUpperCase());
     const fading = s.fading != null;
     setText(k("state"), fading ? "FADING" : "STEADY");
     k("state").classList.toggle("on", fading);
     let big, bar = null, swatch = null;
-    if (attr.id === "intensity") { const v = Math.round(Number(st.intensity) || 0); big = `${v} %`; bar = v / 100; }
-    else if (attr.id === "colour") {
+    const TINT = { r: "255,48,48", g: "48,255,96", b: "58,107,255", w: "255,255,255", amber: "255,176,0", a: "255,176,0", lime: "198,255,0", l: "198,255,0", uv: "122,60,255", cyan: "0,229,255", c: "0,229,255", magenta: "255,43,214", yellow: "255,230,0", warmWhite: "255,214,160", coolWhite: "220,235,255", naturalWhite: "255,244,229" };
+    if (view.kind === "channel") {
+      const d = dmxOf(f, view.off); big = `${d}  ·  ${Math.round(d / 2.55)} %`; bar = d / 255;
+      const tint = TINT[view.key.replace(/Fine$/, "")];
+      if (tint) swatch = `rgba(${tint},${(0.15 + 0.85 * d / 255).toFixed(2)})`;
+    } else if (view.kind === "derived") { big = view.show(st); }
+    else if (view.id === "hue") { big = deg(st.hue); swatch = `hsl(${st.hue || 0} 100% 50%)`; }
+    else if (view.id === "sat") { const v = Math.round(Number(st.sat) || 0); big = `${v} %`; bar = v / 100; swatch = `hsl(${st.hue || 0} ${v}% ${100 - v / 2}%)`; }
+    else if (view.id === "intensity") { const v = Math.round(Number(st.intensity) || 0); big = `${v} %`; bar = v / 100; }
+    else if (view.id === "colour") {
       const rgb = chans.filter(c => ["r", "g", "b"].includes(c.key));
       swatch = rgb.length === 3 ? `rgb(${rgb.map(c => c.value).join(",")})` : `hsl(${st.hue || 0} ${st.sat || 0}% ${Math.max(30, Math.min(80, st.light ?? 50))}%)`;
       big = Number(st.sat) > 0 ? `${Math.round(st.hue)}°  ${Math.round(st.sat)}%` : "White";
-    } else { const v = clamp255(st[attr.keys[0]]); big = `${v}`; bar = v / 255; }
+    } else { const v = clamp255(st[attr.keys[0]]); big = `${v}  ·  ${Math.round(v / 2.55)} %`; bar = v / 255; }
     setText(k("big"), big);
+    k("big").parentElement.classList.toggle("small", view.kind === "derived");
     k("swatch").hidden = !swatch;
     if (swatch && k("swatch").style.background !== swatch) k("swatch").style.background = swatch;
     k("bar").parentElement.hidden = bar == null;
     if (bar != null) { const w = `${Math.round(bar * 100)}%`; if (k("bar").style.width !== w) k("bar").style.width = w; }
-    setHTML(k("dmx"), chans.length ? chans.map(c => `<span>ch ${c.ch} <em>${c.key}</em> = <b>${c.value}</b></span>`).join("") : "No DMX channel for this on this fixture");
+    setHTML(k("dmx"), chans.length ? chans.map(c => `<span>ch ${c.ch} <em>${esc(nice(c.key))}</em> = <b>${c.value}</b></span>`).join("") : view.kind === "derived" ? "Not a DMX channel — this comes from the patch or the visualiser" : "No DMX channel for this on this fixture");
 
     // Controlled by.
-    const owner = own[attr.id], effect = effectHas(f.id), chase = chaseHas(f.id);
+    const owner = attr ? own[attr.id] : null, effect = effectHas(f.id), chase = chaseHas(f.id);
     const cards = [];
     if (owner) {
       const [kind, colour] = KINDS[owner.kind] || KINDS.manual;
       cards.push(card(kind, colour, esc(owner.label), `${esc(owner.detail || "")}${owner.detail ? " · " : ""}set ${ago(owner.at)}`));
-    } else cards.push(card("NOT CHANGED", "#5d6b68", "Still at its start-up value", "Nothing has set this since Light Spark opened (or the show loaded)."));
+    } else if (!attr) cards.push(card("PATCH", "#5d6b68", "Set in the patch or the visualiser", "Change it on the Patch page, the Control Deck's Beam tab or in the visualiser."));
+    else cards.push(card("NOT CHANGED", "#5d6b68", "Still at its start-up value", "Nothing has set this since Light Spark opened (or the show loaded)."));
+    if (view.id === "target" && st.__targetPositionLock) cards.push(card("TARGET", "#5ca8ff", `Captured on target “${esc(st.__targetPositionLock.targetName)}”`, "Pan and tilt are locked here until the target is released (target release)."));
+    if (attr && view.id !== attr.id && view.group) cards.push(card("PART OF", "#5d6b68", `${esc(view.label)} is set through ${esc(attr.label)}`, attr.id === "colour" ? "The colour you pick (hue and saturation) is mixed into these channels." : "It moves with the main attribute."));
     if (effect && owner?.kind !== "effect") cards.push(card("EFFECT", KINDS.effect[1], `Effect “${esc(effect.name || effect.type)}” is running on this fixture`, "It may change this attribute as it runs."));
     if (chase && owner?.kind !== "chase") cards.push(card("CHASE", KINDS.chase[1], `Chase ${s.currentChase + 1} “${esc(chase.name || "Chase")}” is running on this fixture`, "Its next step may change this attribute."));
     setHTML(k("cards"), cards.join(""));
 
     // Cues: what the running cue holds against what's live, and what's next.
-    const live = summary(attr.id, st);
+    const live = attr ? summary(attr.id, st) : "";
     const cueRows = [];
-    if (s.currentCue >= 0 && s.cues?.[s.currentCue]) {
+    if (!attr) cueRows.push(["info", "Cues don't change this — it belongs to the fixture."]);
+    else if (s.currentCue >= 0 && s.cues?.[s.currentCue]) {
       const held = cueValue(s.currentCue, f, attr);
       const name = s.cues[s.currentCue].name || `Cue ${s.currentCue + 1}`;
       if (held == null) cueRows.push(["info", `Cue ${s.currentCue + 1} “${name}” (running) doesn't hold this fixture.`]);
@@ -393,7 +498,7 @@
     } else cueRows.push(["info", "No cue running."]);
     let nextIndex = window.LXCueList ? window.LXCueList.next() : (s.currentCue ?? -1) + 1;
     while (!window.LXCueList && nextIndex < (s.cues?.length || 0) && !s.cues[nextIndex]) nextIndex++;
-    if (s.cues?.[nextIndex]) {
+    if (attr && s.cues?.[nextIndex]) {
       const held = cueValue(nextIndex, f, attr);
       const name = s.cues[nextIndex].name || `Cue ${nextIndex + 1}`;
       cueRows.push(["next", held == null ? `Next: cue ${nextIndex + 1} “${name}” doesn't hold this fixture.` : held === live ? `Next: cue ${nextIndex + 1} “${name}” keeps it at ${held}.` : `Next: cue ${nextIndex + 1} “${name}” takes it to ${held}.`]);
@@ -406,19 +511,19 @@
     if (s.blackout) out.push(["warn", "Blackout is ON — the output is 0 whatever the value above says."]);
     if (blind) out.push(["warn", "BLIND — you're editing without changing the stage; the stage holds its last look."]);
     if (document.documentElement.classList.contains("emergency-active")) out.push(["warn", "Emergency mode is on."]);
-    if (attr.id !== "intensity" && Number(st.intensity) <= 0) out.push(["info", "The fixture's intensity is 0, so you won't see this on stage."]);
-    if (!out.length) out.push(["ok", attr.id === "intensity" ? "No blackout · Live — it goes out as it is." : "Live — it goes out as it is."]);
+    if (attr && attr.id !== "intensity" && Number(st.intensity) <= 0) out.push(["info", "The fixture's intensity is 0, so you won't see this on stage."]);
+    if (!out.length) out.push(["ok", attr?.id === "intensity" ? "No blackout · Live — it goes out as it is." : "Live — it goes out as it is."]);
     setHTML(k("out"), out.map(([lvl, t]) => `<div class="fi-out ${lvl}">${esc(t)}</div>`).join(""));
 
     // History.
-    const hist = history.get(f.id)?.[attr.id] || [];
+    const hist = attr ? history.get(f.id)?.[attr.id] || [] : [];
     k("histhead").hidden = !hist.length;
     setHTML(k("hist"), hist.map(h => `<div><span>${ago(h.at)}</span><b style="color:${(KINDS[h.kind] || KINDS.manual)[1]}">${esc(h.label)}</b><em>${esc(h.value)}</em></div>`).join(""));
 
     // Buttons stay put; only their wording and state change.
     const restore = main.querySelector('[data-fi-act="restore"]');
-    setText(restore, `Put ${attr.label.toLowerCase()} back to the cue`);
-    restore.disabled = !(s.currentCue >= 0);
+    setText(restore, attr ? `Put ${attr.label.toLowerCase()} back to the cue` : "Put back to the cue");
+    restore.disabled = !(s.currentCue >= 0) || !attr;
   }
 
   function card(kind, colour, title, detail) {
@@ -456,7 +561,10 @@
       .fi-title b{margin-right:6px}
       .fi-sub{margin-top:3px;color:#7d8b88;font-family:var(--mono);font-size:10px}
       .fi-overview{margin:0 10px;display:flex;flex-direction:column;gap:1px;border:1px solid var(--border);border-radius:4px;overflow:hidden}
-      .fi-row{display:grid;grid-template-columns:76px 112px minmax(0,1fr);gap:8px;align-items:center;height:23px;padding:0 8px;background:#0d1418;font-size:10.5px;cursor:pointer}
+      .fi-sec{padding:6px 8px 3px;background:#0a1013;color:#5d6b68;font-size:8.5px;font-weight:900;letter-spacing:1.3px}
+      .fi-row.ch span{padding-left:8px;font-weight:600;color:#8c9a97}
+      .fi-value.small .fi-big{font-size:17px}
+      .fi-row{display:grid;grid-template-columns:118px 108px minmax(0,1fr);gap:8px;align-items:center;height:23px;padding:0 8px;background:#0d1418;font-size:10.5px;cursor:pointer}
       .fi-row:hover{background:#142026}
       .fi-row.on{background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}
       .fi-row span{color:#9aa7a4;font-weight:700}
@@ -520,5 +628,12 @@
   setInterval(watch, 100);
   window.addEventListener("load", () => setTimeout(boot, 300));
 
-  window.LXFixtureInfo = Object.freeze({ open, act, claim, owners: id => ({ ...(owners.get(id) || {}) }), attrs: ATTRS.map(a => a.id) });
+  // Claim by state key (intensity, hue, pan…) — for things that set a value
+  // even when it doesn't change (e.g. "1 red" on a light that's already red).
+  function claimKeys(ids, keys, source) {
+    const groups = [...new Set(keys.filter(k => !SKIP_KEYS.has(k)).map(k => ATTR_OF[k] || k))];
+    for (const id of ids) claim(id, groups, source);
+  }
+
+  window.LXFixtureInfo = Object.freeze({ open, act, claim, claimKeys, owners: id => ({ ...(owners.get(id) || {}) }), attrs: ATTRS.map(a => a.id) });
 })();

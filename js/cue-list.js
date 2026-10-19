@@ -115,6 +115,7 @@
         <div class="cl-foot">
           <button type="button" class="btn-secondary" data-cl="record">＋ Record next cue</button>
           <button type="button" class="btn-secondary" data-cl="update" title="Save the stage into the live cue">Update live cue</button>
+          <button type="button" class="btn-secondary" data-cl="clear" title="Drop everything set by hand and go back to the live cue">⨯ Clear programmer</button>
           <span>Click a cue to make it next · double-click to edit · drag to move · right-click for more</span>
         </div>
       </div>`;
@@ -124,6 +125,7 @@
         const a = b.dataset.cl;
         if (a === "go") window.parseCommand?.("go");
         else if (a === "back") window.parseCommand?.("back");
+        else if (a === "clear") window.parseCommand?.("clear programmer");
         else if (a === "record") document.getElementById("btnRecordCue")?.click();
         else if (a === "update") { const s = S(); if (s.currentCue >= 0) window.parseCommand?.(`update cue ${s.currentCue + 1}`); else window.log?.("No cue is live to update", "warn"); }
         return;

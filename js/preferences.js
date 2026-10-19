@@ -49,6 +49,8 @@
     commandFadeMs: 300,        // fade for levels typed in the command line
     chaseSpeedStart: 50,
     confirmUnpatch: true,
+    clearMode: "cue",          // Clear programmer: cue (back to the live cue) | dark (everything to 0)
+    clearFadeMs: 1000,
     // Tracking
     recordMode: "track",       // track (store only changes, like Eos) | block (store the whole look)
     trackMode: "track",        // re-recording a cue: track (changes carry on) | cueonly (later cues stay as they were)
@@ -331,6 +333,11 @@
       row("Ask when saving a cue", "Ask for a name, fade and follow time when you press Save. Off: saves straight away with the default fade.", check("askCueDetails")) +
       row("Palette fade", "How long applying a palette takes.", number("paletteFadeMs", 0, 30, 0.1, "s", 1000)) +
       row("Command line fade", "How long a level typed in the command line takes, unless you add time (e.g. 1 thru 5 @ 50 time 3).", number("commandFadeMs", 0, 30, 0.1, "s", 1000))));
+
+    host.appendChild(panel("programming", "prefClear", "Clear Programmer", "PROGRAMMING",
+      row("Clear goes to", "The live cue: everything you set by hand is dropped and the lights go back to what the cue says. Everything to 0: the old blank slate.", seg("clearMode", [["cue", "The live cue"], ["dark", "Everything to 0"]])) +
+      row("Fade back", "How long the lights take to go back to the cue.", number("clearFadeMs", 0, 30, 0.1, "s", 1000)) +
+      `<div class="lx-pref-note">⨯ Clear in the cue stack, ⨯ Clear programmer in the Cue List, the Light Spark menu, or type <b>clear programmer</b>. Captured targets stay captured — release them to move them.</div>`));
 
     host.appendChild(panel("programming", "prefTracking", "Tracking", "PROGRAMMING",
       row("New cues", "Tracked cues store only what changed — everything else carries on from the cues before, like Eos. Block cues store the whole look.", seg("recordMode", [["track", "Tracked"], ["block", "Whole look (block)"]])) +

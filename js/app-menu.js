@@ -31,6 +31,7 @@
       case "save-as": return window.LXShowCommands?.saveAs();
       case "open": return window.LXShowCommands?.open ? window.LXShowCommands.open() : click("btnLoadShow");
       case "autosave": return window.LXPrefs?.autosave().then(r => window.log?.(r ? `Autosaved to ${r.path}` : "Nothing new to autosave", r ? "ok" : "info"));
+      case "clear": return window.parseCommand?.("clear programmer");
       case "new-page": return window.LXCustomPages?.create();
       case "page": return document.querySelector(`.nav-link[data-page="${arg}"]`)?.click();
       case "win": return window.LXWindows?.open(arg);
@@ -70,6 +71,7 @@
       ["open", "Open Show…", key("O")],
       ["autosave", "Autosave Now", ""],
       "-",
+      ["clear", "Clear Programmer", ""],
       ["new-page", "New Page…", ""],
       ["viz", "3D Visualiser", ""],
       "-",

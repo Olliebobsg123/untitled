@@ -241,7 +241,7 @@
       }
     }
     if (typeof map.pan === "number" || typeof map.tilt === "number") {
-      add({ id: "target", label: "Target", section: "POSITION", group: "pan", kind: "derived", show: (st) => st.__targetPositionLock?.targetName ? `“${st.__targetPositionLock.targetName}” (captured)` : "None" });
+      add({ id: "target", label: "Target", section: "POSITION", group: "pan", kind: "derived", show: (st, f) => { const l = window.Targets?.lockOf?.(f?.id); const name = l?.target?.name || st.__targetPositionLock?.targetName; return name ? `“${name}” (captured)` : "None"; } });
       if (typeof map.pan === "number") stateView("pan", "Pan", "POSITION", "pan", st => `${clamp255(st.pan)}`);
       if (typeof map.tilt === "number") stateView("tilt", "Tilt", "POSITION", "tilt", st => `${clamp255(st.tilt)}`);
     }
@@ -271,7 +271,7 @@
 
   function showView(v, f, st) {
     if (v.kind === "channel") { const d = dmxOf(f, v.off); return `${d} · ${Math.round(d / 2.55)}%`; }
-    return v.show(st);
+    return v.show(st, f);
   }
 
   // -------------------------------------------------------------- window
@@ -377,7 +377,7 @@
       const d = dmxOf(f, view.off); big = `${Math.round(d / 2.55)} %`; bar = d / 255;
       const tint = TINT[view.key.replace(/Fine$/, "")];
       if (tint) swatch = `rgba(${tint},${(0.15 + 0.85 * d / 255).toFixed(2)})`;
-    } else if (view.kind === "derived") big = view.show(st);
+    } else if (view.kind === "derived") big = view.show(st, f);
     else if (view.id === "hue") { big = deg(st.hue); swatch = `hsl(${st.hue || 0} 100% 50%)`; }
     else if (view.id === "sat" || view.id === "intensity") { const v = Math.round(Number(st[view.id]) || 0); big = `${v} %`; bar = v / 100; }
     else if (view.id === "colour") {
@@ -398,9 +398,11 @@
     const live = attr ? summary(attr.id, st) : "";
     const cards = [];
     const cue = s.currentCue >= 0 ? s.cues?.[s.currentCue] : null;
+    const capturedOn = window.Targets?.lockOf?.(f.id);
+    const posLocked = Boolean(capturedOn && attr && (attr.id === "pan" || attr.id === "tilt"));
     const held = cue ? cueValue(s.currentCue, f, attr) : null;
     if (held != null) {
-      const inControl = own?.kind === "cue" || (!own && held === live);
+      const inControl = !posLocked && (own?.kind === "cue" || (!own && held === live));
       const srcs = window.LXTracking && cue.mode === "track" ? attr.keys.map(key => window.LXTracking.sourceOf(s.currentCue, f.id, key)).filter(i => i >= 0) : [];
       const from = srcs.length ? Math.max(...srcs) : s.currentCue;
       const how = from === s.currentCue ? (cue.mode === "track" ? "moved in this cue" : "LTP set") : `tracked from cue ${from + 1}`;
@@ -409,6 +411,7 @@
     const effect = effectHas(f.id), chase = chaseHas(f.id);
     if (chase) cards.push(card("EXECUTOR", "#5ca8ff", `Chase ${s.currentChase + 1} “${esc(chase.name || "Chase")}”   running   speed ${chase.speed ?? 50} %`, own?.kind === "chase"));
     if (effect) cards.push(card("EXECUTOR", "#e24fd0", `Effect “${esc(effect.name || effect.type)}”   ${esc(effect.type)}   running`, own?.kind === "effect"));
+    if (posLocked) cards.push(card("TARGET", "#ffad1f", `Captured on “${esc(capturedOn.target.name)}”  → locked   nothing else can move it until you release it`, true));
     const mib = window.LXMoveInBlack?.presetFor(f.id);
     if (mib != null) cards.push(card("MOVE IN BLACK", "#9b7bff", `Preset for cue ${mib + 1}  ·  waiting dark until that cue`, own?.kind === "mib"));
     if (own && !["cue", "chase", "effect", "mib"].includes(own.kind)) {

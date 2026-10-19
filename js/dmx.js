@@ -212,6 +212,8 @@ if(ch>=0&&ch<State.dmx.length)setDMX(ch,value);
 }
 
 function updateDMX(){
+// Captured fixtures go back on their target first, whatever moved them (js/target.js).
+try{window.Targets?.enforce?.();}catch(error){console.warn("[TARGET] enforce failed",error);}
 State.dmx.fill(0);
 if(!Array.isArray(State.fixtures)||!State.fixtures.length){ArtNet.send();return;}
 initFixtureStates();

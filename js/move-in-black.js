@@ -68,7 +68,7 @@
     target.forEach((to, id) => {
       const now = s.fixtureStates.get(id);
       if (!now || level(now) > 0 || level(to) <= 0) return;
-      const keys = Object.keys(to).filter(k => wanted(k) && !(now.__targetPositionLock && POSITION.has(k)) && to[k] !== now[k]);
+      const keys = Object.keys(to).filter(k => wanted(k) && !((now.__targetPositionLock || window.Targets?.lockOf?.(id)) && POSITION.has(k)) && to[k] !== now[k]);
       if (keys.length) moves.push({ id, from: { ...now }, to, keys });
     });
     preset = { cue: next, ids: new Set(moves.map(m => m.id)) };

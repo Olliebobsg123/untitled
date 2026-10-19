@@ -569,28 +569,56 @@ function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs"
 }
 
 /*
- * Wipe the programmer back to a dark, blank slate. recordCue() snapshots
- * EVERY entry in State.fixtureStates (see snapshotFixtureStates above),
- * not just the currently-selected fixtures — so a fixture that was
- * brought up earlier and then deselected still has its old, non-zero
- * intensity sitting in the Map and gets baked into the next cue you
- * record, appearing as unwanted extra light. Just clearing the Map
- * would not fix this: dmx.js's fixtureState() lazily re-clones missing
- * entries from State.current, and State.current's own default
- * intensity/master is 100 — so a deleted entry would silently come back
- * at full. Explicitly zeroing intensity/master on State.current AND on
- * every existing entry is what actually gets fixtures dark.
+ * Clear the programmer: everything you've set by hand — command line,
+ * control deck, palettes, magic sheet, point & shoot, effects and chases
+ * you started — is dropped, and the lights fade back to what the live cue
+ * says. Nothing live: they go dark. Captured targets stay captured.
+ *
+ * Preferences → Programming: "Clear goes to" (the live cue, or the old
+ * everything-to-0) and how long the fade back takes.
  */
 function clearProgrammer() {
-    if (typeof window.stopEffect === "function") window.stopEffect(true);
-    State.current = { ...clone(State.current || {}), intensity: 0, master: 0 };
+    const mode = window.LXPrefs?.get("clearMode") || "cue";
+    const ms = Math.max(0, num(window.LXPrefs?.get("clearFadeMs"), 1000));
+    const index = State.currentCue;
+    const cue = mode === "cue" && index >= 0 ? State.cues[index] : null;
     if (!(State.fixtureStates instanceof Map)) State.fixtureStates = new Map();
-    State.fixtureStates.forEach((state, id) => {
-        State.fixtureStates.set(id, { ...clone(state), intensity: 0, master: 0 });
+    window.finishFade?.();
+    stopCueTimers();
+    // Effects and chases started by hand go; the live cue's own come back.
+    if (typeof window.stopEffect === "function") window.stopEffect(true);
+    if (!cue?.chase && State.currentChase >= 0 && typeof window.stopChase === "function") window.stopChase(false);
+
+    let target;
+    if (cue) {
+        target = getCueTarget(cue);
+        // Fixtures the cue doesn't mention (patched after it was recorded) go dark.
+        (State.fixtures || []).forEach(f => {
+            if (f && f.id != null && !target.fixtureMap.has(f.id)) target.fixtureMap.set(f.id, { ...clone(State.fixtureStates.get(f.id) || State.current || {}), intensity: 0 });
+        });
+    } else {
+        const fixtureMap = new Map();
+        State.fixtureStates.forEach((state, id) => fixtureMap.set(id, { ...clone(state), intensity: 0, master: 0 }));
+        (State.fixtures || []).forEach(f => { if (f && f.id != null && !fixtureMap.has(f.id)) fixtureMap.set(f.id, { ...clone(State.current || {}), intensity: 0 }); });
+        target = { globalState: { ...clone(State.current || {}), intensity: 0 }, fixtureMap };
+    }
+
+    const ids = [...target.fixtureMap.keys()];
+    const source = cue
+        ? { kind: "cue", label: "Cue " + (index + 1) + " “" + (cue.name || "Cue " + (index + 1)) + "”", detail: "programmer cleared" }
+        : { kind: "manual", label: "Clear", detail: "programmer cleared" };
+    window.LXFixtureInfo?.act(source.kind, source.label, source.detail, ms + 500, ids);
+    const keys = new Set();
+    target.fixtureMap.forEach(state => Object.keys(state).forEach(k => keys.add(k)));
+    window.LXFixtureInfo?.claimKeys(ids, [...keys], source);
+
+    fadeLighting(snapshotCurrentLighting(), target, cue ? ms : 0, () => {
+        if (cue) startCueEffectIfNeeded(cue);
+        if (typeof window.syncControlsFromSelection === "function") window.syncControlsFromSelection();
     });
-    pushLightingUpdate();
     if (typeof window.syncControlsFromSelection === "function") window.syncControlsFromSelection();
-    cueLog("Programmer cleared — all fixtures set to 0", "ok");
+    cueLog(cue ? "Programmer cleared — back to Cue " + (index + 1) + (ms ? " over " + (ms / 1000) + "s" : "")
+        : mode === "cue" ? "Programmer cleared — no cue is live, so everything is at 0" : "Programmer cleared — all fixtures set to 0", "ok");
     return true;
 }
 window.clearProgrammer = clearProgrammer;

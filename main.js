@@ -213,6 +213,8 @@ function buildApplicationMenu() {
         page('Save Show As…', 'save-as', 'CmdOrCtrl+Shift+S'),
         page('Open Show…', 'open', 'CmdOrCtrl+O'),
         page('Autosave Now', 'autosave'),
+        { type: 'separator' },
+        page('Clear Programmer', 'clear'),
         ...(mac ? [] : [{ type: 'separator' }, page('Preferences…', 'prefs', 'CmdOrCtrl+,'), { type: 'separator' }, { label: `Quit ${APP_NAME}`, accelerator: 'Ctrl+Q', click: () => app.quit() }])
       ]
     },

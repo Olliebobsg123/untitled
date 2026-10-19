@@ -62,7 +62,7 @@
       const from = r.at.get(x.fixture.id);
       if (!from) continue;
       const st = window.ensureFixtureState?.(x.fixture.id) || {};
-      if (st.__targetPositionLock) { locked++; continue; }
+      if (st.__targetPositionLock || window.Targets?.lockOf?.(x.fixture.id)) { locked++; continue; }
       const to = spread ? { ...base, x: base.x + ((from.x || 0) - mid) } : base;
       targets.push([x.fixture.id, { ...st, ...window.AutoCreate.aim(x, from, to) }]);
     }

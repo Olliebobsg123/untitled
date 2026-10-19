@@ -41,6 +41,10 @@
     lock.pan = pan; lock.tilt = tilt; lock.targetId = targetId; lock.targetName = targetName;
     Object.defineProperty(current, "__targetPositionLock", { value: lock, writable: true, configurable: true, enumerable: false });
     const warnLockedMove = axis => {
+      // Effects and fades try every frame: say it once in a while, not 60 times a second.
+      const now = Date.now();
+      if (now - (lock.warnedAt || 0) < 3000) return;
+      lock.warnedAt = now;
       const fixture = (State.fixtures || []).find(f => f.id === fixtureId);
       const fixtureLabel = fixture?.fixtureNumber ?? fixture?.number ?? fixture?.name ?? fixtureId;
       const message = `${lock.targetName} target is captured for Fixture ${fixtureLabel} — release the target before moving ${axis}.`;
@@ -100,12 +104,12 @@
     fixtures.forEach(f=>{
       const current=fixtureState(f.id);
       if(current.__targetPositionLock) unlockFixturePosition(f.id);
-      Object.assign(current,values);
+      Object.assign(current,values,{panf:0,tiltf:0});
       lockFixturePosition(f.id,pan,tilt,target.id);
     });
 
     target.captures=target.captures||[];
-    fixtures.forEach(f=>target.captures.push({fixtureId:f.id,pan,tilt,locked:true}));
+    fixtures.forEach(f=>target.captures.push({fixtureId:f.id,pan,tilt,panf:0,tiltf:0,locked:true}));
     target.updatedAt=new Date().toISOString();
     Object.assign(State.current,values);
     window.fadeTo?.(values,300); window.updateDMX?.(); window.renderFixtures?.(); window.buildControls?.(); render();
@@ -127,6 +131,32 @@
   }
 
   function list(){state();return State.targets;}
+
+  /*
+   * Captured means captured: nothing moves a captured fixture until it is
+   * released — not cues, fades, effects, chases, palettes, the control deck,
+   * point & shoot or move in black. Every output frame (updateDMX in
+   * js/dmx.js calls enforce) puts each captured fixture back on its target
+   * first, whatever wrote to it.
+   */
+  function lockOf(fixtureId){
+    for(const t of State.targets||[]) for(const c of t.captures||[]) if(String(c.fixtureId)===String(fixtureId)) return {target:t,capture:c};
+    return null;
+  }
+  function enforce(){
+    const targets=window.State?.targets; if(!Array.isArray(targets)||!targets.length) return;
+    if(!(State.fixtureStates instanceof Map)) return;
+    for(const t of targets) for(const c of t.captures||[]){
+      const pan=Number(c.pan),tilt=Number(c.tilt); if(!Number.isFinite(pan)||!Number.isFinite(tilt)) continue;
+      let current=State.fixtureStates.get(c.fixtureId);
+      if(!current){ if(!(State.fixtures||[]).some(f=>f.id===c.fixtureId)) continue; current=fixtureState(c.fixtureId); }
+      // A cue or fade swaps in a new state object: lock that one too.
+      const lock=current.__targetPositionLock;
+      if(!lock||lock.targetId!==t.id||lock.pan!==pan||lock.tilt!==tilt){ if(lock) unlockFixturePosition(c.fixtureId); lockFixturePosition(c.fixtureId,pan,tilt,t.id); }
+      if(current.panf!==(c.panf||0)) current.panf=c.panf||0;
+      if(current.tiltf!==(c.tiltf||0)) current.tiltf=c.tiltf||0;
+    }
+  }
 
   function parseFixtureSelector(value) {
     const input = clean(value).toLowerCase().replace(/–/g, "-");
@@ -259,7 +289,7 @@
     let attempts=0; const wait=()=>{attach();if(++attempts<150&&!document.querySelector("#commandInput[data-target-suggestions-bound]"))setTimeout(wait,100);}; setTimeout(wait,100);
   }
 
-  window.Targets={create,aim,capture,release,delete:remove,list,open,refresh:render,parseFixtureSelector,selectFixturesForCommand};
+  window.Targets={create,aim,capture,release,delete:remove,list,open,refresh:render,parseFixtureSelector,selectFixturesForCommand,lockOf,enforce};
 
   function boot(){state();createUI();installCommands();installCommandSuggestions();setInterval(()=>{if(!document.getElementById("targetModal"))createUI();installCommands();installCommandSuggestions();},500);}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot,{once:true});else boot();

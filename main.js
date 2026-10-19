@@ -57,6 +57,20 @@ ipcMain.handle('lx-show-save', (_event, payload) => {
   fs.writeFileSync(filePath, JSON.stringify(show, null, 2), 'utf8');
   return { path: filePath };
 });
+// Save As… and Open… pick a file with the system dialog, starting in the
+// shows folder.
+ipcMain.handle('lx-show-save-dialog', async (event, payload) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const name = String(payload?.name || 'Untitled Show').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Untitled Show';
+  const result = await dialog.showSaveDialog(win, { title: 'Save Show', defaultPath: path.join(getShowDirectory(), /\.json$/i.test(name) ? name : `${name}.json`), filters: [{ name: 'Light Spark Show', extensions: ['json'] }] });
+  if (result.canceled || !result.filePath) return null;
+  return /\.json$/i.test(result.filePath) ? result.filePath : `${result.filePath}.json`;
+});
+ipcMain.handle('lx-show-open-dialog', async event => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const result = await dialog.showOpenDialog(win, { title: 'Open Show', defaultPath: getShowDirectory(), properties: ['openFile'], filters: [{ name: 'Light Spark Show', extensions: ['json'] }] });
+  return result.canceled || !result.filePaths?.[0] ? null : result.filePaths[0];
+});
 ipcMain.handle('lx-show-load', (_event, payload) => {
   const filePath = resolveShowPath(payload?.filePath);
   if (!fs.existsSync(filePath)) throw new Error(`Show file not found: ${filePath}`);
@@ -196,6 +210,7 @@ function buildApplicationMenu() {
         page('New Page…', 'new-page'),
         { type: 'separator' },
         page('Save Show', 'save', 'CmdOrCtrl+S'),
+        page('Save Show As…', 'save-as', 'CmdOrCtrl+Shift+S'),
         page('Open Show…', 'open', 'CmdOrCtrl+O'),
         page('Autosave Now', 'autosave'),
         ...(mac ? [] : [{ type: 'separator' }, page('Preferences…', 'prefs', 'CmdOrCtrl+,'), { type: 'separator' }, { label: `Quit ${APP_NAME}`, accelerator: 'Ctrl+Q', click: () => app.quit() }])

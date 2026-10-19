@@ -88,6 +88,7 @@
     // Show
     autosaveMin: 2,            // 0 = off
     autosaveCopies: 1,
+    autosaveTo: "show",        // show (into the show file you have open) | separate (its own Autosave.json)
     confirmQuit: true
   };
   const ACCENTS = {
@@ -191,8 +192,20 @@
     if (minutes > 0) autosaveTimer = setInterval(autosave, minutes * 60000);
   }
 
-  // Autosave.json is always the latest. With more than one copy, older
-  // ones are kept as "Autosave 1.json", "Autosave 2.json"… in turn.
+  // Where autosave writes:
+  //   "show"     → into the show file you have open (Save, Open, Save As set
+  //                it). A show that's never been saved goes to
+  //                Backups/Unsaved Show.json until you save it.
+  //   "separate" → its own Autosave.json, leaving your show file alone.
+  // Older copies (Autosave copies) are kept in the Backups folder, which
+  // isn't listed with your shows.
+  function autosaveTarget() {
+    const current = window.LXShowCommands?.current?.();
+    if (prefs.autosaveTo !== "separate" && current) return { path: current, base: window.LXShowCommands.name() };
+    if (prefs.autosaveTo !== "separate") return { path: "Backups/Unsaved Show.json", base: "Unsaved Show", unsaved: true };
+    return { path: AUTOSAVE_FILE, base: "Autosave" };
+  }
+
   async function autosave() {
     const files = window.LXShowFiles, show = window.LXShowCommands;
     if (!files?.save || !show?.snapshot) return null;
@@ -202,12 +215,13 @@
     const text = JSON.stringify({ ...snap, savedAt: undefined });
     if (text === lastSaved) return null;
     try {
-      const result = await files.save(AUTOSAVE_FILE, snap);
+      const target = autosaveTarget();
+      const result = await files.save(target.path, snap);
       const copies = Number(prefs.autosaveCopies) || 1;
       if (copies > 1) {
         let n = 0;
         try { n = Number(localStorage.getItem("lx-autosave-slot")) || 0; } catch (_) {}
-        await files.save(`Autosave ${(n % copies) + 1}.json`, snap);
+        await files.save(`Backups/${target.base} autosave ${(n % copies) + 1}.json`, snap);
         try { localStorage.setItem("lx-autosave-slot", String(n + 1)); } catch (_) {}
       }
       lastSaved = text;
@@ -223,12 +237,21 @@
   function renderAutosave(path) {
     const el = document.getElementById("prefAutosaveStatus");
     if (!el) return;
+    const target = autosaveTarget();
+    const where = target.unsaved ? "This show hasn't been saved yet, so it's kept in Backups/Unsaved Show.json until you save it (⌘S)." : prefs.autosaveTo === "separate" ? `Saves to ${AUTOSAVE_FILE} in your shows folder, leaving your show file alone.` : `Saves into “${target.base}”, the show you have open.`;
+    const reopen = document.getElementById("prefAutosaveLoad");
+    if (reopen) reopen.hidden = !target.unsaved && prefs.autosaveTo !== "separate"; // it *is* the open show
     if (!(Number(prefs.autosaveMin) > 0)) el.textContent = "Autosave is off.";
-    else if (lastAt) el.textContent = `Last autosaved at ${lastAt.toLocaleTimeString()}${path ? ` to ${path}` : ""}.`;
-    else el.textContent = `Saves to ${AUTOSAVE_FILE} in your shows folder whenever something has changed.`;
+    else if (lastAt) el.textContent = `Last autosaved at ${lastAt.toLocaleTimeString()}${path ? ` to ${path}` : ""}. ${where}`;
+    else el.textContent = `${where} It saves whenever something has changed.`;
   }
 
   apply();
+  // Just opened or saved: that file already matches, so don't rewrite it.
+  window.addEventListener("lx-show-file", () => {
+    try { lastSaved = JSON.stringify({ ...window.LXShowCommands.snapshot(), savedAt: undefined }); } catch (_) { lastSaved = ""; }
+    renderAutosave();
+  });
 
   // ------------------------------------------------------------ panels
 
@@ -373,7 +396,8 @@
     // ---- Show
     host.appendChild(panel("show", "prefShow", "Show File", "SHOW",
       row("Autosave", "Keeps a copy of the show in case Light Spark or the computer crashes.", select("autosaveMin", [[0, "Off"], [1, "Every minute"], [2, "Every 2 minutes"], [5, "Every 5 minutes"], [10, "Every 10 minutes"]])) +
-      row("Autosave copies", "Keep older autosaves too, so you can go back further.", select("autosaveCopies", [[1, "Latest only"], [3, "Latest + 3 older"], [5, "Latest + 5 older"], [10, "Latest + 10 older"]])) +
+      row("Autosave into", "The show you have open, so there's only ever one file for a show. Or its own Autosave file, so your show only changes when you press Save.", seg("autosaveTo", [["show", "The open show"], ["separate", "A separate Autosave file"]])) +
+      row("Autosave copies", "Keep older autosaves too, in the Backups folder, so you can go back further.", select("autosaveCopies", [[1, "Latest only"], [3, "Latest + 3 older"], [5, "Latest + 5 older"], [10, "Latest + 10 older"]])) +
       `<div class="lx-pref-note" id="prefAutosaveStatus"></div>
        <div class="action-row"><button type="button" class="btn-secondary" id="prefAutosaveNow">Autosave now</button><button type="button" class="btn-secondary" id="prefAutosaveLoad">Open the autosave</button></div>
        <div class="section-divider"><span>SHOW FILE</span></div>
@@ -452,7 +476,7 @@
     $("prefAutosaveLoad")?.addEventListener("click", async () => {
       const go = await window.LXAsk?.("Open the autosave", [], { ok: "Open it", message: "Anything not saved in the current show will be replaced." });
       if (!go) return;
-      try { await window.LXShowCommands.loadShow(AUTOSAVE_FILE); } catch (error) { window.log?.(`Couldn't open the autosave: ${error.message}`, "warn"); }
+      try { await window.LXShowCommands.loadShow(autosaveTarget().path); } catch (error) { window.log?.(`Couldn't open the autosave: ${error.message}`, "warn"); }
     });
     $("prefExport")?.addEventListener("click", () => {
       const blob = new Blob([JSON.stringify({ lightSparkPreferences: 1, prefs }, null, 2)], { type: "application/json" });

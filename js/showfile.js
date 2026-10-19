@@ -397,6 +397,16 @@ try { window.initFixtureStates?.(); } catch (_) {}
     else console.log(`[SHOW] ${message}`);
   }
 
+  // The show file you're working in: set by Open, Save, Save As and the
+  // splash screen's recent shows. Save and autosave write back to it.
+  let currentPath = null;
+  const showName = file => String(file || "").split(/[\\/]/).pop().replace(/\.json$/i, "");
+  function setCurrent(path) {
+    currentPath = path || null;
+    document.title = currentPath ? `${showName(currentPath)} — Light Spark` : "Light Spark";
+    window.dispatchEvent(new CustomEvent("lx-show-file", { detail: { path: currentPath } }));
+  }
+
   async function saveShow(path) {
     const requested = normalisePath(path);
     if (!requested) throw new Error("SAVE requires a show path");
@@ -404,6 +414,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
     const bridge = window.LXShowFiles;
     if (!bridge || typeof bridge.save !== "function") throw new Error("Show file IPC bridge is unavailable — restart LX Console");
     const result = await bridge.save(requested, snapshotShow());
+    setCurrent(result?.path || requested);
     report(`Show saved: ${result?.path || requested}`, "ok");
     return result;
   }
@@ -416,8 +427,33 @@ try { window.initFixtureStates?.(); } catch (_) {}
     if (!bridge || typeof bridge.load !== "function") throw new Error("Show file IPC bridge is unavailable — restart LX Console");
     const result = await bridge.load(requested);
     restoreShow(result.show);
+    setCurrent(result?.path || requested);
     report(`Show loaded: ${result?.path || requested}`, "ok");
     return result;
+  }
+
+  // Save: back into the open show, or ask where the first time.
+  async function saveCurrent() {
+    if (!window.LXShowFiles?.saveDialog) return browserSaveShow();
+    if (!currentPath) return saveAs();
+    try { return await saveShow(currentPath); }
+    catch (error) { report(`Save failed: ${error?.message || error}`, "error"); return null; }
+  }
+  async function saveAs() {
+    const bridge = window.LXShowFiles;
+    if (!bridge?.saveDialog) return browserSaveShow();
+    const path = await bridge.saveDialog(currentPath ? showName(currentPath) : "Untitled Show");
+    if (!path) return null;
+    try { return await saveShow(path); }
+    catch (error) { report(`Save failed: ${error?.message || error}`, "error"); return null; }
+  }
+  async function openShow() {
+    const bridge = window.LXShowFiles;
+    if (!bridge?.openDialog) return document.getElementById("showFileInput")?.click();
+    const path = await bridge.openDialog();
+    if (!path) return null;
+    try { return await loadShow(path); }
+    catch (error) { report(`Open failed: ${error?.message || error}`, "error"); return null; }
   }
 
   function browserSaveShow() {
@@ -439,6 +475,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
     file.text().then(text => {
       const data = JSON.parse(text);
       restoreShow(data);
+      setCurrent(null);
       report("Show loaded", "ok");
     }).catch(error => {
       console.error("[SHOW] Browser load failed:", error);
@@ -470,7 +507,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
       saveButton.addEventListener("click", event => {
         event.preventDefault();
         event.stopPropagation();
-        browserSaveShow();
+        void saveCurrent();
       });
     }
     if (loadButton.dataset.showWired !== "1") {
@@ -478,7 +515,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
       loadButton.addEventListener("click", event => {
         event.preventDefault();
         event.stopPropagation();
-        fileInput.click();
+        void openShow();
       });
     }
     if (fileInput.dataset.showWired !== "1") {
@@ -541,6 +578,11 @@ try { window.initFixtureStates?.(); } catch (_) {}
     saveShow,
     loadShow,
     snapshot: snapshotShow,
+    saveCurrent,
+    saveAs,
+    open: openShow,
+    current: () => currentPath,
+    name: () => (currentPath ? showName(currentPath) : ""),
     restore: restoreShow,
     execute: executeShowCommand
   });

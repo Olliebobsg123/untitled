@@ -5,7 +5,9 @@ const showFileApi = {
   save: (filePath, show) => ipcRenderer.invoke('lx-show-save', { filePath, show }),
   load: filePath => ipcRenderer.invoke('lx-show-load', { filePath }),
   getDefaultDirectory: () => ipcRenderer.invoke('lx-show-default-directory'),
-  list: () => ipcRenderer.invoke('lx-show-list')
+  list: () => ipcRenderer.invoke('lx-show-list'),
+  saveDialog: name => ipcRenderer.invoke('lx-show-save-dialog', { name }),
+  openDialog: () => ipcRenderer.invoke('lx-show-open-dialog')
 };
 
 const feedbackApi = {

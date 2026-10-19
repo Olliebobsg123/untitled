@@ -27,8 +27,9 @@
     switch (verb) {
       case "about": return about();
       case "prefs": return window.LXPrefs?.open();
-      case "save": return click("btnSaveShow");
-      case "open": return click("btnLoadShow");
+      case "save": return window.LXShowCommands?.saveCurrent ? window.LXShowCommands.saveCurrent() : click("btnSaveShow");
+      case "save-as": return window.LXShowCommands?.saveAs();
+      case "open": return window.LXShowCommands?.open ? window.LXShowCommands.open() : click("btnLoadShow");
       case "autosave": return window.LXPrefs?.autosave().then(r => window.log?.(r ? `Autosaved to ${r.path}` : "Nothing new to autosave", r ? "ok" : "info"));
       case "new-page": return window.LXCustomPages?.create();
       case "page": return document.querySelector(`.nav-link[data-page="${arg}"]`)?.click();
@@ -65,6 +66,7 @@
       ["prefs", "Preferences…", key(",")],
       "-",
       ["save", "Save Show", key("S")],
+      ["save-as", "Save Show As…", key("⇧S")],
       ["open", "Open Show…", key("O")],
       ["autosave", "Autosave Now", ""],
       "-",

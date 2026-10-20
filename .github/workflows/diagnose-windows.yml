@@ -1,0 +1,51 @@
+name: Diagnose Windows startup
+
+# Installs the released Windows build the way a user does, launches it and
+# records when Windows considers the window "Not Responding".
+on:
+  workflow_dispatch:
+  push:
+    branches: [my-local-backup]
+    paths:
+      - '.github/workflows/diagnose-windows.yml'
+      - 'tests/windows/**'
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download and install the released build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download latest-build --repo $env:GITHUB_REPOSITORY --pattern 'Lighting-Console-1.0.0-x64.exe' --dir dl
+          $t = Get-Date
+          Start-Process -Wait -FilePath dl\Lighting-Console-1.0.0-x64.exe -ArgumentList '/S'
+          "install took $([int]((Get-Date)-$t).TotalSeconds)s"
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'Lighting Console.exe' | Select-Object -First 1
+          "installed at $($exe.FullName)"
+          "EXE=$($exe.FullName)" | Out-File -Append $env:GITHUB_ENV
+      - name: Launch like the installer does and watch for Not Responding
+        shell: pwsh
+        run: pwsh tests/windows/watch-responding.ps1 -Exe $env:EXE -Seconds 90 -Label first-launch
+      - name: Second launch
+        shell: pwsh
+        run: pwsh tests/windows/watch-responding.ps1 -Exe $env:EXE -Seconds 60 -Label second-launch
+      - name: Main-process stalls with timings (Playwright)
+        shell: pwsh
+        run: |
+          cd tests/windows
+          npm init -y | Out-Null
+          npm i --no-save playwright-core@1.48.2 | Out-Null
+          node stalls.cjs $env:EXE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-diagnosis
+          path: tests/windows/out/

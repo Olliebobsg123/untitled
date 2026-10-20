@@ -338,7 +338,22 @@
     renumber();
   }
 
-  window.LXCustomPages = Object.freeze({ create, show, rename, remove, tidy, list: () => pages.map(p => ({ ...p, windows: { ...p.windows } })), addWindow });
+  // A mirror console takes the pages of the console it follows (not saved here).
+  function adopt(list) {
+    if (!addButton || !Array.isArray(list)) return;
+    const keep = new Set(list.map(p => p.id));
+    for (const page of pages) {
+      if (keep.has(page.id)) continue;
+      if (mounted === page.id) unmount();
+      document.querySelector(`.nav-link[data-custom="${page.id}"]`)?.remove();
+      document.getElementById(`page-custom-${page.id}`)?.remove();
+    }
+    pages = list.map(p => ({ ...p, windows: { ...(p.windows || {}) } }));
+    for (const page of pages) render(page.id);
+    renumber();
+  }
+
+  window.LXCustomPages = Object.freeze({ create, show, rename, remove, tidy, adopt, list: () => pages.map(p => ({ ...p, windows: { ...p.windows } })), addWindow });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });
   else boot();
 })();

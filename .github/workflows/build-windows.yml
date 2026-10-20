@@ -4,17 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - 'main.js'
-      - 'index.html'
-      - 'styles.css'
-      - 'js/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'relay.js'
-      - 'multi-output.js'
-      - 'usb-dmx.js'
-      - '.github/workflows/build-windows.yml'
+    paths-ignore:
+      - '**.md'
+      - 'tests/**'
+      - '.github/workflows/diagnose-windows.yml'
 
 permissions:
   contents: write
@@ -26,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -38,6 +33,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Every build gets its own version (1.0.<number of commits>), so a
+      # running Light Spark can tell a newer one is out. Mac and Windows
+      # builds of the same commit get the same number.
+      - name: Set version
+        shell: bash
+        run: npm version "1.0.$(git rev-list --count HEAD)" --no-git-tag-version --allow-same-version
 
       - name: Build Windows installer and portable app
         run: npm run build-win
@@ -54,10 +56,14 @@ jobs:
               --notes "Latest Light Spark builds for macOS and Windows." \
               --target "$GITHUB_SHA"
           fi
-          files=$(find Build -maxdepth 1 -type f \( -iname '*.exe' -o -iname '*.msi' -o -iname '*.zip' \) -print)
+          files=$(find Build -maxdepth 1 -type f \( -iname '*.exe' -o -iname '*.blockmap' -o -iname 'latest.yml' \) -print)
           if [ -z "$files" ]; then
             echo "No Windows installer files found in Build/"
             find Build -maxdepth 2 -type f -print
             exit 1
           fi
           gh release upload "$RELEASE_TAG" $files --clobber
+          # Older builds had the version in their file names: remove those so
+          # the release only holds the current files.
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.assets[] | select(.name | test("^Lighting-Console-[0-9.]+-(x64|portable)")) | .id' |
+            while read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"; done

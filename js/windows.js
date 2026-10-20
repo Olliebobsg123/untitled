@@ -379,6 +379,7 @@
     place: (id, rect) => { const e = open.get(id); if (e) place(e.el, clamp(rect, e.host)); },
     rectOf: id => { const e = open.get(id); return e ? { x: e.el.offsetLeft, y: e.el.offsetTop, w: e.el.offsetWidth, h: e.el.offsetHeight } : null; },
     list: () => [...defs.keys()],
+    floating: () => [...open.entries()].filter(([, e]) => !e.host).map(([id]) => id),
     refreshDock: id => { const def = defs.get(id); if (def && !open.has(id)) bodyClass(def, Boolean(def.hiddenWhenDocked?.())); }
   });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });

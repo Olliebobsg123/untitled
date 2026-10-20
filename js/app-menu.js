@@ -27,6 +27,7 @@
     switch (verb) {
       case "about": return about();
       case "prefs": return window.LXPrefs?.open();
+      case "updates": return window.LXUpdates?.check(true);
       case "save": return window.LXShowCommands?.saveCurrent ? window.LXShowCommands.saveCurrent() : click("btnSaveShow");
       case "save-as": return window.LXShowCommands?.saveAs();
       case "open": return window.LXShowCommands?.open ? window.LXShowCommands.open() : click("btnLoadShow");

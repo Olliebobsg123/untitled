@@ -92,7 +92,13 @@ try {
     setConfirmQuit: on => ipcRenderer.send('lx-quit-confirm', Boolean(on)),
     askMicrophone: () => ipcRenderer.invoke('lx-ask-microphone'),
     version,
-    platform: process.platform
+    platform: process.platform,
+    update: {
+      check: () => ipcRenderer.invoke('lx-update-check'),
+      status: () => ipcRenderer.invoke('lx-update-status'),
+      install: () => ipcRenderer.invoke('lx-update-install'),
+      on: fn => { const h = (_e, state) => fn(state); ipcRenderer.on('lx-update', h); return () => ipcRenderer.removeListener('lx-update', h); }
+    }
   });
 } catch (error) {
   console.error('[APP] could not expose app bridge:', error);

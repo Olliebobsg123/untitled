@@ -271,6 +271,7 @@ function buildApplicationMenu() {
       label: APP_NAME,
       submenu: [
         page(`About ${APP_NAME}`, 'about'),
+        page('Check for Updates…', 'updates'),
         { type: 'separator' },
         page('Preferences…', 'prefs', 'CmdOrCtrl+,'),
         { type: 'separator' },
@@ -294,7 +295,7 @@ function buildApplicationMenu() {
         page('Autosave Now', 'autosave'),
         { type: 'separator' },
         page('Clear Programmer', 'clear'),
-        ...(mac ? [] : [{ type: 'separator' }, page('Preferences…', 'prefs', 'CmdOrCtrl+,'), { type: 'separator' }, { label: `Quit ${APP_NAME}`, accelerator: 'Ctrl+Q', click: () => app.quit() }])
+        ...(mac ? [] : [{ type: 'separator' }, page('Preferences…', 'prefs', 'CmdOrCtrl+,'), page('Check for Updates…', 'updates'), { type: 'separator' }, { label: `Quit ${APP_NAME}`, accelerator: 'Ctrl+Q', click: () => app.quit() }])
       ]
     },
     { role: 'editMenu' }, // copy and paste in text boxes need this on a Mac
@@ -330,6 +331,22 @@ function buildApplicationMenu() {
 // Preferences → Show → "Ask before quitting".
 ipcMain.on('lx-quit-confirm', (_event, on) => { confirmQuit = Boolean(on); });
 ipcMain.on('lx-quit', () => app.quit());
+
+// Software updates (updater.js). The page asks to check; the result and the
+// download progress come back as 'lx-update' messages.
+let updater = null;
+function getUpdater() {
+  if (updater) return updater;
+  const { shell } = require('electron');
+  const { createUpdater } = require('./updater.js');
+  let feedUrl = '';
+  try { feedUrl = require('./package.json').build?.publish?.[0]?.url || ''; } catch (_) {}
+  updater = createUpdater({ app, shell, feedUrl, send: state => { for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send('lx-update', state); } });
+  return updater;
+}
+ipcMain.handle('lx-update-check', () => getUpdater().check());
+ipcMain.handle('lx-update-status', () => getUpdater().status());
+ipcMain.handle('lx-update-install', () => { const u = getUpdater(); if (u.status().status === 'ready') quitConfirmed = true; return u.install(); });
 function guardClose(win) {
   win.on('close', event => {
     if (!confirmQuit || quitConfirmed) return;

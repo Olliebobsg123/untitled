@@ -117,13 +117,61 @@
       activeEffect: s.activeEffect ? { ...s.activeEffect } : null, blackout: Boolean(s.blackout),
       effects: (s.effects || []).map(e => ({ id: e.id, type: e.type, name: e.name, speed: e.speed, fixtureIds: e.ids instanceof Set ? [...e.ids] : e.fixtureIds || [], levels: e.levels instanceof Map ? Object.fromEntries(e.levels) : e.levels || {} })),
       fade: fadeInfo && performance.now() - fadeInfo.start < fadeInfo.fade ? { index: fadeInfo.index, left: fadeInfo.fade - (performance.now() - fadeInfo.start) } : null,
-      tc: window.LXTimecode?.now?.() ?? null
+      tc: window.LXTimecode?.now?.() ?? null,
+      view: viewState()
     };
     const key = JSON.stringify(head);
     const now = performance.now();
     if (!states.length && key === sentKey && !force && now - lastBeat < 300) return;
     sentKey = key; lastBeat = now;
     link.send({ type: "live", states, ...head, full: force });
+  }
+
+  // What the operator sees on the console in control: the selection, the
+  // page and the floating windows. Mirrors copy it.
+  function viewState() {
+    const s = S(), W = window.LXWindows;
+    const iw = window.innerWidth || 1, ih = window.innerHeight || 1;
+    return {
+      selected: [...(s.selected || [])], selectedId: s.selectedFixtureId ?? null,
+      page: document.querySelector(".nav-link.active[data-page]")?.dataset.page || null,
+      pages: window.LXCustomPages?.list?.() || [],
+      windows: (W?.floating?.() || []).filter(id => id !== "prefs").map(id => {
+        const r = W.rectOf(id);
+        return [id, r ? [r.x / iw, r.y / ih, r.w / iw, r.h / ih].map(v => Math.round(v * 1000) / 1000) : null];
+      })
+    };
+  }
+
+  // Each part is only applied when the console in control changes it, so a
+  // mirror can still look around between changes.
+  const shownView = {};
+  function applyView(view) {
+    if (!view || role !== "mirror") return;
+    const s = S(), W = window.LXWindows;
+    const changed = key => { const text = JSON.stringify(view[key] ?? null); if (shownView[key] === text) return false; shownView[key] = text; return true; };
+    try {
+      if (changed("selected") | changed("selectedId")) {
+        s.selected = new Set(view.selected || []);
+        if (view.selectedId != null) s.selectedFixtureId = view.selectedId;
+        window.renderFixtures?.();
+      }
+      if (changed("pages")) { window.LXCustomPages?.adopt?.(view.pages || []); shownView.page = null; }
+      if (changed("page") && view.page) {
+        const custom = /^custom-(.+)$/.exec(view.page);
+        if (custom) window.LXCustomPages?.show?.(custom[1]);
+        else document.querySelector(`.nav-link[data-page="${CSS.escape(view.page)}"]`)?.click();
+      }
+      if (changed("windows") && W) {
+        const want = new Map(view.windows || []);
+        for (const id of W.floating?.() || []) if (id !== "prefs" && !want.has(id)) W.close(id);
+        const iw = window.innerWidth, ih = window.innerHeight;
+        for (const [id, f] of want) {
+          if (!W.isOpen(id) || W.hostOf(id)) W.open(id, { quiet: true });
+          if (f) W.place(id, { x: f[0] * iw, y: f[1] * ih, w: f[2] * iw, h: f[3] * ih });
+        }
+      }
+    } catch (e) { console.warn("[SESSION] mirror view", e); }
   }
 
   // Client: what the primary last said for each light, so local changes show up as differences.
@@ -157,6 +205,7 @@
     s.effects = (msg.effects || []).map(e => ({ ...e, ids: new Set(e.fixtureIds || []), levels: new Map(Object.entries(e.levels || {})) }));
     window.renderRunningEffects?.();
     s.blackout = msg.blackout;
+    applyView(msg.view);
     try { window.updateDMX?.(); window.sendToVisualizer?.(); } catch (_) {}
     if (cueChanged) window.renderCues?.();
   }

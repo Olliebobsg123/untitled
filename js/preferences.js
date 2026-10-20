@@ -104,6 +104,7 @@
     sessionPort: 8850,
     sessionPin: "",
     sessionAutoTakeover: true,
+    updateAutoCheck: true,     // look for a new Light Spark when it starts (never installs mid-show)
     sessionTakeoverMs: 2000,
     // Keyboard
     goKey: "space",            // space | shift | off

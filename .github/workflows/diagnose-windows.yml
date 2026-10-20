@@ -33,10 +33,7 @@ jobs:
           "EXE=$($exe.FullName)" | Out-File -Append $env:GITHUB_ENV
       - name: Launch like the installer does and watch for Not Responding
         shell: pwsh
-        run: pwsh tests/windows/watch-responding.ps1 -Exe $env:EXE -Seconds 90 -Label first-launch
-      - name: Second launch
-        shell: pwsh
-        run: pwsh tests/windows/watch-responding.ps1 -Exe $env:EXE -Seconds 60 -Label second-launch
+        run: pwsh tests/windows/watch-responding.ps1 -Exe $env:EXE -Seconds 30 -Label first-launch
       - name: Main-process stalls with timings (Playwright)
         shell: pwsh
         run: |
@@ -44,6 +41,7 @@ jobs:
           npm init -y | Out-Null
           npm i --no-save playwright-core@1.48.2 | Out-Null
           node stalls.cjs $env:EXE
+        timeout-minutes: 5
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -66,13 +66,56 @@ ipcMain.handle('lx-show-list', () => {
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, 8);
 });
+// Before a save replaces a show file, the old one is copied to
+// Backups/<name> before <date time>.json (the last 20 per show are kept), so
+// saving over the wrong show can always be undone. Autosave doesn't do this
+// (it saves every few minutes); every Save, Save As and "save" command does.
+function backupBeforeReplace(filePath, nextText) {
+  if (!fs.existsSync(filePath)) return null;
+  let old;
+  try { old = fs.readFileSync(filePath, 'utf8'); } catch (_) { return null; }
+  const strip = text => { try { const j = JSON.parse(text); delete j.savedAt; return JSON.stringify(j); } catch (_) { return text; } };
+  if (strip(old) === strip(nextText)) return null; // nothing would be lost
+  const dir = path.join(getShowDirectory(), 'Backups');
+  fs.mkdirSync(dir, { recursive: true });
+  const name = path.basename(filePath).replace(/\.json$/i, '');
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}.${p2(d.getSeconds())}`;
+  const backup = path.join(dir, `${name} before ${stamp}.json`);
+  fs.writeFileSync(backup, old, 'utf8');
+  // Keep the newest 20 for this show.
+  try {
+    const mine = fs.readdirSync(dir).filter(f => f.startsWith(`${name} before `) && f.endsWith('.json')).sort();
+    for (const f of mine.slice(0, Math.max(0, mine.length - 20))) fs.unlinkSync(path.join(dir, f));
+  } catch (_) {}
+  return backup;
+}
 ipcMain.handle('lx-show-save', (_event, payload) => {
   const filePath = resolveShowPath(payload?.filePath);
   const show = payload?.show;
   if (!show || typeof show !== 'object') throw new Error('No show data supplied');
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(show, null, 2), 'utf8');
-  return { path: filePath };
+  const text = JSON.stringify(show, null, 2);
+  const backup = payload?.backup ? backupBeforeReplace(filePath, text) : null;
+  fs.writeFileSync(filePath, text, 'utf8');
+  return { path: filePath, backup };
+});
+// What's in a show file, for "are you sure?" questions.
+ipcMain.handle('lx-show-stat', (_event, payload) => {
+  let filePath = resolveShowPath(payload?.filePath);
+  if (!fs.existsSync(filePath)) {
+    // "bms" means BMS.json even where file names are case-sensitive.
+    try {
+      const want = path.basename(filePath).toLowerCase();
+      const match = fs.readdirSync(path.dirname(filePath)).find(f => f.toLowerCase() === want);
+      if (match) filePath = path.join(path.dirname(filePath), match);
+    } catch (_) {}
+  }
+  if (!fs.existsSync(filePath)) return { path: filePath, exists: false };
+  const st = fs.statSync(filePath);
+  let cues = null, fixtures = null;
+  try { const j = JSON.parse(fs.readFileSync(filePath, 'utf8')); cues = (j.cues || []).filter(Boolean).length; fixtures = (j.fixtures || []).length; } catch (_) {}
+  return { path: filePath, exists: true, mtimeMs: st.mtimeMs, cues, fixtures };
 });
 // Save As… and Open… pick a file with the system dialog, starting in the
 // shows folder.

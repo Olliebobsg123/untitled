@@ -54,7 +54,8 @@
       back.querySelector("[data-cancel]").addEventListener("click", () => done(null));
       back.addEventListener("pointerdown", e => { if (e.target === back) done(null); });
       back.addEventListener("keydown", e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); } });
-      const first = form.querySelector("input, select") || form.querySelector("[type=submit]");
+      // options.safe: nothing to type and the OK button would lose work, so Enter means Cancel.
+      const first = form.querySelector("input, select") || (options.safe ? back.querySelector("[data-cancel]") : form.querySelector("[type=submit]"));
       first.focus();
       first.select?.();
     });

@@ -9,6 +9,9 @@
  * chases, fixture states and visualizer state..
  */
 (function () {
+  // index.html, preload and main all load this file; only the first copy may
+  // run, or each copy keeps its own idea of which show is open.
+  if (window.LXShowCommands) return;
   const cloneValue = value => {
     if (value === null || value === undefined || typeof value !== "object") return value;
     if (Array.isArray(value)) return value.map(cloneValue);
@@ -403,8 +406,30 @@ try { window.initFixtureStates?.(); } catch (_) {}
   // splash screen's recent shows. Save and autosave write back to it.
   let currentPath = null;
   const showName = file => String(file || "").split(/[\\/]/).pop().replace(/\.json$/i, "");
+  // What was last saved or opened, to tell whether there are unsaved changes.
+  let savedKey = "";
+  const showKey = () => { const x = snapshotShow(); return JSON.stringify([x.fixtures, x.groups, x.cues, x.chases, x.savedEffects, x.palettes, x.targets]); };
+  function markSaved() { try { savedKey = showKey(); } catch (_) { savedKey = ""; } }
+  function isDirty() {
+    const st = window.State || {};
+    if (!currentPath && !(st.cues || []).some(Boolean) && !(st.fixtures || []).length) return false; // nothing to lose
+    try { return showKey() !== savedKey; } catch (_) { return true; }
+  }
+  // macOS and Windows don't care about upper/lower case in file names: "bms.json" is "BMS.json".
+  const samePath = (a, b) => Boolean(a && b) && (/^(darwin|win32)$/.test(window.LXApp?.platform || "darwin") ? a.toLowerCase() === b.toLowerCase() : a === b);
+  const when = ms => {
+    const d = new Date(ms), today = new Date();
+    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toDateString() === today.toDateString() ? `today ${time}` : `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
+  };
+  const describe = stat => stat?.exists ? `${stat.cues ?? "?"} cue${stat.cues === 1 ? "" : "s"}, ${stat.fixtures ?? "?"} fixture${stat.fixtures === 1 ? "" : "s"}, saved ${when(stat.mtimeMs)}` : "";
+  const openName = () => (currentPath ? `“${showName(currentPath)}”` : "the show you have open");
+  const cueCount = () => (window.State?.cues || []).filter(Boolean).length;
+  const ask = (title, message, ok, safe = false) => (window.LXAsk ? window.LXAsk(title, [], { ok, message, safe }) : Promise.resolve(window.confirm(`${title}\n\n${message}`)));
+
   function setCurrent(path) {
     currentPath = path || null;
+    markSaved();
     document.title = currentPath ? `${showName(currentPath)} — Light Spark` : "Light Spark";
     window.dispatchEvent(new CustomEvent("lx-show-file", { detail: { path: currentPath } }));
   }
@@ -415,9 +440,9 @@ try { window.initFixtureStates?.(); } catch (_) {}
     if (!/\.json$/i.test(requested)) throw new Error("Show files must use the .json extension");
     const bridge = window.LXShowFiles;
     if (!bridge || typeof bridge.save !== "function") throw new Error("Show file IPC bridge is unavailable — restart LX Console");
-    const result = await bridge.save(requested, snapshotShow());
+    const result = await bridge.save(requested, snapshotShow(), { backup: true });
     setCurrent(result?.path || requested);
-    report(`Show saved: ${result?.path || requested}`, "ok");
+    report(`Show saved: ${result?.path || requested}${result?.backup ? ` — the old version is kept in Backups` : ""}`, "ok");
     return result;
   }
 
@@ -454,6 +479,10 @@ try { window.initFixtureStates?.(); } catch (_) {}
     if (!bridge?.openDialog) return document.getElementById("showFileInput")?.click();
     const path = await bridge.openDialog();
     if (!path) return null;
+    if (!samePath(path, currentPath) && isDirty() && !(await ask(`Open “${showName(path)}”?`, `${openName()} has changes that haven't been saved — they'll be lost. Cancel and press Save first to keep them.`, "Open without saving", true))) {
+      report("Open cancelled — nothing was changed", "info");
+      return null;
+    }
     try { return await loadShow(path); }
     catch (error) { report(`Open failed: ${error?.message || error}`, "error"); return null; }
   }
@@ -485,13 +514,45 @@ try { window.initFixtureStates?.(); } catch (_) {}
     });
   }
 
+  // "save NAME" / "load NAME" (also "open NAME") from the command line.
+  // Both check first: saving over a different show, saving a copy under a
+  // new name (Save and autosave then go to the copy), or opening a show
+  // while this one has unsaved changes all ask before anything happens.
   async function executeShowCommand(raw) {
     const command = String(raw ?? "").trim();
-    const match = command.match(/^(save|load)\s+(.+)$/i);
+    if (/^save$/i.test(command)) { await saveCurrent(); return true; }
+    const match = command.match(/^(save|load|open)\s+(.+)$/i);
     if (!match) return false;
+    const verb = match[1].toLowerCase() === "save" ? "save" : "load";
+    let name = normalisePath(match[2]);
+    if (name && !/\.json$/i.test(name)) name += ".json";
+    const bridge = window.LXShowFiles;
     try {
-      if (match[1].toLowerCase() === "save") await saveShow(match[2]);
-      else await loadShow(match[2]);
+      const stat = bridge?.stat ? await bridge.stat(name) : null;
+      const target = showName(stat?.path || name);
+      if (verb === "save") {
+        if (stat?.exists && !samePath(stat.path, currentPath)) {
+          const ok = await ask(`Replace “${target}”?`,
+            `A different show called “${target}” already exists (${describe(stat)}). Saving would replace it with ${openName()} (${cueCount()} cues). If you're sure, a copy of the old “${target}” is kept in Backups.`,
+            `Replace “${target}”`, true);
+          if (!ok) { report(`Save cancelled — “${target}” wasn't touched`, "info"); return true; }
+        } else if (stat && !stat.exists && currentPath) {
+          const ok = await ask(`Save a copy as “${target}”?`,
+            `This saves ${openName()} under a new name. From now on Save and autosave go to “${target}”, not ${openName()}. (To save ${openName()} itself, just press Save.)`,
+            "Save the copy");
+          if (!ok) { report("Save cancelled — nothing was changed", "info"); return true; }
+        }
+        await saveShow(stat?.exists ? stat.path : name);
+      } else {
+        if (stat && !stat.exists) { report(`LOAD failed: there's no show called “${target}”`, "error"); return true; }
+        const already = stat && samePath(stat.path, currentPath);
+        const dirty = isDirty();
+        const ok = await ask(already ? `Reopen “${target}”?` : `Open “${target}”?`,
+          `${stat ? `“${target}”: ${describe(stat)}. ` : ""}${dirty ? `${openName()} has changes that haven't been saved — they'll be lost. Cancel and press Save first to keep them.` : already ? "This goes back to the last saved version." : `${openName()} is saved, so nothing will be lost.`}`,
+          dirty ? "Open without saving" : "Open it", dirty);
+        if (!ok) { report("Open cancelled — nothing was changed", "info"); return true; }
+        await loadShow(stat?.exists ? stat.path : name);
+      }
     } catch (error) {
       console.error(`[SHOW] ${match[1].toUpperCase()} failed:`, error);
       report(`${match[1].toUpperCase()} failed: ${error?.message || error}`, "error");
@@ -537,7 +598,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
     input.addEventListener("keydown", event => {
       if (event.key !== "Enter") return;
       const command = String(input.value || "").trim();
-      if (!/^(save|load)\s+.+$/i.test(command)) return;
+      if (!/^(save|load|open)\s+.+$|^save$/i.test(command)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       input.value = "";
@@ -551,7 +612,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
     if (typeof current !== "function" || current.__lxShowFiles) return false;
     const wrapped = function (raw) {
       const command = String(raw ?? "").trim();
-      if (/^(save|load)\s+.+$/i.test(command)) {
+      if (/^(save|load|open)\s+.+$|^save$/i.test(command)) {
         void executeShowCommand(command);
         return;
       }
@@ -584,6 +645,8 @@ try { window.initFixtureStates?.(); } catch (_) {}
     saveAs,
     open: openShow,
     current: () => currentPath,
+    markSaved,
+    isDirty,
     name: () => (currentPath ? showName(currentPath) : ""),
     restore: restoreShow,
     execute: executeShowCommand

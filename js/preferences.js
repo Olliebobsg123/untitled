@@ -242,6 +242,7 @@
     try {
       const target = autosaveTarget();
       const result = await files.save(target.path, snap);
+      if (!target.unsaved && prefs.autosaveTo !== "separate") show.markSaved?.(); // the open show is now on disk
       const copies = Number(prefs.autosaveCopies) || 1;
       if (copies > 1) {
         let n = 0;

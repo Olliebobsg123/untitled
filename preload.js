@@ -2,7 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 const https = require('node:https');
 
 const showFileApi = {
-  save: (filePath, show) => ipcRenderer.invoke('lx-show-save', { filePath, show }),
+  save: (filePath, show, options = {}) => ipcRenderer.invoke('lx-show-save', { filePath, show, backup: Boolean(options.backup) }),
+  stat: filePath => ipcRenderer.invoke('lx-show-stat', { filePath }),
   load: filePath => ipcRenderer.invoke('lx-show-load', { filePath }),
   getDefaultDirectory: () => ipcRenderer.invoke('lx-show-default-directory'),
   list: () => ipcRenderer.invoke('lx-show-list'),

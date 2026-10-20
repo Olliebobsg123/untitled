@@ -3,6 +3,17 @@ const path = require('path');
 const fs = require('fs');
 
 let mainWindow = null;
+
+// One copy at a time: a second copy would fight the first over the DMX
+// output ports (double-clicking twice is easy on Windows). Opening it again
+// brings the running one to the front. LX_ALLOW_MULTIPLE=1 lifts this.
+if (!process.env.LX_ALLOW_MULTIPLE && !app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 let servicesStarted = false;
 let relayService = null;
 let qlabBridgeService = null;

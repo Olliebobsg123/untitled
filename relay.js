@@ -41,7 +41,12 @@ let lastDmxUniverse = null;
 
 const logDir = (() => {
   try {
-    const dir = process.env.LIGHTING_CONSOLE_LOG_DIR || path.join(process.env.HOME || process.cwd(), 'Library', 'Logs', 'Lighting Console', 'services');
+    // macOS: ~/Library/Logs; Windows: %APPDATA%; Linux: ~/.local/state (never the app's own folder, which can be read-only).
+    const home = require('os').homedir();
+    const dir = process.env.LIGHTING_CONSOLE_LOG_DIR || (process.platform === 'win32'
+      ? path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Lighting Console', 'Logs', 'services')
+      : process.platform === 'darwin' ? path.join(home, 'Library', 'Logs', 'Lighting Console', 'services')
+      : path.join(home, '.local', 'state', 'lighting-console', 'services'));
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   } catch (_) { return null; }

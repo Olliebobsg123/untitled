@@ -286,7 +286,7 @@
       const p = point(e);
       const [x0, x1] = [Math.min(start.x, p.x), Math.max(start.x, p.x)], [y0, y1] = [Math.min(start.y, p.y), Math.max(start.y, p.y)];
       start = null; lasso.style.display = "none";
-      if (x1 - x0 < 4 && y1 - y0 < 4) { if (!(e.shiftKey || e.metaKey)) select([], false); return; }
+      if (x1 - x0 < 4 && y1 - y0 < 4) { if (!(e.shiftKey || e.metaKey || e.ctrlKey)) select([], false); return; }
       const ids = view.filter(v => v.sx >= x0 && v.sx <= x1 && v.sy >= y0 && v.sy <= y1).map(v => v.fixture.id);
       select(ids, e.shiftKey || e.metaKey || e.ctrlKey);
     });

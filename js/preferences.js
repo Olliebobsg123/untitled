@@ -263,7 +263,7 @@
     const el = document.getElementById("prefAutosaveStatus");
     if (!el) return;
     const target = autosaveTarget();
-    const where = target.unsaved ? "This show hasn't been saved yet, so it's kept in Backups/Unsaved Show.json until you save it (⌘S)." : prefs.autosaveTo === "separate" ? `Saves to ${AUTOSAVE_FILE} in your shows folder, leaving your show file alone.` : `Saves into “${target.base}”, the show you have open.`;
+    const where = target.unsaved ? `This show hasn't been saved yet, so it's kept in Backups/Unsaved Show.json until you save it (${/Mac/.test(navigator.platform) ? "⌘S" : "Ctrl+S"}).` : prefs.autosaveTo === "separate" ? `Saves to ${AUTOSAVE_FILE} in your shows folder, leaving your show file alone.` : `Saves into “${target.base}”, the show you have open.`;
     const reopen = document.getElementById("prefAutosaveLoad");
     if (reopen) reopen.hidden = !target.unsaved && prefs.autosaveTo !== "separate"; // it *is* the open show
     if (!(Number(prefs.autosaveMin) > 0)) el.textContent = "Autosave is off.";
@@ -434,7 +434,7 @@
        <div class="action-row lx-showfile-row"></div>`));
 
     host.appendChild(panel("show", "prefQuit", "Quitting", "SHOW",
-      row("Ask before quitting", "Light Spark asks before it closes, so a stray ⌘Q can't stop the lights mid-show.", check("confirmQuit"))));
+      row("Ask before quitting", `Light Spark asks before it closes, so a stray ${/Mac/.test(navigator.platform) ? "⌘Q" : "Ctrl+Q or Alt+F4"} can't stop the lights mid-show.`, check("confirmQuit"))));
 
     host.appendChild(panel("show", "prefFile", "These Preferences", "SHOW",
       `<div class="lx-pref-note" style="margin-top:0">Copy your preferences to another computer, or start again.</div>

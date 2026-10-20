@@ -7,7 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test:syntax": "node --check main.js && node --check relay.js && node --check usb-dmx.js && node --check scripts/after-pack-mac.js && for f in js/*.js; do node --check \"$f\" || exit 1; done",
+    "test:syntax": "node scripts/check-syntax.js",
     "build-mac": "rm -rf Build && CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish never",
     "build-win": "npx electron-builder --win --publish never",
     "test": "npm run test:syntax && node tests/visualizer-decode.test.mjs"
@@ -28,7 +28,8 @@
     "appId": "com.olivergrainger.lightingconsole",
     "productName": "Lighting Console",
     "directories": {
-      "output": "Build"
+      "output": "Build",
+      "buildResources": "assets"
     },
     "asar": true,
     "afterPack": "scripts/after-pack-mac.js",
@@ -42,7 +43,8 @@
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab.",
         "NSMicrophoneUsageDescription": "Light Spark listens to a sound input for audio timecode (LTC) when you turn it on."
-      }
+      },
+      "icon": "assets/icon.png"
     },
     "win": {
       "target": [
@@ -59,7 +61,8 @@
           ]
         }
       ],
-      "artifactName": "Lighting-Console-${version}-${arch}.${ext}"
+      "artifactName": "Lighting-Console-${version}-${arch}.${ext}",
+      "icon": "assets/icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -67,6 +70,19 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Lighting Console"
+    },
+    "files": [
+      "**/*",
+      "!tests/**",
+      "!remote-ios/**",
+      "!Build/**",
+      "!assets/**",
+      "!show-mode-launcher.command",
+      "!repomix-output.xml",
+      "!**/*.md"
+    ],
+    "portable": {
+      "artifactName": "Lighting-Console-${version}-portable.${ext}"
     }
   }
 }

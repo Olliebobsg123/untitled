@@ -27,8 +27,11 @@
   const send = m => { if (!socket || socket.readyState !== WebSocket.OPEN) return false; try { socket.send(JSON.stringify(m)); return true; } catch (_) { return false; } };
   const sendConfig = () => send({ type:"MULTI_OUTPUT_CONFIG", outputs:outputs.slice(0,MAX_OUTPUTS) });
   const requestUsbPorts = () => send({ type:"MULTI_USB_PORTS" });
-  const sendMode = mode => send({ type:"MULTI_OUTPUT_MODE", mode: canPhysicalOutput() ? (String(mode).toUpperCase() === "BLIND" ? "BLIND" : "LIVE") : "BLIND" });
+  // A backup, client or mirror console holds its output (js/session.js): it
+  // never drives the lights unless it takes over.
+  const sendMode = mode => send({ type:"MULTI_OUTPUT_MODE", mode: canPhysicalOutput() && !window.__lxOutputHeld ? (String(mode).toUpperCase() === "BLIND" ? "BLIND" : "LIVE") : "BLIND" });
   window.__setMultiOutputMode = sendMode;
+  window.__refreshOutputMode = () => sendMode(window.getConsoleMode?.() || "LIVE");
 
   function normalizeOutputs(next) {
     return (Array.isArray(next) ? next : []).slice(0, MAX_OUTPUTS).map((raw, index) => {

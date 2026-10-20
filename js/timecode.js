@@ -123,6 +123,7 @@
   }
 
   function fire(index, fade, why) {
+    if (window.LXSession && !window.LXSession.drives()) return; // another console is running the show
     const cue = S().cues[index];
     window.LXFixtureInfo?.act("cue", `Cue ${index + 1} “${cue?.name || ""}”`, `timecode ${format(cue.timecode)}`, 1500);
     window.goToCue?.(index, fade);

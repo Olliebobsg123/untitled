@@ -62,6 +62,20 @@ const feedbackApi = {
 };
 
 try {
+  contextBridge.exposeInMainWorld('LXSessionLink', {
+    start: cfg => ipcRenderer.invoke('lx-session-start', cfg),
+    info: () => ipcRenderer.invoke('lx-session-info'),
+    discovered: () => ipcRenderer.invoke('lx-session-discovered'),
+    send: (msg, to, except) => ipcRenderer.send('lx-session-send', { msg, to, except }),
+    setInControl: on => ipcRenderer.send('lx-session-control', Boolean(on)),
+    onMessage: cb => { ipcRenderer.on('lx-session-message', (_e, data) => cb(data.from, data.msg)); },
+    onStatus: cb => { ipcRenderer.on('lx-session-status', (_e, info) => cb(info)); }
+  });
+} catch (error) {
+  console.error('[SESSION] could not expose the session bridge:', error);
+}
+
+try {
   contextBridge.exposeInMainWorld('LXShowFiles', showFileApi);
   console.log('[SHOW DEBUG] LXShowFiles preload bridge exposed');
 } catch (error) {

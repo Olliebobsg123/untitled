@@ -72,6 +72,7 @@
 
   function msc(d, port) {
     if (pref("mscIn", true) === false) return;
+    if (window.LXSession && !window.LXSession.drives()) return; // another console is running the show
     const wantPort = pref("mscInPort", "any");
     if (wantPort !== "any" && port && port !== wantPort) return;
     const device = d[2], want = pref("mscInDevice", "any");

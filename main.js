@@ -116,6 +116,25 @@ ipcMain.handle('lx-remote-set-enabled', (_e, enabled) => getRemoteServer()?.setE
 ipcMain.handle('lx-remote-regen-pin', () => getRemoteServer()?.regeneratePin() ?? REMOTE_OFF);
 ipcMain.on('lx-remote-snapshot', (_e, snapshot) => { if (remoteServer) remoteServer.broadcast(snapshot); });
 
+// ---- Multi-console link (see session-link.js and js/session.js) ----
+let sessionLink = null;
+function getSessionLink() {
+  if (!sessionLink) {
+    const { createSessionLink } = require('./session-link.js');
+    const toPage = (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); };
+    sessionLink = createSessionLink({
+      onMessage: (from, msg) => toPage('lx-session-message', { from, msg }),
+      onStatus: info => toPage('lx-session-status', info)
+    });
+  }
+  return sessionLink;
+}
+ipcMain.handle('lx-session-start', (_e, cfg) => getSessionLink().start(cfg));
+ipcMain.handle('lx-session-info', () => getSessionLink().info());
+ipcMain.handle('lx-session-discovered', () => getSessionLink().discovered());
+ipcMain.on('lx-session-send', (_e, payload) => { if (sessionLink) sessionLink.send(payload?.msg, payload?.to || null, payload?.except || null); });
+ipcMain.on('lx-session-control', (_e, on) => { if (sessionLink) sessionLink.setInControl(on); });
+
 // ---- QLab Connect link (see desk-link.js) ----
 // QLab Connect fires lighting cues by sending a desk OSC commands; this makes
 // Light Spark answer them like a Zero 88 ZerOS desk would.
@@ -384,7 +403,8 @@ function createWindow() {
 app.whenReady().then(() => {
   buildApplicationMenu(); startServices(); createWindow();
   try { getRemoteServer()?.autostart(); } catch (err) { console.error('❌ Remote server failed:', err); }
+  try { getSessionLink(); } catch (err) { console.error('❌ Multi-console link failed:', err); } // listens for primaries on the LAN
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
-app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} try { deskLink?.close(); } catch (_) {} stopServices(); });
+app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} try { deskLink?.close(); } catch (_) {} try { sessionLink?.stop(); } catch (_) {} stopServices(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

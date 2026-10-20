@@ -40,6 +40,8 @@ const fs = require("fs"), path = require("path");
     await viz.screenshot({ path: path.join(out, "viz.png") }).catch(e => console.log("viz shot failed", e.message));
   }
   console.log("VIZ errors\n" + vizErrors.slice(0, 40).join("\n"));
+  console.log("VERSION", await app.evaluate(({ app }) => app.getVersion()));
+  console.log("UPDATE", JSON.stringify(await win.evaluate(async () => { await window.LXUpdates?.check(true); await new Promise(r => setTimeout(r, 6000)); return window.LXUpdates?.state(); })));
   fs.writeFileSync(path.join(out, "stalls-log.txt"), lines.join("\n"));
   console.log("----- log -----\n" + lines.filter(l => !/FixtureLibrary/.test(l)).slice(0, 120).join("\n"));
   try { app.process().kill(); } catch (_) {}

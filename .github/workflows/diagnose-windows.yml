@@ -24,9 +24,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download latest-build --repo $env:GITHUB_REPOSITORY --pattern 'Lighting-Console-1.0.0-x64.exe' --dir dl
+          gh release download latest-build --repo $env:GITHUB_REPOSITORY --pattern 'Lighting-Console-x64.exe' --dir dl
           $t = Get-Date
-          Start-Process -Wait -FilePath dl\Lighting-Console-1.0.0-x64.exe -ArgumentList '/S'
+          Start-Process -Wait -FilePath dl\Lighting-Console-x64.exe -ArgumentList '/S'
           "install took $([int]((Get-Date)-$t).TotalSeconds)s"
           $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'Lighting Console.exe' | Select-Object -First 1
           "installed at $($exe.FullName)"

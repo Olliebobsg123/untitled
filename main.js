@@ -507,6 +507,10 @@ function createWindow() {
 app.on('before-quit', () => step('quitting'));
 app.on('child-process-gone', (_e, d) => mark(`${d.type} process gone: ${d.reason}${d.name ? ` (${d.name})` : ''}`));
 app.whenReady().then(() => {
+  // A lighting console must keep full speed when it isn't the front app
+  // (the operator is in QLab): macOS "App Nap" would otherwise slow its
+  // timers to a crawl — late fades, late GOs, a backup that seems frozen.
+  try { require('electron').powerSaveBlocker.start('prevent-app-suspension'); } catch (_) {}
   step('ready'); buildApplicationMenu(); step('services'); startServices(); step('window'); createWindow(); step('window created');
   step('remote'); try { getRemoteServer()?.autostart(); } catch (err) { console.error('❌ Remote server failed:', err); }
   step('session link'); try { getSessionLink(); } catch (err) { console.error('❌ Multi-console link failed:', err); } // listens for primaries on the LAN

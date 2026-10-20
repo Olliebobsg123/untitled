@@ -42,12 +42,46 @@ function createSessionLink({ onMessage, onStatus }) {
   let cfg = { role: "standalone", name: os.hostname(), port: 8850, pin: "", host: "" };
   let server = null, wss = null;           // primary
   let socket = null, retry = null;         // backup / client / mirror
+  let socketFlow = null;            // flow control for the socket (set on connect)
   let beaconTimer = null, beaconOut = null, beaconIn = null;
   const peers = new Map();                 // id -> { ws, name, role, address, inControl }
   const seen = new Map();                  // "host:port" -> { name, host, port, pin, at }
   let connected = false, lastError = "";
 
   const emit = () => { try { onStatus?.(info()); } catch (_) {} };
+
+  // Live updates (levels, the cue playing…) are sent with a number and the
+  // other end answers each one. Only a couple may be on their way at once:
+  // when Wi-Fi slows down, newer updates are merged into one instead of
+  // queueing up, so the other console is never more than a moment behind.
+  // Everything else (the show, GO from a client…) is always sent in order.
+  const LIVE = new Set(["live", "states"]);
+  const IN_FLIGHT = 2;
+  const flow = () => ({ seq: 0, acked: 0, sentAt: 0, pending: null });
+  function merge(a, b) {
+    if (!a) return b;
+    const states = new Map((a.states || []).map(([id, st]) => [id, st]));
+    for (const [id, st] of b.states || []) states.set(id, b.type === "states" ? { ...(states.get(id) || {}), ...st } : st);
+    return { ...a, ...b, states: [...states], full: Boolean(a.full || b.full) };
+  }
+  function sendFlow(ws, f, msg) {
+    if (ws.readyState !== WebSocket.OPEN) return false;
+    if (!LIVE.has(msg.type)) { try { ws.send(JSON.stringify(msg)); return true; } catch (_) { return false; } }
+    // No answer for a while (lost on a reconnect): don't wait for ever.
+    if (f.seq - f.acked >= IN_FLIGHT && Date.now() - f.sentAt > 3000) f.acked = f.seq;
+    if (f.seq - f.acked >= IN_FLIGHT) { f.pending = f.pending && f.pending.type !== msg.type ? (sendNow(ws, f, f.pending), msg) : merge(f.pending, msg); return true; }
+    if (f.pending) { msg = merge(f.pending, msg); f.pending = null; }
+    return sendNow(ws, f, msg);
+  }
+  function sendNow(ws, f, msg) {
+    f.seq++; f.sentAt = Date.now();
+    try { ws.send(JSON.stringify({ ...msg, seq: f.seq })); return true; } catch (_) { return false; }
+  }
+  function acked(ws, f, seq) {
+    f.acked = Math.max(f.acked, Number(seq) || 0);
+    if (f.pending && f.seq - f.acked < IN_FLIGHT) { const m = f.pending; f.pending = null; sendNow(ws, f, m); }
+  }
+  const ack = (ws, msg) => { if (msg.seq && LIVE.has(msg.type)) try { ws.send(JSON.stringify({ type: "ack", seq: msg.seq })); } catch (_) {} };
   const deliver = (from, msg) => { try { onMessage?.(from, msg); } catch (_) {} };
 
   function info() {
@@ -66,7 +100,7 @@ function createSessionLink({ onMessage, onStatus }) {
 
   function startPrimary() {
     server = http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("Light Spark session\n"); });
-    wss = new WebSocket.Server({ server, maxPayload: 64 * 1024 * 1024 });
+    wss = new WebSocket.Server({ server, maxPayload: 64 * 1024 * 1024, perMessageDeflate: { threshold: 512, zlibDeflateOptions: { level: 3 } } });
     wss.on("connection", (ws, req) => {
       const id = crypto.randomBytes(4).toString("hex");
       const address = String(req.socket.remoteAddress || "").replace(/^::ffff:/, "");
@@ -81,12 +115,14 @@ function createSessionLink({ onMessage, onStatus }) {
           hello = msg;
           // Only a backup can be running the show.
           if (msg.role !== "backup") msg.inControl = false;
-          peers.set(id, { ws, name: String(msg.name || address), role: msg.role, address, inControl: Boolean(msg.inControl) });
+          peers.set(id, { ws, name: String(msg.name || address), role: msg.role, address, inControl: Boolean(msg.inControl), flow: flow() });
           ws.send(JSON.stringify({ type: "welcome", id, name: cfg.name }));
           deliver(id, { ...msg, type: "joined", id });
           emit();
           return;
         }
+        if (msg.type === "ack") { const p = peers.get(id); if (p) acked(ws, p.flow, msg.seq); return; }
+        ack(ws, msg);
         if (msg.type === "control") { const p = peers.get(id); if (p) { if (p.role !== "backup") return; p.inControl = Boolean(msg.inControl); } emit(); }
         deliver(id, msg);
       });
@@ -117,11 +153,13 @@ function createSessionLink({ onMessage, onStatus }) {
     const url = `ws://${cfg.host.includes(":") && !cfg.host.startsWith("[") ? cfg.host : `${cfg.host}:${cfg.port}`}`;
     let ws;
     try { ws = new WebSocket(url, { handshakeTimeout: 3000, maxPayload: 64 * 1024 * 1024 }); } catch (error) { lastError = error.message; emit(); retry = setTimeout(connect, 1000); return; }
-    socket = ws;
+    socket = ws; socketFlow = flow();
     ws.on("open", () => ws.send(JSON.stringify({ type: "hello", role: cfg.role, name: cfg.name, pin: cfg.pin, inControl: Boolean(cfg.inControl) })));
     ws.on("message", data => {
       let msg;
       try { msg = JSON.parse(String(data)); } catch (_) { return; }
+      if (msg.type === "ack") return acked(ws, socketFlow, msg.seq);
+      ack(ws, msg);
       if (msg.type === "welcome") { connected = true; lastError = ""; emit(); }
       if (msg.type === "denied") { lastError = msg.reason || "Refused"; emit(); }
       deliver("primary", msg);
@@ -190,17 +228,17 @@ function createSessionLink({ onMessage, onStatus }) {
 
   // Primary: to one peer or all of them (except `except`). Others: to the primary.
   function send(msg, to = null, except = null) {
-    const text = JSON.stringify(msg);
+    if (!msg || typeof msg !== "object") return false;
+    const { seq: _drop, ...clean } = msg; // a forwarded message gets its own number
     if (cfg.role === "primary") {
       for (const [id, p] of peers) {
-        if ((to && id !== to) || id === except || p.ws.readyState !== WebSocket.OPEN) continue;
+        if ((to && id !== to) || id === except) continue;
         if (p.ws.bufferedAmount > 32 * 1024 * 1024) continue; // a stuck peer doesn't stall everyone
-        try { p.ws.send(text); } catch (_) {}
+        sendFlow(p.ws, p.flow, clean);
       }
       return true;
     }
-    if (socket?.readyState === WebSocket.OPEN) { try { socket.send(text); return true; } catch (_) {} }
-    return false;
+    return socket ? sendFlow(socket, socketFlow, clean) : false;
   }
   function setInControl(on) { cfg.inControl = Boolean(on); }
 

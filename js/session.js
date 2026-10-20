@@ -104,12 +104,14 @@
   let sentKey = "", lastBeat = 0;
   let fadeInfo = null;           // { index, start, fade } of the cue fading in
 
+  // 2 decimal places is far finer than DMX, and keeps updates small on Wi-Fi.
+  const round = (k, v) => (typeof v === "number" && !Number.isInteger(v) ? Math.round(v * 100) / 100 : v);
   function sendLive(force = false) {
     const s = S();
     if (!s?.fixtureStates) return;
     const states = [];
     s.fixtureStates.forEach((st, id) => {
-      const text = JSON.stringify(st);
+      const text = JSON.stringify(st, round);
       if (force || sentStates.get(id) !== text) { states.push([id, JSON.parse(text)]); sentStates.set(id, text); }
     });
     const head = {
@@ -341,6 +343,9 @@
   }
 
   function setControl(on, why) {
+    // Following again: the console in control gets a full take-over window
+    // from now, not from when it was last heard (maybe before it crashed).
+    if (inControl && !on) lastFromController = performance.now();
     inControl = Boolean(on);
     link.setInControl(inControl);
     holdOutput(!inControl || role === "client" || role === "mirror");

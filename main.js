@@ -3,6 +3,10 @@ const path = require('path');
 const fs = require('fs');
 
 let mainWindow = null;
+// The screen mirror talks WebRTC on the local network. Chromium hides local
+// IP addresses behind mDNS names, which some Wi-Fi networks can't resolve
+// (they block multicast): use the plain addresses.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 // Startup log: what the app was doing, and any moment the main process was
 // stuck (Windows calls that "Not Responding"). Kept in the app's data folder
@@ -67,6 +71,15 @@ function resolveShowPath(filePath) {
 
 ipcMain.handle('lx-show-default-directory', () => getShowDirectory());
 // Audio timecode (LTC) listens to a sound input: macOS asks the user first.
+// Screen mirror (js/screen-mirror.js): the id of this window for capture,
+// and whether macOS lets us record it.
+ipcMain.handle('lx-screen-source', event => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  let permission = 'granted';
+  if (process.platform === 'darwin') { try { permission = require('electron').systemPreferences.getMediaAccessStatus('screen'); } catch (_) {} }
+  return { id: win ? win.getMediaSourceId() : null, permission };
+});
+ipcMain.handle('lx-open-screen-settings', () => { if (process.platform === 'darwin') require('electron').shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'); });
 ipcMain.handle('lx-ask-microphone', async () => {
   if (process.platform !== 'darwin') return true;
   const { systemPreferences } = require('electron');

@@ -91,6 +91,8 @@ try {
     quit: () => ipcRenderer.send('lx-quit'),
     setConfirmQuit: on => ipcRenderer.send('lx-quit-confirm', Boolean(on)),
     askMicrophone: () => ipcRenderer.invoke('lx-ask-microphone'),
+    screenSource: () => ipcRenderer.invoke('lx-screen-source'),
+    openScreenSettings: () => ipcRenderer.invoke('lx-open-screen-settings'),
     version,
     platform: process.platform,
     update: {

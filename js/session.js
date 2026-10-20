@@ -346,6 +346,7 @@
     // Following again: the console in control gets a full take-over window
     // from now, not from when it was last heard (maybe before it crashed).
     if (inControl && !on) lastFromController = performance.now();
+    if (inControl && !on) window.LXScreenMirror?.stopAll();
     inControl = Boolean(on);
     link.setInControl(inControl);
     holdOutput(!inControl || role === "client" || role === "mirror");
@@ -405,11 +406,12 @@
       case "left": {
         const wasController = controller === from;
         say(`A console disconnected${wasController ? " — it was running the show, so this primary takes over again" : ""}`, wasController ? "warn" : "info");
-        if (wasController) { controller = "self"; setControl(true); resume(); }
+        if (wasController) { controller = "self"; setControl(true); resume(); link.send({ type: "rtc-again" }); }
         renderPanel();
         return;
       }
       case "control":
+        link.send({ type: "rtc-again" }, null, from); // mirrors: the picture comes from someone else now
         if (msg.inControl) { controller = from; stopEnginesQuietly(); setControl(false, "A backup took over the lights — this primary is following it now"); joined = true; }
         else if (controller === from) { controller = "self"; setControl(true, "Control is back on this primary"); resume(); sendLive(true); }
         return;
@@ -420,6 +422,13 @@
         return;
       case "live":
         if (from === controller) { applyLive(msg); link.send(msg, null, from); }
+        return;
+      case "rtc":
+      case "rtc-want":
+        // Screen mirror set-up: between a mirror and the console in control.
+        if (from === controller && msg.peer) { const { peer, ...rest } = msg; link.send(rest, peer); }
+        else if (controller === "self") window.LXScreenMirror?.onSignal(from, msg);
+        else link.send({ ...msg, peer: from }, controller);
         return;
       case "call":
       case "states":
@@ -437,6 +446,7 @@
     switch (msg.type) {
       case "welcome":
         say(`Connected to the primary “${msg.name}” as ${NAMES[role].toLowerCase()}`, "ok");
+        if (role === "mirror") window.LXScreenMirror?.startWatching(msg.name);
         renderPanel();
         return;
       case "denied":
@@ -444,6 +454,7 @@
         return;
       case "lost":
         say("Lost the primary", "warn");
+        if (role === "mirror") window.LXScreenMirror?.stopWatching();
         renderBadge(); renderPanel();
         return;
       case "show":
@@ -457,6 +468,14 @@
         return;
       case "handback":
         release();
+        return;
+      case "rtc-again":
+        if (role === "mirror") window.LXScreenMirror?.restart();
+        return;
+      case "rtc":
+      case "rtc-want":
+        if (inControl && role === "backup") window.LXScreenMirror?.onSignal(msg.peer, msg);
+        else if (role === "mirror") window.LXScreenMirror?.onSignal("primary", msg);
         return;
       case "show-request":
         if (inControl) { sendShow(true); sendLive(true); }
@@ -514,6 +533,7 @@
     if (!link) return say("Multi-console needs the desktop app", "warn");
     for (const [k, v] of Object.entries(next)) window.LXPrefs?.set(k, v);
     role = pref("sessionRole", "standalone");
+    window.LXScreenMirror?.stopWatching(); window.LXScreenMirror?.stopAll();
     joined = role === "primary" || role === "standalone";
     controller = "self";
     lastFromController = 0;
@@ -765,6 +785,13 @@
   window.LXSession = Object.freeze({
     start, takeOver, handBack, release,
     role: () => role, inControl: () => inControl, joined: () => joined, drives,
-    status: () => ({ role, inControl, controller, joined, info, lastFromController })
+    status: () => ({ role, inControl, controller, joined, info, lastFromController }),
+    // Screen mirror messages: a mirror sends to the primary; the console in
+    // control answers a mirror (a backup in control goes via the primary).
+    signal: (peer, msg) => {
+      if (role === "primary") return link.send(msg, peer);
+      if (role === "backup" && inControl) return link.send({ ...msg, peer });
+      return link.send(msg);
+    }
   });
 })();

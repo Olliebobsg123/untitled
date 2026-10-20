@@ -365,7 +365,7 @@ Object.values(cueColours).forEach(colour => { colour.light ??= 50; });
 
 const commandDefs = [
   {cmd:'artnet',hint:''},{cmd:'clear',hint:''},{cmd:'release',hint:''},{cmd:'blackout',hint:''},{cmd:'full',hint:''},
-  {cmd:'all',hint:'[25/50/75/half]'},{cmd:'group',hint:'[number] = [fixtures] / [name] / at [value] / colour [name]'},
+  {cmd:'all',hint:'[25/50/75/half]'},{cmd:'group',hint:'= [name] [fixtures] / [number] = [fixtures] / [name] / at [value] / colour [name]'},
   {cmd:'delete group',hint:'[name]'},{cmd:'record cue',hint:'[number] [name]'},{cmd:'delete cue',hint:'[number]'},
   {cmd:'update cue',hint:'[number] / name [name] / fade [seconds] / follow [seconds|off]'},{cmd:'rename cue',hint:'[number] [name]'},
   {cmd:'follow cue',hint:'[number] [seconds/off]'},{cmd:'copy cue',hint:'[from] to [to] [name]'},{cmd:'move cue',hint:'[from] to [to]'},
@@ -798,6 +798,26 @@ function parseCommand(cmd){
     const namedGrp=State.groups.find(x=>String(x.name).toLowerCase()===c);
     if(namedGrp){const found=selectGroup(namedGrp);return log(`Selected "${namedGrp.name}": ${found}/${namedGrp.members.length}`,'ok');}
 
+    // Named groups: "group = front whites 1,3,5", "group front whites = 1 thru 6",
+    // or with no numbers, the fixtures that are selected now.
+    if(!/^group\s+\d+\s*=/.test(c)&&(g=c.match(/^group\s*=\s*(.+)$/)||c.match(/^group\s+(.+?)\s*=\s*(.*)$/))){
+      let name,list;
+      if(g[2]!==undefined){name=g[1];list=g[2];}
+      else{const m=g[1].match(/^(.*?)\s*((?:\d+(?:\s*(?:thru|through|-|–|>)\s*\d+)?[\s,]*)+)$/);name=m&&/\D/.test(m[1])?m[1]:g[1];list=m&&/\D/.test(m[1])?m[2]:'';}
+      name=String(name).trim().replace(/^["']|["']$/g,'');
+      if(!name)return log('Give the group a name: group = front whites 1,3,5','warn');
+      let members=parseSelection(String(list).replace(/>/g,'-').replace(/,\s*,+/g,','));
+      if(!list.trim()){
+        const byId=new Map((State.fixtures||[]).map(f=>[f.id,f]));
+        members=[...(State.selected||[])].map(id=>Number(byId.get(id)?.fixtureNumber)).filter(Number.isFinite).sort((a,b)=>a-b);
+        if(!members.length)return log(`Select some fixtures first, or list them: group = ${name} 1,3,5`,'warn');
+      }
+      if(!members.length)return log('No valid fixture numbers','warn');
+      const title=name.replace(/\b\w/g,ch=>ch.toUpperCase());
+      const existing=State.groups.find(x=>String(x.name).toLowerCase()===name.toLowerCase());
+      existing?existing.members=members:State.groups.push({name:title,members});
+      renderGroups?.();return log(`Group "${existing?.name||title}" ${existing?'updated':'saved'}: ${members.join(', ')}`,'ok');
+    }
     if(g=c.match(/^group\s+(\d+)\s*=\s*(.+)$/)){
       const num=Number(g[1]),members=parseSelection(g[2]);
       if(!members.length)return log('No valid fixture numbers','warn');
@@ -878,11 +898,13 @@ function parseCommand(cmd){
     const selm=c.match(/^((?:\d+\s*(thru|–|-)\s*\d+|\d+(?:\s*,\s*\d+)*|\d+))$/);
     if(selm){const count=selectFixtureNumbers(parseSelection(selm[1]));if(count){renderFixtures?.();return log(`Selected ${count} fixture(s)`,'ok');}}
 
-    const atv=c.match(/at\s+(\d+\.?\d*)/);
+    // These catch-alls only take a whole command ("white", "at 50"), so an
+    // unrecognised line containing a colour word can't change the lights.
+    const atv=c.match(/^(?:at|@)\s*(\d+\.?\d*)$/);
     if(atv&&State.selected.size){const v=Math.max(0,Math.min(100,parseFloat(atv[1])));applyLevel(v);return log(`@ ${v}%`,'ok');}
-    const colm=c.match(/(red|green|blue|white|yellow|cyan|magenta|orange|elsa|ice|snow|sky|aurora|castle|kristoff|sven|olaf|forest|night)/);
+    const colm=c.match(/^(?:colou?r\s+)?(red|green|blue|white|yellow|cyan|magenta|orange|elsa|ice|snow|sky|aurora|castle|kristoff|sven|olaf|forest|night)$/);
     if(colm&&State.selected.size){applyColour(cueColours[colm[1]]);return log(`Colour: ${colm[1]}`,'ok');}
-    const stbm=c.match(/strobe\s+(\d+|off)/);
+    const stbm=c.match(/^strobe\s+(\d+|off)$/);
     if(stbm&&State.selected.size){const v=stbm[1]==='off'?0:Math.max(0,Math.min(255,Number(stbm[1])));fadeFixtures(State.selected,{strobe:v},0);return log(v===0?'Strobe off':`Strobe ${v}`,'ok');}
     return log(`Unknown command: ${cmd} — type "status" to see what's loaded`,'warn');
   }

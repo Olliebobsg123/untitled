@@ -10,7 +10,6 @@ On a Windows 10 or 11 PC:
    ```
    git clone https://github.com/Olliebobsg123/untitled.git lightspark
    cd lightspark
-   git checkout my-local-backup
    npm install
    npm run build-win
    ```

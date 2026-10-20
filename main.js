@@ -4,6 +4,34 @@ const fs = require('fs');
 
 let mainWindow = null;
 
+// Startup log: what the app was doing, and any moment the main process was
+// stuck (Windows calls that "Not Responding"). Kept in the app's data folder
+// (File → Show Log Folder on Windows, the Light Spark menu on a Mac), newest 200 KB.
+const startedAt = Date.now();
+let logFile = null;
+function mark(what) {
+  try {
+    if (!logFile) {
+      const dir = path.join(app.getPath('userData'), 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+      logFile = path.join(dir, 'main.log');
+      try { if (fs.statSync(logFile).size > 200 * 1024) fs.renameSync(logFile, `${logFile}.old`); } catch (_) {}
+      fs.appendFileSync(logFile, `\n=== ${new Date().toISOString()} Light Spark ${app.getVersion()} on ${process.platform} ${require('os').release()} ===\n`);
+    }
+    fs.appendFileSync(logFile, `${((Date.now() - startedAt) / 1000).toFixed(2)}s ${what}\n`);
+  } catch (_) {}
+}
+let lastMark = 'starting';
+const step = what => { lastMark = what; mark(what); };
+{
+  let last = Date.now();
+  setInterval(() => {
+    const now = Date.now(), late = now - last - 250;
+    if (late > 1500) mark(`STUCK for ${(late / 1000).toFixed(1)}s (after: ${lastMark})`);
+    last = now;
+  }, 250).unref?.();
+}
+
 // One copy at a time: a second copy would fight the first over the DMX
 // output ports (double-clicking twice is easy on Windows). Opening it again
 // brings the running one to the front. LX_ALLOW_MULTIPLE=1 lifts this.
@@ -210,12 +238,12 @@ ipcMain.handle('lx-desk-configure', (_e, next) => getDeskLink().configure(next))
 function startServices() {
   if (servicesStarted) return;
   servicesStarted = true;
-  try { relayService = require('./relay.js'); console.log('✅ ART-NET relay service started'); } catch (err) { console.error('❌ ART-NET relay failed:', err); }
+  step('./relay.js'); try { relayService = require('./relay.js'); console.log('✅ ART-NET relay service started'); } catch (err) { console.error('❌ ART-NET relay failed:', err); }
   // QLab is deliberately NOT started here. It is a Pro-only service and is
   // started below only after the renderer confirms the active licence tier.
-  try { multiOutputService = require('./multi-output.js'); console.log('✅ Multi-universe output service started'); } catch (err) { console.error('❌ Multi-universe output failed:', err); }
-  try { usbDmxService = require('./usb-dmx.js'); console.log('✅ USB-DMX service started'); } catch (err) { console.error('❌ USB-DMX service failed:', err); }
-  try { getDeskLink(); } catch (err) { console.error('❌ QLab Connect link failed:', err); }
+  step('./multi-output.js'); try { multiOutputService = require('./multi-output.js'); console.log('✅ Multi-universe output service started'); } catch (err) { console.error('❌ Multi-universe output failed:', err); }
+  step('./usb-dmx.js'); try { usbDmxService = require('./usb-dmx.js'); console.log('✅ USB-DMX service started'); } catch (err) { console.error('❌ USB-DMX service failed:', err); }
+  step('desk link'); try { getDeskLink(); } catch (err) { console.error('❌ QLab Connect link failed:', err); }
 }
 
 function startQLabBridgeIfPro() {
@@ -272,6 +300,7 @@ function buildApplicationMenu() {
       submenu: [
         page(`About ${APP_NAME}`, 'about'),
         page('Check for Updates…', 'updates'),
+        { label: 'Show Log Folder', click: () => require('electron').shell.openPath(path.join(app.getPath('userData'), 'logs')) },
         { type: 'separator' },
         page('Preferences…', 'prefs', 'CmdOrCtrl+,'),
         { type: 'separator' },
@@ -295,7 +324,7 @@ function buildApplicationMenu() {
         page('Autosave Now', 'autosave'),
         { type: 'separator' },
         page('Clear Programmer', 'clear'),
-        ...(mac ? [] : [{ type: 'separator' }, page('Preferences…', 'prefs', 'CmdOrCtrl+,'), page('Check for Updates…', 'updates'), { type: 'separator' }, { label: `Quit ${APP_NAME}`, accelerator: 'Ctrl+Q', click: () => app.quit() }])
+        ...(mac ? [] : [{ type: 'separator' }, page('Preferences…', 'prefs', 'CmdOrCtrl+,'), page('Check for Updates…', 'updates'), { label: 'Show Log Folder', click: () => require('electron').shell.openPath(path.join(app.getPath('userData'), 'logs')) }, { type: 'separator' }, { label: `Quit ${APP_NAME}`, accelerator: 'Ctrl+Q', click: () => app.quit() }])
       ]
     },
     { role: 'editMenu' }, // copy and paste in text boxes need this on a Mac
@@ -373,9 +402,13 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   guardClose(mainWindow);
+  mainWindow.on('unresponsive', () => step('PAGE NOT RESPONDING'));
+  mainWindow.on('responsive', () => step('page responding again'));
+  mainWindow.webContents.on('render-process-gone', (_e, d) => step(`page crashed: ${d.reason}`));
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.webContents.once('did-finish-load', () => {
+    step('page loaded');
     startQLabBridgeIfPro();
 
     mainWindow.webContents.executeJavaScript(`
@@ -471,10 +504,13 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+app.on('before-quit', () => step('quitting'));
+app.on('child-process-gone', (_e, d) => mark(`${d.type} process gone: ${d.reason}${d.name ? ` (${d.name})` : ''}`));
 app.whenReady().then(() => {
-  buildApplicationMenu(); startServices(); createWindow();
-  try { getRemoteServer()?.autostart(); } catch (err) { console.error('❌ Remote server failed:', err); }
-  try { getSessionLink(); } catch (err) { console.error('❌ Multi-console link failed:', err); } // listens for primaries on the LAN
+  step('ready'); buildApplicationMenu(); step('services'); startServices(); step('window'); createWindow(); step('window created');
+  step('remote'); try { getRemoteServer()?.autostart(); } catch (err) { console.error('❌ Remote server failed:', err); }
+  step('session link'); try { getSessionLink(); } catch (err) { console.error('❌ Multi-console link failed:', err); } // listens for primaries on the LAN
+  step('started');
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
 app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} try { deskLink?.close(); } catch (_) {} try { sessionLink?.stop(); } catch (_) {} stopServices(); });

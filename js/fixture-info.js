@@ -86,11 +86,14 @@
     const ids = Array.isArray(chase.fixtureIds) && chase.fixtureIds.length ? chase.fixtureIds : null;
     return !ids || ids.includes(id) ? chase : null;
   }
+  // The running effect this fixture is in (several can run at once).
   function effectHas(id) {
-    const e = S().activeEffect;
-    if (!e) return null;
-    const ids = Array.isArray(e.fixtureIds) && e.fixtureIds.length ? e.fixtureIds : null;
-    return !ids || ids.includes(id) ? e : null;
+    const list = Array.isArray(S().effects) && S().effects.length ? S().effects : S().activeEffect ? [S().activeEffect] : [];
+    for (const e of [...list].reverse()) {
+      const ids = e.ids instanceof Set ? [...e.ids] : Array.isArray(e.fixtureIds) ? e.fixtureIds : null;
+      if (!ids || !ids.length || ids.map(String).includes(String(id))) return { ...e, fixtureIds: ids };
+    }
+    return null;
   }
 
   function watch() {

@@ -115,6 +115,7 @@
     const head = {
       current: s.current || {}, currentCue: s.currentCue ?? -1, nextCue: s.nextCue ?? null, currentChase: s.currentChase ?? -1,
       activeEffect: s.activeEffect ? { ...s.activeEffect } : null, blackout: Boolean(s.blackout),
+      effects: (s.effects || []).map(e => ({ id: e.id, type: e.type, name: e.name, speed: e.speed, fixtureIds: e.ids instanceof Set ? [...e.ids] : e.fixtureIds || [], levels: e.levels instanceof Map ? Object.fromEntries(e.levels) : e.levels || {} })),
       fade: fadeInfo && performance.now() - fadeInfo.start < fadeInfo.fade ? { index: fadeInfo.index, left: fadeInfo.fade - (performance.now() - fadeInfo.start) } : null,
       tc: window.LXTimecode?.now?.() ?? null
     };
@@ -152,6 +153,9 @@
     s.nextCue = msg.nextCue;
     s.currentChase = msg.currentChase;
     s.activeEffect = msg.activeEffect;
+    // What's running on the console in control (shown here; it runs there).
+    s.effects = (msg.effects || []).map(e => ({ ...e, ids: new Set(e.fixtureIds || []), levels: new Map(Object.entries(e.levels || {})) }));
+    window.renderRunningEffects?.();
     s.blackout = msg.blackout;
     try { window.updateDMX?.(); window.sendToVisualizer?.(); } catch (_) {}
     if (cueChanged) window.renderCues?.();
@@ -280,8 +284,10 @@
     try {
       if (live.fade && S().cues?.[live.fade.index]) (originals.goToCue || window.goToCue)(live.fade.index, Math.max(0, live.fade.left));
       if (live.currentChase >= 0 && s.chases?.[live.currentChase]) (originals.startChase || window.startChase)(live.currentChase);
-      if (live.activeEffect?.type) (originals.startEffect || window.startEffect)(live.activeEffect.type, { ...live.activeEffect, fixtures: live.activeEffect.fixtureIds });
-      else if (s.currentCue >= 0) window.startCueEffectIfNeeded?.(s.cues[s.currentCue]);
+      const effects = live.effects?.length ? live.effects : live.activeEffect?.type ? [live.activeEffect] : [];
+      s.effects = [];
+      for (const e of effects) (originals.startEffect || window.startEffect)(e.type, { ...e, fixtureMode: "custom", fixtureIds: e.fixtureIds });
+      if (!effects.length && s.currentCue >= 0) window.startCueEffectIfNeeded?.(s.cues[s.currentCue]);
     } catch (e) { console.warn("[SESSION] resume failed", e); }
   }
 

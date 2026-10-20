@@ -61,11 +61,32 @@ function snapshotCueEffect() {
     return snapshot;
 }
 
+// Every effect running, for a cue to bring back (several can run at once).
+function snapshotCueEffects() {
+    const list = Array.isArray(State.effects) ? State.effects : [];
+    return list.map(e => {
+        const fixtureIds = normaliseEffectFixtureIds(e.ids instanceof Set ? [...e.ids] : e.fixtureIds);
+        const snap = { type: String(e.type), speed: num(e.speed, 1), fixtureMode: "custom", fixtureIds };
+        if (e.name) snap.name = String(e.name);
+        if (e.levels instanceof Map) snap.levels = Object.fromEntries(e.levels);
+        return snap;
+    }).filter(e => e.type && e.fixtureIds.length);
+}
+
 function stopCueEffect() {
     if (typeof window.stopEffect === "function") window.stopEffect(true);
 }
 
 function startCueEffectIfNeeded(cue) {
+    // A cue recorded with several effects running brings them all back.
+    if (cue && Array.isArray(cue.effects) && cue.effects.length > 1 && typeof window.startEffect === "function") {
+        stopCueEffect();
+        cue.effects.forEach(saved => {
+            const ok = window.startEffect(String(saved.type), { ...saved, fixtureMode: "custom", fixtureIds: normaliseEffectFixtureIds(saved.fixtureIds) });
+            if (!ok) cueLog("Cue effect could not be started: " + saved.type, "warn");
+        });
+        return;
+    }
     if (!cue || !cue.effect || !cue.effect.type) {
         stopCueEffect();
         return;
@@ -558,7 +579,8 @@ function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs"
         fade: Math.max(0, num(fadeMs, 800)),
         follow: Math.max(0, num(follow, 0)),
         followEnabled: followEnabled === true,
-        effect
+        effect,
+        effects: snapshotCueEffects()
     }, existing ? existing.mode === "block" && existing.blocked === true : false);
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
@@ -686,7 +708,8 @@ function updateCue(number, options = {}) {
         fade,
         follow,
         followEnabled,
-        effect: effect && effect.type ? effect : null
+        effect: effect && effect.type ? effect : null,
+        effects: Object.prototype.hasOwnProperty.call(options, "effect") ? (effect && effect.type ? [effect] : []) : keepLook ? existing.effects : snapshotCueEffects()
     };
     if (keepLook) State.cues[number - 1] = entry;
     else storeLook(number - 1, entry, existing.mode === "block" && existing.blocked === true);

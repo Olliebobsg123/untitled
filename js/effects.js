@@ -1,7 +1,8 @@
 "use strict";
 
 window.State = window.State || {};
-State.activeEffect = State.activeEffect || null;
+State.activeEffect = State.activeEffect || null;   // the last effect started (older code reads this)
+State.effects = Array.isArray(State.effects) ? State.effects : [];  // every effect running now
 State.effectFrame = State.effectFrame || null;
 State.savedEffects = State.savedEffects || {};
 State.effectTargetIds = State.effectTargetIds instanceof Set ? State.effectTargetIds : new Set();
@@ -37,7 +38,16 @@ function setIntensity(percent) {
   if (label) label.textContent = String(Math.round(value));
   return value;
 }
-function fxGetLiveIntensity() {
+// The level an effect runs a fixture at. Each running effect remembers a
+// level per fixture (the intensity when it started); the Control Deck's
+// intensity fader changes it only for the fixtures you have selected.
+let fxRunning = null, fxFixture = null;
+function fxGetLiveIntensity(fixture = fxFixture) {
+  if (fxRunning && fixture) {
+    const level = fxRunning.levels.get(String(fixture.id));
+    if (Number.isFinite(level)) return fxClamp(level);
+    if (Number.isFinite(fxRunning.level)) return fxClamp(fxRunning.level);
+  }
   const current = Number(State.current && State.current.intensity);
   return Number.isFinite(current) ? fxClamp(current) : fxClamp(State.effectIntensity, 0, 100);
 }
@@ -161,39 +171,90 @@ function fxHasColour(fixture) {
   return !!(map && typeof map.r === "number" && typeof map.g === "number" && typeof map.b === "number");
 }
 
+/*
+ * Several effects can run at once, each on its own fixtures. A new effect
+ * takes over any of its fixtures another effect was running (that effect
+ * keeps the rest, and stops if it has none left). One frame loop runs them all.
+ */
+let fxNextId = 1;
+const fxSummary = e => ({ id: e.id, type: e.type, name: e.name, speed: e.speed, fixtureMode: e.fixtureMode, fixtureIds: [...e.ids] });
+function fxRefreshActive() {
+  const last = State.effects[State.effects.length - 1];
+  State.activeEffect = last ? fxSummary(last) : null;
+  if (typeof window.renderRunningEffects === "function") window.renderRunningEffects();
+}
+function fxLoop(now) {
+  State.effectFrame = null;
+  const running = State.effects.filter(e => typeof e.render === "function");
+  if (!running.length) return;
+  for (const e of running) {
+    const fixtures = e.fixtures.filter(f => e.ids.has(fxGetFixtureId(f)));
+    fxRunning = e;
+    try { e.render(now, (now - e.started) / 1000, fixtures); }
+    catch (err) { console.error("[EFFECTS]", e.type, err); }
+    finally { fxRunning = null; fxFixture = null; }
+  }
+  fxUpdateOutput();
+  State.effectFrame = LXClock.frame(fxLoop);
+}
+function fxEnsureLoop() { if (State.effectFrame === null) State.effectFrame = LXClock.frame(fxLoop); }
+
+// Stop every effect (Stop All, Clear Programmer, a cue without an effect…).
 function stopEffect(silent = false) {
   if (State.effectFrame !== null) { LXClock.cancel(State.effectFrame); State.effectFrame = null; }
-  const previous = State.activeEffect;
-  State.activeEffect = null;
-  if (!silent && previous) fxLog(`■ Effect stopped: ${previous.type}`, "ok");
+  const had = State.effects.filter(e => typeof e.render === "function");
+  State.effects = [];
+  fxRefreshActive();
+  if (!silent && had.length) fxLog(`■ ${had.length === 1 ? `Effect stopped: ${had[0].name || had[0].type}` : `${had.length} effects stopped`}`, "ok");
 }
+// Stop one running effect (by its id or name).
+function stopEffectById(idOrName, silent = false) {
+  const e = State.effects.find(x => x.id === idOrName || x.name === idOrName);
+  if (!e) return false;
+  State.effects = State.effects.filter(x => x !== e);
+  fxRefreshActive();
+  if (!silent) fxLog(`■ Effect stopped: ${e.name || e.type}`, "ok");
+  return true;
+}
+// Take fixtures out of whatever effects are running them.
+function stopEffectsOn(ids, silent = true) {
+  const set = new Set(fxNormaliseIds(ids));
+  State.effects.forEach(e => set.forEach(id => { e.ids.delete(id); e.levels.delete(id); }));
+  State.effects = State.effects.filter(e => e.ids.size);
+  fxRefreshActive();
+  if (!silent) fxLog(`■ Effects stopped on ${set.size} fixture${set.size === 1 ? "" : "s"}`, "ok");
+}
+
 function fxStart(type, options = {}, renderFrame, filter) {
-  stopEffect(true);
   const targetInfo = fxCaptureEffectTargets(options);
   const fixtures = fxGetFixtures({ ...targetInfo, ordered: options.ordered }).filter(filter || (() => true));
   if (!fixtures.length) { fxLog("No fixtures selected for this effect", "warn"); return false; }
   const speed = Math.max(type === "strobe" ? 1 : 0.05, fxNumber(options.speed, type === "strobe" ? 8 : 1));
-  State.activeEffect = { type, speed, fixtureMode: targetInfo.fixtureMode, fixtureIds: targetInfo.fixtureIds.slice() };
-  const started = performance.now();
-  function frame(now) {
-    if (!State.activeEffect || State.activeEffect.type !== type) return;
-    renderFrame(now, (now - started) / 1000, fixtures);
-    fxUpdateOutput();
-    State.effectFrame = LXClock.frame(frame);
-  }
-  State.effectFrame = LXClock.frame(frame);
-  fxLog(`▶ ${type[0].toUpperCase() + type.slice(1)} started — ${fixtures.length} fixture${fixtures.length === 1 ? "" : "s"}`, "ok");
+  const ids = fixtures.map(fxGetFixtureId);
+  // These fixtures leave any effect that had them.
+  stopEffectsOn(ids, true);
+  const base = Number(State.current && State.current.intensity);
+  const level = Number.isFinite(base) ? fxClamp(base) : fxClamp(State.effectIntensity, 0, 100);
+  const effect = {
+    id: `fx${fxNextId++}`, type, name: options.name ? String(options.name) : "", speed,
+    fixtureMode: targetInfo.fixtureMode, ids: new Set(ids), fixtures,
+    level, levels: new Map(ids.map(id => [id, Number.isFinite(Number(options.levels?.[id])) ? Number(options.levels[id]) : level])),
+    started: performance.now(), render: renderFrame
+  };
+  State.effects.push(effect);
+  fxRefreshActive();
+  fxEnsureLoop();
+  fxLog(`▶ ${effect.name || type[0].toUpperCase() + type.slice(1)} started — ${fixtures.length} fixture${fixtures.length === 1 ? "" : "s"}${State.effects.length > 1 ? ` (${State.effects.length} effects running)` : ""}`, "ok");
   return true;
 }
 
 function startRainbow(options = {}) {
   return fxStart("rainbow", options, (now, elapsed, fixtures) => {
     const speed = Math.max(0.05, fxNumber(options.speed, 0.12));
-    const live = fxGetLiveIntensity();
     fixtures.forEach((fixture, index) => {
       const hue = (elapsed * speed * 360 + index / Math.max(1, fixtures.length) * 360) % 360;
       const state = fxGetState(fixture); if (!state) return;
-      state.hue = hue; state.sat = 100; state.light = 50; state.intensity = live; state.master = 100;
+      state.hue = hue; state.sat = 100; state.light = 50; state.intensity = fxGetLiveIntensity(fixture); state.master = 100;
       if ("w" in state) state.w = 0;
     });
   }, fxHasColour);
@@ -202,9 +263,9 @@ function startStrobe(options = {}) {
   return fxStart("strobe", options, (now, elapsed, fixtures) => {
     const speed = Math.max(1, fxNumber(options.speed, 8));
     const on = Math.floor(elapsed * speed) % 2 === 0;
-    const live = fxGetLiveIntensity();
     fixtures.forEach(fixture => {
       const def = fxGetFixtureDefinition(fixture), state = fxGetState(fixture); if (!def || !state) return;
+      const live = fxGetLiveIntensity(fixture);
       const map = def.map || {};
       if (typeof map.strobe === "number") state.strobe = on ? Math.round(255 * live / 100) : 0;
       state.intensity = map.strobe === undefined ? (on ? live : 0) : live;
@@ -215,8 +276,7 @@ function startPulse(options = {}) {
   return fxStart("pulse", options, (now, elapsed, fixtures) => {
     const speed = Math.max(0.1, fxNumber(options.speed, 1));
     const wave = (Math.sin(elapsed * speed * Math.PI * 2) + 1) / 2;
-    const intensity = fxApplyIntensity(10 + wave * 90);
-    fixtures.forEach(fixture => { const state = fxGetState(fixture); if (state) state.intensity = intensity; });
+    fixtures.forEach(fixture => { const state = fxGetState(fixture); fxFixture = fixture; if (state) state.intensity = fxApplyIntensity(10 + wave * 90); });
   });
 }
 
@@ -225,8 +285,7 @@ function startChaseEffect(options = {}) {
     if (!fixtures.length) return;
     const speed = Math.max(0.1, fxNumber(options.speed, 5));
     const active = Math.floor(elapsed * speed) % fixtures.length;
-    const live = fxGetLiveIntensity();
-    fixtures.forEach((fixture, index) => { const state = fxGetState(fixture); if (!state) return; state.intensity = index === active ? live : 0; state.hue = 0; state.sat = 0; state.light = 100; state.master = 100; });
+    fixtures.forEach((fixture, index) => { const state = fxGetState(fixture); if (!state) return; state.intensity = index === active ? fxGetLiveIntensity(fixture) : 0; state.hue = 0; state.sat = 0; state.light = 100; state.master = 100; });
   }, fxHasColour);
 }
 function startWave(options = {}) {
@@ -237,6 +296,7 @@ function startWave(options = {}) {
       const position = index / Math.max(1, fixtures.length - 1);
       const phase = elapsed * speed * Math.PI * 2 + position * Math.PI * 2;
       const value = (Math.sin(phase) + 1) / 2;
+      fxFixture = fixture;
       state.intensity = fxApplyIntensity(10 + value * 90);
     });
   });
@@ -347,6 +407,7 @@ function startTypedEffect(type, options = {}) {
       const state = fxGetState(fixture); if (!state) return;
       if (!base.has(fixture.id)) base.set(fixture.id, { pan: fxNumber(state.pan, 128) + fxNumber(state.panf, 0) / 256, tilt: fxNumber(state.tilt, 128) + fxNumber(state.tiltf, 0) / 256 });
       state.master = 100;
+      fxFixture = fixture;
       frame(state, fixture, { t: elapsed, speed, phase: fxPosition(index, count, options.order) * spread, index, count, order: ranked.indexOf(index), o: options, base: base.get(fixture.id) });
     });
   }, filter);
@@ -509,7 +570,7 @@ function wireEffectButtons() {
       const name = document.getElementById("effectName")?.value.trim();
       if (!name || !State.savedEffects?.[name]) return fxLog("Select a saved effect to delete", "warn");
       delete State.savedEffects[name];
-      if (State.activeEffect?.name === name) stopEffect(true);
+      State.effects.filter(e => e.name === name).forEach(e => stopEffectById(e.id, true));
       renderEffectsList();
       document.getElementById("effectEditor")?.style && (document.getElementById("effectEditor").style.display = "none");
       fxLog(`Deleted effect: ${name}`, "ok");
@@ -542,6 +603,9 @@ function wireLiveIntensityControl() {
     State.current = State.current || {};
     State.current.intensity = value;
     State.effectIntensity = value;
+    // A running effect follows the fader only on the fixtures you have selected.
+    const selected = new Set(fxNormaliseIds(State.selected));
+    State.effects.forEach(e => selected.forEach(id => { if (e.ids.has(id)) e.levels.set(id, value); }));
     const label = document.getElementById("intensityVal") || document.getElementById("intVal");
     if (label) label.textContent = String(Math.round(value));
     fxUpdateOutput();
@@ -559,8 +623,44 @@ function initEffects() {
   renderEffectsList();
 }
 
+// The effects running now, each with its own ■ — on the Effects page.
+function renderRunningEffects() {
+  let box = document.getElementById("runningEffects");
+  if (!box) {
+    const list = document.getElementById("effectsList");
+    if (!list) return;
+    box = document.createElement("div");
+    box.id = "runningEffects";
+    box.className = "running-effects";
+    list.before(box);
+    box.addEventListener("click", e => {
+      const b = e.target.closest("[data-stop-effect]");
+      if (b) stopEffectById(b.dataset.stopEffect);
+    });
+  }
+  const running = State.effects.filter(e => typeof e.render === "function" || e.ids);
+  const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const numbers = e => [...(e.ids || e.fixtureIds || [])].map(id => (State.fixtures || []).find(f => String(f.id) === String(id))?.fixtureNumber ?? id).join(", ");
+  const html = running.length ? `<div class="section-divider"><span>RUNNING NOW · ${running.length}</span></div>` + running.map(e => `
+    <div class="running-effect"><span class="running-dot"></span><b>${esc(e.name || e.type)}</b><small>${esc(e.type)} · fixtures ${esc(numbers(e))}</small>
+    <button type="button" class="btn-danger-soft" data-stop-effect="${esc(e.id)}" title="Stop just this effect">■ Stop</button></div>`).join("") : "";
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+if (!document.getElementById("runningEffectStyles")) {
+  const style = document.createElement("style");
+  style.id = "runningEffectStyles";
+  style.textContent = `
+    .running-effects{margin:6px 0 10px}
+    .running-effect{display:flex;align-items:center;gap:10px;padding:7px 10px;margin-top:6px;border:1px solid rgba(226,79,208,.35);border-radius:8px;background:rgba(226,79,208,.07)}
+    .running-effect b{font-size:12.5px}
+    .running-effect small{flex:1;min-width:0;color:#8c9a97;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .running-effect .btn-danger-soft{height:26px;padding:0 10px}
+    .running-dot{width:8px;height:8px;border-radius:50%;background:#e24fd0;box-shadow:0 0 8px #e24fd0;flex:none}`;
+  (document.head || document.documentElement).appendChild(style);
+}
+
 Object.assign(window, {
-  startEffect, stopEffect, startRainbow, startStrobe, startPulse, startChaseEffect, startWave,
+  startEffect, stopEffect, stopEffectById, stopEffectsOn, renderRunningEffects, startRainbow, startStrobe, startPulse, startChaseEffect, startWave,
   createCustomEffect, startCueEffect, fxGetFixtureDefinition, attachEffectToCue,
   setIntensity, fxApplyIntensity, fxGetLiveIntensity,
   fxGetFixtures, fxSetEffectTargets, fxCaptureEffectTargets, saveEffect, applySavedEffect, applyEffectToFixtures,

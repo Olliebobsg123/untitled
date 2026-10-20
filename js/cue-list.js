@@ -110,7 +110,7 @@
             <button type="button" class="cl-go" data-cl="go" title="Fire the next cue">GO</button>
           </div>
         </div>
-        <div class="cl-head"><span></span><span>#</span><span title="T = tracked (stores only changes) · B = block (stores the whole look)">Mode</span><span>Name</span><span>Fade</span><span>Follow</span><span class="cl-fxh">Effect</span></div>
+        <div class="cl-head"><span></span><span>#</span><span title="T = tracked (stores only changes) · B = block (stores the whole look)">Mode</span><span>Name</span><span>Fade</span><span>Follow</span><span title="Timecode: when timecode passes this time, the cue fires">TC</span><span class="cl-fxh">Effect</span></div>
         <div class="cl-rows"></div>
         <div class="cl-foot">
           <button type="button" class="btn-secondary" data-cl="record">＋ Record next cue</button>
@@ -160,7 +160,7 @@
     const rows = body.querySelector(".cl-rows");
     const mib = window.LXMoveInBlack?.status();
     const mibOn = pref("mib", true) !== false;
-    const key = cues.map((c, i) => (c ? `${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
+    const key = cues.map((c, i) => (c ? `${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.timecode ?? ""}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
     const modeTag = (c, i) => {
       const tags = [c.mode === "track" ? `<b class="cl-mode t" title="Tracked: stores only what changed (${c.fixtureStates?.length || 0} lights)">T</b>` : `<b class="cl-mode b" title="Block: stores the whole look">B</b>`];
       if (c.noMib && mibOn) tags.push('<b class="cl-mib off" title="Move in black is off for this cue">MIB</b>');
@@ -174,6 +174,7 @@
           <span data-edit="name">${esc(c.name || `Cue ${i + 1}`)}</span>
           <span data-edit="fade">${secs(c.fade ?? 800)} s</span>
           <span data-edit="follow">${c.followEnabled ? `${secs((c.follow || 0) * 1000)} s` : "—"}</span>
+          <span data-edit="tc" class="cl-tc">${Number.isFinite(c.timecode) ? window.LXTimecode?.format(c.timecode) ?? "" : "—"}</span>
           <span class="cl-fx">${esc(c.effect ? c.effect.name || c.effect.type : "")}</span>
           <i class="cl-progress"></i>
         </div>` : "").join("") || '<div class="cl-empty">No cues yet. Set a look and press ＋ Record next cue.</div>';
@@ -212,8 +213,8 @@
     const row = cell.closest(".cl-row");
     const i = Number(row.dataset.i), cue = S().cues[i], field = cell.dataset.edit;
     if (!cue || cell.querySelector("input")) return;
-    const value = field === "name" ? cue.name : field === "fade" ? secs(cue.fade ?? 800) : cue.followEnabled ? secs((cue.follow || 0) * 1000) : "";
-    cell.innerHTML = `<input class="cl-input" value="${esc(value)}" ${field === "name" ? "" : 'inputmode="decimal" placeholder="off"'}>`;
+    const value = field === "name" ? cue.name : field === "fade" ? secs(cue.fade ?? 800) : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) ?? "" : "") : cue.followEnabled ? secs((cue.follow || 0) * 1000) : "";
+    cell.innerHTML = `<input class="cl-input" value="${esc(value)}" ${field === "name" ? "" : field === "tc" ? 'placeholder="00:00:00:00"' : 'inputmode="decimal" placeholder="off"'}>`;
     const input = cell.firstElementChild;
     input.focus(); input.select();
     let done = false;
@@ -223,13 +224,14 @@
         const v = input.value.trim();
         if (field === "name") cue.name = v || `Cue ${i + 1}`;
         else if (field === "fade") { const n = Number(v); if (Number.isFinite(n) && n >= 0) cue.fade = Math.round(n * 1000); }
+        else if (field === "tc") { if (!v || /^(off|none|—)$/i.test(v)) delete cue.timecode; else { const t = window.LXTimecode?.parse(v); if (t != null) cue.timecode = t; } }
         else if (!v || /^off$/i.test(v)) { cue.followEnabled = false; cue.follow = 0; }
         else { const n = Number(v); if (Number.isFinite(n) && n >= 0) { cue.follow = n; cue.followEnabled = true; } }
-        window.log?.(`Cue ${i + 1} ${field} → ${field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade)} s` : cue.followEnabled ? `${cue.follow} s` : "off"}`, "ok");
+        window.log?.(`Cue ${i + 1} ${field === "tc" ? "timecode" : field} → ${field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode.format(cue.timecode) : "none") : cue.followEnabled ? `${cue.follow} s` : "off"}`, "ok");
       }
       // Take the box away (and its keyboard focus) before redrawing.
       input.remove();
-      cell.textContent = field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade ?? 800)} s` : cue.followEnabled ? `${secs((cue.follow || 0) * 1000)} s` : "—";
+      cell.textContent = field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade ?? 800)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) ?? "" : "—") : cue.followEnabled ? `${secs((cue.follow || 0) * 1000)} s` : "—";
       body.querySelector(".cl-rows").dataset.key = "";
       window.renderCues?.();
       window.updateInspectorList?.();
@@ -265,7 +267,7 @@
     const menu = document.createElement("div");
     menu.className = "lxw-menu cl-menu";
     const tracked = cue.mode === "track";
-    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["insert", "Insert into Control Deck"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-",
+    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["insert", "Insert into Control Deck"], ["tcnow", "Set its time to the timecode now"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-",
       ["block", "Block cue (stores its whole look)", !tracked], ["mib", "Move in black before this cue", !cue.noMib], "-", ["delete", "Delete…"]];
     menu.innerHTML = `<div class="lxw-menu-label">CUE ${i + 1} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick">${it[2] ? "✓" : ""}</span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
     document.body.appendChild(menu);
@@ -287,6 +289,7 @@
         if (r) window.parseCommand?.(`rename cue ${n} ${r.name.trim() || `Cue ${n}`}`);
       } else if (a === "copy") window.parseCommand?.(`copy cue ${n} to ${S().cues.length + 1}`);
       else if (a === "insert") window.LXDeck?.insertCue(i);
+      else if (a === "tcnow") { const t = window.LXTimecode?.now(); if (t == null) window.log?.("No timecode yet — start the source first", "warn"); else { window.LXTimecode.setCue(i, t); window.log?.(`Cue ${n} fires at ${window.LXTimecode.format(t)}`, "ok"); } }
       else if (a === "block") window.parseCommand?.(`${tracked ? "block" : "track"} cue ${n}`);
       else if (a === "mib") {
         cue.noMib = !cue.noMib;
@@ -321,7 +324,7 @@
       .cl-go{height:40px;min-width:92px;border:0;border-radius:6px;background:#2fbf63;color:#04140a;font-size:16px;font-weight:900;letter-spacing:2px;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
       .cl-go:hover{background:#39d672}
       .cl-go:active{transform:translateY(1px)}
-      .cl-head,.cl-row{display:grid;grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px minmax(0,.6fr);gap:8px;align-items:center;padding:0 10px}
+      .cl-head,.cl-row{display:grid;grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px 92px minmax(0,.6fr);gap:8px;align-items:center;padding:0 10px}
       .cl-head{height:24px;border-bottom:1px solid var(--border);color:#5d6b68;font-size:9px;font-weight:850;letter-spacing:1.1px;text-transform:uppercase}
       .cl-rows{flex:1 1 auto;min-height:0;overflow:auto}
       .cl-row{position:relative;height:30px;border-bottom:1px solid #141c20;color:#b9c5c2;font-size:12px;cursor:pointer;user-select:none}
@@ -342,7 +345,8 @@
       .cl-mode.b{background:rgba(255,255,255,.07);color:#9aa8a5}
       .cl-mib{background:rgba(155,123,255,.2);color:#c7b6ff}
       .cl-mib.off{background:transparent;color:#5d6b68;text-decoration:line-through}
-      .cl.no-fx .cl-head,.cl.no-fx .cl-row{grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px}
+      .cl.no-fx .cl-head,.cl.no-fx .cl-row{grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px 92px}
+      .cl-tc{font-family:var(--mono);font-size:11px;color:#ffd27a}
       .cl.no-fx .cl-fx,.cl.no-fx .cl-fxh{display:none}
       .cl.no-mode .cl-mode{display:none}
       .cl.big-go .cl-go{height:64px;min-width:150px;font-size:24px}

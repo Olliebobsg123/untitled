@@ -40,7 +40,8 @@
       "entitlements": "config/entitlements.mac.plist",
       "entitlementsInherit": "config/entitlements.mac.plist",
       "extendInfo": {
-        "NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab."
+        "NSLocalNetworkUsageDescription": "Lighting Console needs local network access to communicate with lighting equipment and QLab.",
+        "NSMicrophoneUsageDescription": "Light Spark listens to a sound input for audio timecode (LTC) when you turn it on."
       }
     },
     "win": {

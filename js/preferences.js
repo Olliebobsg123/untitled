@@ -82,6 +82,29 @@
     // Command line
     cmdPreview: true,
     cmdHistory: 200,
+    // Show control (js/show-control.js, js/timecode.js)
+    mscIn: true,               // obey MIDI Show Control
+    mscInPort: "any",
+    mscInDevice: "any",        // any | 0–126 (device ID to answer to; 127 "all call" always works)
+    mscOut: false,             // send MSC GO when a cue fires
+    mscOutPort: "",
+    mscOutDevice: "1",
+    tcSource: "off",           // off | mtc | ltc | internal
+    tcFps: 25,                 // internal clock and how times are shown
+    tcMtcPort: "any",
+    tcLtcDevice: "",
+    tcFreewheelMs: 1000,       // keep running this long if timecode drops out
+    tcJump: "snap",            // when timecode jumps: snap | fade to the right cue
+    tcTrigger: true,           // timecode fires cues
+    tcLog: true,
+    // Multi-console (js/session.js)
+    sessionRole: "standalone", // standalone | primary | backup | client | mirror
+    sessionName: "",
+    sessionHost: "",           // the primary's address, for backup / client / mirror
+    sessionPort: 8850,
+    sessionPin: "",
+    sessionAutoTakeover: true,
+    sessionTakeoverMs: 2000,
     // Keyboard
     goKey: "space",            // space | shift | off
     backKey: "off",            // off | left | backspace
@@ -635,8 +658,41 @@
     clockTick();
   }
 
+  // Other modules add their own panels (Show Control, Multi-Console…) with
+  // the same look and wiring.
+  function addPanel(tab, id, title, meta, html) {
+    const host = document.querySelector("#page-settings .page-grid") || document.getElementById("page-settings");
+    if (!host) return null;
+    document.getElementById(id)?.remove();
+    const section = panel(tab, id, title, meta, html);
+    host.appendChild(section);
+    const onClick = e => {
+      const button = e.target.closest(".lx-seg button");
+      if (!button) return;
+      const key = button.parentElement.dataset.pref;
+      set(key, typed(key, button.dataset.value));
+      sync();
+    };
+    const onInput = e => {
+      const input = e.target.closest("[data-pref]");
+      if (!input || input.classList.contains("lx-seg")) return;
+      if (e.type === "input" && !input.matches(".lx-range")) return;
+      const key = input.dataset.pref;
+      if (input.type === "checkbox") set(key, input.checked);
+      else if (input.dataset.scale) set(key, Math.max(0, Math.round(Number(input.value) * Number(input.dataset.scale)) || 0));
+      else set(key, typed(key, input.value));
+      sync();
+    };
+    section.addEventListener("click", onClick);
+    section.addEventListener("change", onInput);
+    section.addEventListener("input", onInput);
+    sync();
+    return section;
+  }
+  const kit = Object.freeze({ row, seg, check, select, number, onOff, esc });
+
   window.LXPrefs = Object.freeze({
-    get, set, defaults: { ...DEFAULTS },
+    get, set, defaults: { ...DEFAULTS }, addPanel, kit, sync: () => sync(),
     on: fn => { listeners.add(fn); return () => listeners.delete(fn); },
     open: openPrefs,
     close: () => window.LXWindows?.close("prefs"),

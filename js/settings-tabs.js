@@ -18,6 +18,8 @@
     { id: "programming", label: "Programming", hint: "Defaults for recording cues, palettes and the patch, and what Light Spark starts with." },
     { id: "keyboard", label: "Keyboard", hint: "GO and Back keys, the command line and shortcuts." },
     { id: "show", label: "Show", hint: "Autosave, saving and opening shows, quitting, and these preferences." },
+    { id: "showcontrol", label: "Show Control", hint: "MIDI Show Control in and out, and timecode (MTC, LTC or Light Spark's own clock) firing cues." },
+    { id: "network", label: "Multi-Console", hint: "Run Light Spark on more than one computer: a primary, a backup that takes over if it fails, clients and mirrors." },
     { id: "outputs", label: "Outputs", hint: "Where the console sends DMX: Art-Net, sACN and USB interfaces, one per universe." },
     { id: "midi", label: "MIDI", hint: "Connect a MIDI controller and choose what each knob, pad and joystick does." },
     { id: "qlab", label: "QLab Connect", hint: "Let QLab Connect fire Light Spark's cues, chases and effects." },

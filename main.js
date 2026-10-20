@@ -27,6 +27,12 @@ function resolveShowPath(filePath) {
 }
 
 ipcMain.handle('lx-show-default-directory', () => getShowDirectory());
+// Audio timecode (LTC) listens to a sound input: macOS asks the user first.
+ipcMain.handle('lx-ask-microphone', async () => {
+  if (process.platform !== 'darwin') return true;
+  const { systemPreferences } = require('electron');
+  try { return await systemPreferences.askForMediaAccess('microphone'); } catch (_) { return false; }
+});
 // Backs the splash screen's "Recent Shows" list — a real directory read
 // of the one folder this app ever saves shows into, not an arbitrary
 // disk search. Bounded and fast (typically a handful of files), and
@@ -235,7 +241,7 @@ function buildApplicationMenu() {
       submenu: [
         page('Cue List', 'win:cuelist'), page('Cue Stack', 'win:cues'), page('Console Log', 'win:log'), page('Groups', 'win:groups'), page('Fixtures', 'win:fixtures'),
         page('Control Deck', 'win:control'), page('Palettes', 'win:palettes'), page('Magic Sheet', 'win:magic'), page('Effects', 'win:effects'),
-        page('Chases', 'win:chases'), page('Cue Inspector', 'win:inspector'), page('Patched Fixtures', 'win:patch'), page('Command Reference', 'win:commands'), page('Fixture Info', 'win:fixtureinfo'), page('Focus (Point & Shoot)', 'win:focus'),
+        page('Chases', 'win:chases'), page('Cue Inspector', 'win:inspector'), page('Patched Fixtures', 'win:patch'), page('Command Reference', 'win:commands'), page('Fixture Info', 'win:fixtureinfo'), page('Focus (Point & Shoot)', 'win:focus'), page('Timecode', 'win:timecode'),
         { type: 'separator' },
         page('Put Every Window Back', 'dock'),
         { type: 'separator' },

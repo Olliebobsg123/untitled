@@ -75,6 +75,7 @@ try {
   contextBridge.exposeInMainWorld('LXApp', {
     quit: () => ipcRenderer.send('lx-quit'),
     setConfirmQuit: on => ipcRenderer.send('lx-quit-confirm', Boolean(on)),
+    askMicrophone: () => ipcRenderer.invoke('lx-ask-microphone'),
     version,
     platform: process.platform
   });

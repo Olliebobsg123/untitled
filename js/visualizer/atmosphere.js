@@ -1,37 +1,47 @@
 // Haze and fog.
 //
-// The haze level (0-1.5) is what makes beams visible: the room's base haze
-// from the toolbar plus whatever patched hazers and fog machines have put
-// into the air. Haze builds up over ~20s and takes a minute or two to clear,
-// like the real thing. Fog machines also blow visible clouds that roll out
-// low along the floor, lit by whatever is on stage.
+// The haze level is what makes beams visible: the room's base haze from the
+// toolbar plus whatever patched hazers and fog machines have put into the
+// air (a hazer at full roughly quadruples it). Haze builds up in about ten
+// seconds and takes a minute or two to clear, like the real thing, and as
+// it builds the whole room goes milky in the colour of the light on stage.
+//
+// Fog machines blow clouds that roll out low and spread across the floor;
+// hazers breathe a thin plume. Every puff is lit by the beams that pass
+// through it (in their colour), plus a little of the general stage light.
 import * as THREE from "three";
 import { glow } from "./gobos.js";
 
-const MAX_PARTICLES = 500;
+const MAX_PARTICLES = 1400;
+const HAZE_CAP = 3.5;
 
 const vertexShader = /* glsl */ `
   attribute float aSize;
   attribute float aAlpha;
+  attribute vec3 aColor;
   uniform float uScale;
   varying float vAlpha;
+  varying vec3 vColor;
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_PointSize = aSize * uScale / max(0.1, -mv.z);
     gl_Position = projectionMatrix * mv;
     vAlpha = aAlpha;
+    vColor = aColor;
   }
 `;
 const fragmentShader = /* glsl */ `
-  uniform vec3 uColor;
   uniform sampler2D uMap;
   varying float vAlpha;
+  varying vec3 vColor;
   void main() {
     float a = texture2D(uMap, gl_PointCoord).a * vAlpha;
     if (a < 0.002) discard;
-    gl_FragColor = vec4(uColor, a);
+    gl_FragColor = vec4(vColor, a);
   }
 `;
+
+const tmp = new THREE.Vector3();
 
 export class Atmosphere {
   constructor(shared) {
@@ -41,14 +51,16 @@ export class Atmosphere {
     this.positions = new Float32Array(MAX_PARTICLES * 3);
     this.sizes = new Float32Array(MAX_PARTICLES);
     this.alphas = new Float32Array(MAX_PARTICLES);
+    this.colors = new Float32Array(MAX_PARTICLES * 3);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
     geometry.setAttribute("aSize", new THREE.BufferAttribute(this.sizes, 1));
     geometry.setAttribute("aAlpha", new THREE.BufferAttribute(this.alphas, 1));
+    geometry.setAttribute("aColor", new THREE.BufferAttribute(this.colors, 3));
     this.material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
-      uniforms: { uColor: { value: new THREE.Color(0.05, 0.05, 0.06) }, uMap: { value: glow() }, uScale: { value: 500 } },
+      uniforms: { uMap: { value: glow() }, uScale: { value: 500 } },
       transparent: true,
       depthWrite: false
     });
@@ -56,7 +68,11 @@ export class Atmosphere {
     this.points.frustumCulled = false;
     this.points.renderOrder = 3;
     shared.scene.add(this.points);
+    // The air itself: distant things fade into lit haze as the room fills.
+    this.air = new THREE.FogExp2(0x000000, 0);
+    shared.scene.fog = this.air;
     this.carry = 0;
+    this.hazeCarry = 0;
   }
 
   setViewportHeight(pixels, fov) {
@@ -65,63 +81,103 @@ export class Atmosphere {
 
   // machines: [{ kind: "fogger"|"hazer", output 0-1, nozzle, direction }]
   // stageLight: average colour/brightness of the light in the room.
-  update(dt, machines, baseHaze, stageLight) {
-    const target = machines.reduce((sum, m) => sum + m.output * (m.kind === "hazer" ? 0.8 : 0.45), 0);
-    // A hazer fills the room in about ten seconds; it takes much longer to clear.
+  // lights: lit fixtures [{ level, rgb, candela, apex, axis, halfAngle }]
+  update(dt, machines, baseHaze, stageLight, lights = []) {
+    const target = machines.reduce((sum, m) => sum + m.output * (m.kind === "hazer" ? 2.4 : 1.1), 0);
     const rate = target > this.machineHaze ? 1 / 8 : 1 / 90;
     this.machineHaze += (target - this.machineHaze) * Math.min(1, dt * rate * 3);
 
-    // Fog clouds, and the thin plume a hazer breathes out (so you can see
-    // it working even before there's a beam to light the haze).
     for (const machine of machines) {
       if (machine.output < 0.02) continue;
       if (machine.kind === "hazer") {
-        this.hazeCarry = (this.hazeCarry || 0) + machine.output * 14 * dt;
+        // A thin plume that drifts up and spreads into the room.
+        this.hazeCarry += machine.output * 16 * dt;
         while (this.hazeCarry >= 1 && this.particles.length < MAX_PARTICLES) {
           this.hazeCarry -= 1;
-          const spread = new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.15 + Math.random() * 0.25, (Math.random() - 0.5) * 0.4);
+          const spread = new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.15 + Math.random() * 0.3, (Math.random() - 0.5) * 0.5);
           this.particles.push({
             position: machine.nozzle.clone(),
-            velocity: machine.direction.clone().multiplyScalar(1.2 + Math.random() * 0.8).add(spread),
-            age: 0, life: 9 + Math.random() * 6, size: 0.4 + Math.random() * 0.3, faint: true
+            velocity: machine.direction.clone().multiplyScalar(1.4 + Math.random() * 0.8).add(spread),
+            age: 0, life: 12 + Math.random() * 8, size: 0.5 + Math.random() * 0.4, faint: true
           });
         }
         continue;
       }
-      this.carry += machine.output * 45 * dt;
+      // Fog: a fast jet that slows, sinks and rolls out across the floor.
+      this.carry += machine.output * 75 * dt;
       while (this.carry >= 1 && this.particles.length < MAX_PARTICLES) {
         this.carry -= 1;
-        const spread = new THREE.Vector3((Math.random() - 0.5) * 0.5, Math.random() * 0.15, (Math.random() - 0.5) * 0.5);
+        const spread = new THREE.Vector3((Math.random() - 0.5) * 0.9, Math.random() * 0.2, (Math.random() - 0.5) * 0.9);
         this.particles.push({
           position: machine.nozzle.clone(),
-          velocity: machine.direction.clone().multiplyScalar(2.2 + Math.random() * 1.6).add(spread),
+          velocity: machine.direction.clone().multiplyScalar(2.8 + Math.random() * 2.2).add(spread),
           age: 0,
-          life: 7 + Math.random() * 5,
-          size: 0.25 + Math.random() * 0.2
+          life: 18 + Math.random() * 12,
+          size: 0.35 + Math.random() * 0.3,
+          // Each puff wanders its own way once the jet dies down, so the cloud spreads wide.
+          drift: new THREE.Vector3((Math.random() - 0.5) * 1.3, 0, (Math.random() - 0.3) * 1.1) // spreads out, and downstage
         });
       }
     }
+
+    // Light falling on the smoke from each beam: its colour, over distance
+    // squared, full inside the cone and fading out just past its edge.
+    const beams = [];
+    for (const l of lights) {
+      if (!(l.level > 0) || !l.apex || !l.axis || !l.rgb) continue;
+      const k = (l.candela || 0) * (this.shared.beamScale || 1) * 1.1;
+      if (k <= 0) continue;
+      const half = l.halfAngle || 0.2;
+      beams.push({ apex: l.apex, axis: l.axis, cos: Math.cos(Math.min(1.4, half * 1.15)), cosIn: Math.cos(Math.min(1.4, half * 0.7)), r: l.rgb[0] * k, g: l.rgb[1] * k, b: l.rgb[2] * k });
+    }
+    const ambR = 0.01 + stageLight.r * 0.3, ambG = 0.01 + stageLight.g * 0.3, ambB = 0.012 + stageLight.b * 0.3; // a little general light; the beams themselves do most of it
+
     let count = 0;
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.age += dt;
       if (p.age > p.life) { this.particles.splice(i, 1); continue; }
-      p.velocity.multiplyScalar(Math.exp(-0.7 * dt));
-      p.velocity.y += p.faint ? 0.04 * dt : (p.position.y > 0.6 ? -0.05 : 0.01) * dt; // heavy fog stays low; haze drifts up and spreads
+      p.velocity.multiplyScalar(Math.exp(-0.8 * dt));
+      if (p.faint) p.velocity.y += 0.05 * dt; // haze rises and spreads
+      else {
+        p.velocity.y += (p.position.y > 0.4 ? -0.12 : 0.02) * dt; // fog is heavy: it sinks and hugs the floor
+        if (p.drift) p.position.addScaledVector(p.drift, dt * Math.min(1, p.age / 3));
+      }
       p.position.addScaledVector(p.velocity, dt);
+      if (p.position.y < 0.05) { p.position.y = 0.05; p.velocity.y = Math.abs(p.velocity.y) * 0.2; }
       const life = p.age / p.life;
-      this.positions.set([p.position.x, p.position.y, p.position.z], count * 3);
-      this.sizes[count] = p.size + life * (p.faint ? 5 : 2.6);
-      this.alphas[count] = Math.min(1, p.age * 3) * (1 - life) * (p.faint ? 0.12 : 0.32);
+
+      let r = ambR, g = ambG, b = ambB;
+      for (const beam of beams) {
+        tmp.copy(p.position).sub(beam.apex);
+        const d = tmp.length();
+        if (d < 0.05) continue;
+        const c = tmp.dot(beam.axis) / d;
+        if (c <= beam.cos) continue;
+        const edge = c >= beam.cosIn ? 1 : (c - beam.cos) / (beam.cosIn - beam.cos);
+        const f = edge / (d * d + 0.12);
+        r += beam.r * f; g += beam.g * f; b += beam.b * f;
+      }
+      const o = count * 3;
+      this.positions[o] = p.position.x; this.positions[o + 1] = p.position.y; this.positions[o + 2] = p.position.z;
+      this.colors[o] = Math.min(4, r); this.colors[o + 1] = Math.min(4, g); this.colors[o + 2] = Math.min(4, b);
+      this.sizes[count] = p.size + life * (p.faint ? 6 : 7);
+      // Stays thick for most of its life, then thins away.
+      this.alphas[count] = Math.min(1, p.age * 2.5) * (1 - life * life) * (p.faint ? 0.14 : 0.55);
       count++;
     }
     const geometry = this.points.geometry;
     geometry.setDrawRange(0, count);
-    geometry.attributes.position.needsUpdate = geometry.attributes.aSize.needsUpdate = geometry.attributes.aAlpha.needsUpdate = true;
-    // Fog is only visible by the light falling on it.
-    this.material.uniforms.uColor.value.setRGB(0.02 + stageLight.r, 0.02 + stageLight.g, 0.025 + stageLight.b);
+    for (const name of ["position", "aSize", "aAlpha", "aColor"]) geometry.attributes[name].needsUpdate = true;
 
-    return Math.min(1.5, baseHaze + this.machineHaze);
+    // The air goes milky in the colour of the light on stage as haze builds.
+    // Kept subtle: a real hazy room stays dark; it's the beams that pop.
+    const thick = Math.min(1, this.machineHaze / 2.4);
+    const glowLevel = 0.12 + 0.45 * thick;
+    this.air.density = this.machineHaze < 0.01 ? 0 : 0.004 + 0.022 * thick;
+    this.air.color.setRGB(Math.min(0.06, stageLight.r * glowLevel), Math.min(0.06, stageLight.g * glowLevel), Math.min(0.07, stageLight.b * glowLevel));
+
+    return Math.min(HAZE_CAP, baseHaze + this.machineHaze);
   }
 
   get busy() {

@@ -242,7 +242,11 @@ function colourWheelDMX(def,hue,sat){
     }
     const target=normaliseHue(hue);
     let best=wheel[0], bestDist=Infinity;
-    wheel.forEach(s=>{
+    // White/open slots are often labelled hue 0 like red: when a colour is
+    // asked for, only the coloured slots count.
+    const isWhite=s=>Array.isArray(s.rgb)&&Math.min(...s.rgb)>=0.95;
+    const coloured=wheel.filter(s=>!isWhite(s));
+    (coloured.length?coloured:wheel).forEach(s=>{
         if(typeof s.hue==="undefined") return;
         const slotH=normaliseHue(s.hue);
         let d=Math.abs(target-slotH);

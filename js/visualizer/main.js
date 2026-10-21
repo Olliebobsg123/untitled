@@ -55,7 +55,9 @@ const VIEWS = {
   top: { position: [0, 21, -3.2], target: [0, 0, -3.4] },
   side: { position: [-8.5, 6, 4], target: [0, 2.8, -4] }
 };
-const DEFAULT_SETTINGS = { house: false, work: false, grid: false, beams: true, targets: true, haze: 0.55, quality: "auto" };
+// Beams only show in haze, as in a real room: with no hazer, fog machine or
+// room haze there are no beams, just the light landing on stage.
+const DEFAULT_SETTINGS = { house: false, work: false, grid: false, targets: true, haze: 0, quality: "auto" };
 
 // --- Renderer and scene -------------------------------------------------
 
@@ -194,7 +196,13 @@ const fixtures = new Map(); // id → Fixture
 let ball = null; // { model: MirrorBall, fixture }
 let selected = null;
 
-const settings = () => ({ ...DEFAULT_SETTINGS, ...layout.settings });
+const settings = () => {
+  const saved = { ...(layout.settings || {}) };
+  // Layouts from before beams came from haze kept 55% room haze and a Beams switch.
+  if (saved.hazeFromMachines !== true) { saved.haze = 0; saved.hazeFromMachines = true; if (layout.settings) layout.settings = { ...layout.settings, haze: 0, hazeFromMachines: true }; }
+  delete saved.beams;
+  return { ...DEFAULT_SETTINGS, ...saved, beams: true };
+};
 const definitionOf = fixture => library[fixture?.name] || fixture?.definition || null;
 
 function setStatus(text) { $("status").textContent = text; }
@@ -204,7 +212,7 @@ function applySettings() {
   theatre.setHouse(s.house);
   theatre.setWork(s.work);
   theatre.setGrid(s.grid);
-  for (const [id, key] of [["house", "house"], ["work", "work"], ["grid", "grid"], ["beams", "beams"], ["targets", "targets"]]) $(id).classList.toggle("on", Boolean(s[key]));
+  for (const [id, key] of [["house", "house"], ["work", "work"], ["grid", "grid"], ["targets", "targets"]]) $(id).classList.toggle("on", Boolean(s[key]));
   targetGroup.visible = Boolean(s.targets);
   $("haze").value = String(Math.round(s.haze * 100));
   $("hazeValue").textContent = `${Math.round(s.haze * 100)}%`;
@@ -306,7 +314,7 @@ function update() {
     }
   }
   if (s.work) stageLight.r += 0.05, stageLight.g += 0.05, stageLight.b += 0.055;
-  const haze = atmosphere.update(dt, machines, s.haze, stageLight);
+  const haze = atmosphere.update(dt, machines, s.haze, stageLight, lights);
   shared.uniforms.haze.value = haze;
   if (ball) {
     const state = decodeFixture(definitionOf(ball.fixture), dmx, baseAddress(ball.fixture), ball.fixture.name);
@@ -666,7 +674,7 @@ function toggle(key) {
   wake();
 }
 
-for (const key of ["house", "work", "grid", "beams", "targets"]) $(key).addEventListener("click", () => toggle(key));
+for (const key of ["house", "work", "grid", "targets"]) $(key).addEventListener("click", () => toggle(key));
 $("aimMode").addEventListener("click", () => setAimMode(!aimMode));
 document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
 $("quality").addEventListener("change", () => {
@@ -698,7 +706,6 @@ window.addEventListener("keydown", event => {
   if (event.key === "h") toggle("house");
   if (event.key === "w") toggle("work");
   if (event.key === "g") toggle("grid");
-  if (event.key === "b") toggle("beams");
   if (event.key === "t") toggle("targets");
   if (event.key === "f" && selected) {
     const model = modelFor(selected);

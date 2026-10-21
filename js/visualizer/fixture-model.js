@@ -324,7 +324,7 @@ export class Fixture {
     // The volumetric beam(s). A prism splits the beam into copies fanned
     // round the axis, each with a share of the light.
     const facets = state.prism ? PRISM_FACETS : 1;
-    const beamsOn = settings.beams && level > 0;
+    const beamsOn = level > 0 && this.shared.uniforms.haze.value > 0.005; // no haze, no beam
     for (let i = 0; i < PRISM_FACETS; i++) {
       const beam = this.beams[i];
       if (!beamsOn || i >= facets) { beam.hide(); continue; }

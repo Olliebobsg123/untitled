@@ -82,12 +82,11 @@
     <button id="house" title="H">House lights</button>
     <button id="work" title="W">Work lights</button>
     <button id="grid" title="G">Grid</button>
-    <button id="beams" title="B">Beams</button>
     <button id="targets" title="T — show the console's targets on the stage">Targets</button>
   </div>
-  <div class="group"><span class="label">Haze</span>
-    <input id="haze" type="range" min="0" max="100" value="55">
-    <span id="hazeValue">55%</span>
+  <div class="group" title="Haze already in the room, on top of any hazers and fog machines you've patched. Beams only show where there's haze."><span class="label">Room haze</span>
+    <input id="haze" type="range" min="0" max="100" value="0">
+    <span id="hazeValue">0%</span>
   </div>
   <div class="group"><span class="label">Quality</span>
     <select id="quality" title="Lower quality runs faster on laptops">

@@ -65,6 +65,18 @@
   // actually has is used; the others are simply never shown.
   const DYNAMIC_CONTROL_GROUPS = [
     {
+      // Hazers and fog machines: their output, fan and fluid pump, first
+      // on the main tab (most have no dimmer, so the level alone does nothing).
+      title: "Atmosphere",
+      tab: "beam",
+      rows: [
+        { type: "single", key: "haze", label: "Haze output" },
+        { type: "single", key: "fog", label: "Fog output" },
+        { type: "single", key: "fana", label: "Fan" },
+        { type: "single", key: "fluid", label: "Fluid" }
+      ]
+    },
+    {
       title: "Beam Shaping",
       tab: "beam",
       rows: [
@@ -146,10 +158,6 @@
         { type: "single", key: "shake", label: "Shake" },
         { type: "single", key: "mode", label: "Mode" },
         { type: "single", key: "zone", label: "Zone" },
-        { type: "single", key: "fog", label: "Fog" },
-        { type: "single", key: "fana", label: "Fan" },
-        { type: "single", key: "haze", label: "Haze" },
-        { type: "single", key: "fluid", label: "Fluid" },
         { type: "single", key: "colmacro", label: "Colour Macro" }
       ]
     }
@@ -1001,8 +1009,12 @@
       if (fragments[tab].childNodes.length) containers[tab].appendChild(fragments[tab]);
     }
 
-    renderBeamAngle(containers.beam, fixtures);
-    renderManualBarnDoors(containers.beam, fixtures);
+    // A hazer or fog machine has no beam to shape.
+    const lights = fixtures.filter(f => { const m = getDefinition(f)?.map || {}; return !(typeof m.haze === "number" || typeof m.fog === "number"); });
+    if (lights.length) {
+      renderBeamAngle(containers.beam, lights);
+      renderManualBarnDoors(containers.beam, lights);
+    }
 
     for (const key of activeKeys) {
       const fixture = fixtures.find(f => typeof getDefinition(f)?.map?.[key] === "number");

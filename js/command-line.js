@@ -23,6 +23,10 @@
   const LEVEL_WORDS = { full: 100, fl: 100, out: 0, off: 0, half: 50 };
   const PARAMS = { pan: [0, 255], tilt: [0, 255], zoom: [0, 255], focus: [0, 255], frost: [0, 255], iris: [0, 255], gobo: [0, 255], prism: [0, 255], strobe: [0, 255] };
   const colours = () => (typeof cueColours === "object" ? cueColours : {}); // commands.js
+  // Hazers and fog machines: "haze 80", "fog full", "fan 50", "fluid out" (percent).
+  // Their output is its own channel, not the level, so "@" on a hazer sets the output too.
+  const ATMOS = { haze: "output", fog: "output", output: "output", fan: "fana", fluid: "fluid" };
+  const atmosMap = id => { const f = S().fixtures.find(x => x?.id === id); const map = window.FixtureLibrary?.[f?.name]?.map || {}; return typeof map.haze === "number" || typeof map.fog === "number" ? map : null; };
   const fadeMs = () => Number(window.LXPrefs?.get("commandFadeMs") ?? 300);
 
   // ------------------------------------------------------------ tokens
@@ -126,7 +130,7 @@
     if (!tokens.length) return null;
     if (tokens[0] === "rem" && tokens[1] === "dim" && tokens.length === 2) return { remDim: true, sel: parseSelection([]) };
     // Where do actions start? "at", or the first attribute word.
-    const ACTION_WORDS = new Set(["at", "time", "sneak", "home", "rem", ...Object.keys(PARAMS), ...Object.keys(colours())]);
+    const ACTION_WORDS = new Set(["at", "time", "sneak", "home", "rem", ...Object.keys(PARAMS), ...Object.keys(ATMOS), ...Object.keys(colours())]);
     let cut = tokens.findIndex((t, k) => ACTION_WORDS.has(t) && !(t === "rem" && tokens[k + 1] !== "dim"));
     if (cut === -1) cut = tokens.length;
     const selTokens = tokens.slice(0, cut), act = tokens.slice(cut);
@@ -178,6 +182,13 @@
         if (w === "strobe" && (v === "off" || v === "out")) { values.strobe = 0; words.push("strobe off"); i += 2; continue; }
         if (!isNum(v || "")) return { error: `${w} what? e.g. ${w} 128 (0–255)` };
         values[w] = range(w, Number(v)); words.push(`${w} ${values[w]}`); i += 2; continue;
+      }
+      if (ATMOS[w]) {
+        const v = t[i + 1];
+        const pct = LEVEL_WORDS[v] ?? (isNum(v || "") ? Math.max(0, Math.min(100, Number(v))) : null);
+        if (pct == null) return { error: `${w} what? e.g. ${w} 80 (percent), ${w} full or ${w} out` };
+        values.__atmos = { ...(values.__atmos || {}), [ATMOS[w]]: Math.round(pct * 2.55) };
+        words.push(`${w} ${pct}%`); i += 2; continue;
       }
       if (w === "home") { home = true; values.pan = 128; values.tilt = 128; words.push("home"); i++; continue; }
       if (w === "time" || w === "sneak" && isNum(t[i + 1] || "")) {
@@ -241,6 +252,9 @@
       selectIds(ids);
       return say(`Selected ${fixtureLabel(ids)}`);
     }
+    // "haze 50" with no hazer selected means every hazer / fog machine.
+    if (!p.sel.explicit && p.values?.__atmos && !ids.some(atmosMap)) ids.splice(0, ids.length, ...state.fixtures.filter(f => f && atmosMap(f.id)).map(f => f.id));
+    if (!ids.length && p.values?.__atmos) return say("There's no hazer or fog machine patched", "warn");
     if (!ids.length) return say(p.sel.explicit ? "That matched no fixtures" : "Select some fixtures first, e.g. 1 thru 10 @ 50", "warn");
     selectIds(ids);
     // Land any fade still running, or its half-way values become the new ones.
@@ -255,6 +269,20 @@
         const cur = window.ensureFixtureState?.(id) || state.fixtureStates.get(id) || {};
         const values = { ...p.values };
         if (p.relative != null) values.intensity = Math.max(0, Math.min(100, Math.round((Number(cur.intensity) || 0) + p.relative)));
+        const atmos = values.__atmos; delete values.__atmos;
+        const map = atmosMap(id);
+        if (map) {
+          // The output channel follows a level typed at the machine ("1 @ full");
+          // the fan (and fluid pump) come on with it if they were off.
+          const out = atmos?.output ?? (values.intensity != null ? Math.round(values.intensity * 2.55) : null);
+          if (out != null) for (const k of ["haze", "fog"]) if (typeof map[k] === "number") values[k] = out;
+          for (const k of ["fana", "fluid"]) {
+            if (typeof map[k] !== "number") continue;
+            if (atmos?.[k] != null) values[k] = atmos[k];
+            else if (out > 0 && !(Number(cur[k]) > 0)) values[k] = out;
+            else if (out === 0 && atmos?.output === 0) values[k] = 0; // "haze out" stops the machine
+          }
+        }
         targets.push([id, cmy(id, { ...clone(cur), ...values }, values)]);
       }
     }
@@ -267,9 +295,9 @@
       }
     }
     fadeIds(targets, ms);
-    if (p.words?.length) window.LXFixtureInfo?.claimKeys(ids, Object.keys(p.relative != null ? { ...p.values, intensity: 0 } : p.values), { kind: "command", label: `“${p.raw || describe(p)}”`, detail: "typed in the command line" });
+    if (p.words?.length) window.LXFixtureInfo?.claimKeys(ids, Object.keys(p.relative != null ? { ...p.values, intensity: 0 } : p.values).filter(k => k !== "__atmos"), { kind: "command", label: `“${p.raw || describe(p)}”`, detail: "typed in the command line" });
     // Palettes and the Control Deck read the programmer values from here.
-    if (p.words?.length) Object.assign(state.current, p.relative != null ? { ...p.values, intensity: targets[0]?.[1]?.intensity ?? state.current.intensity } : p.values);
+    if (p.words?.length) { const { __atmos, ...plain } = p.values; Object.assign(state.current, p.relative != null ? { ...plain, intensity: targets[0]?.[1]?.intensity ?? state.current.intensity } : plain); }
     const level = p.values?.intensity;
     if (level != null) { const el = document.getElementById("intensity"), val = document.getElementById("intVal"); if (el) el.value = level; if (val) val.textContent = `${level}%`; }
     window.renderFixtures?.();

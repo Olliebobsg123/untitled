@@ -111,6 +111,7 @@ const shared = {
 const theatre = buildTheatre(scene);
 shared.solids = theatre.solids;
 const atmosphere = new Atmosphere(shared);
+window.__atmosphere = atmosphere; // for tests: how much haze is in the room
 const lightPool = new LightPool(scene);
 
 const composer = new EffectComposer(renderer);

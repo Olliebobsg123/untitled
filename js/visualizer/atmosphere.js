@@ -67,12 +67,27 @@ export class Atmosphere {
   // stageLight: average colour/brightness of the light in the room.
   update(dt, machines, baseHaze, stageLight) {
     const target = machines.reduce((sum, m) => sum + m.output * (m.kind === "hazer" ? 0.8 : 0.45), 0);
-    const rate = target > this.machineHaze ? 1 / 20 : 1 / 90;
+    // A hazer fills the room in about ten seconds; it takes much longer to clear.
+    const rate = target > this.machineHaze ? 1 / 8 : 1 / 90;
     this.machineHaze += (target - this.machineHaze) * Math.min(1, dt * rate * 3);
 
-    // Fog clouds.
+    // Fog clouds, and the thin plume a hazer breathes out (so you can see
+    // it working even before there's a beam to light the haze).
     for (const machine of machines) {
-      if (machine.kind !== "fogger" || machine.output < 0.02) continue;
+      if (machine.output < 0.02) continue;
+      if (machine.kind === "hazer") {
+        this.hazeCarry = (this.hazeCarry || 0) + machine.output * 14 * dt;
+        while (this.hazeCarry >= 1 && this.particles.length < MAX_PARTICLES) {
+          this.hazeCarry -= 1;
+          const spread = new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.15 + Math.random() * 0.25, (Math.random() - 0.5) * 0.4);
+          this.particles.push({
+            position: machine.nozzle.clone(),
+            velocity: machine.direction.clone().multiplyScalar(1.2 + Math.random() * 0.8).add(spread),
+            age: 0, life: 9 + Math.random() * 6, size: 0.4 + Math.random() * 0.3, faint: true
+          });
+        }
+        continue;
+      }
       this.carry += machine.output * 45 * dt;
       while (this.carry >= 1 && this.particles.length < MAX_PARTICLES) {
         this.carry -= 1;
@@ -92,12 +107,12 @@ export class Atmosphere {
       p.age += dt;
       if (p.age > p.life) { this.particles.splice(i, 1); continue; }
       p.velocity.multiplyScalar(Math.exp(-0.7 * dt));
-      p.velocity.y += (p.position.y > 0.6 ? -0.05 : 0.01) * dt; // heavy fog stays low
+      p.velocity.y += p.faint ? 0.04 * dt : (p.position.y > 0.6 ? -0.05 : 0.01) * dt; // heavy fog stays low; haze drifts up and spreads
       p.position.addScaledVector(p.velocity, dt);
       const life = p.age / p.life;
       this.positions.set([p.position.x, p.position.y, p.position.z], count * 3);
-      this.sizes[count] = p.size + life * 2.6;
-      this.alphas[count] = Math.min(1, p.age * 3) * (1 - life) * 0.32;
+      this.sizes[count] = p.size + life * (p.faint ? 5 : 2.6);
+      this.alphas[count] = Math.min(1, p.age * 3) * (1 - life) * (p.faint ? 0.12 : 0.32);
       count++;
     }
     const geometry = this.points.geometry;

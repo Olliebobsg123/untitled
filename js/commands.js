@@ -785,7 +785,8 @@ function parseCommand(cmd){
       return log('MIDI position hold released','ok');
     return log('Position hold was already off','ok');
   }
-  if(c==='blackout'){fadeTo?.({intensity:0,strobe:0},500);Object.assign(State.current,{intensity:0,strobe:0});setIntensityUI(0);updateDMX?.();return log('Blackout — all lights off','ok');}
+  // Same as the BLACKOUT button: output locked to 0, everything programmed kept; type it again (or press the button) to release.
+  if(c==='blackout'){if(typeof window.consoleBlackout==='function'){window.consoleBlackout();return;}fadeTo?.({intensity:0,strobe:0},500);Object.assign(State.current,{intensity:0,strobe:0});setIntensityUI(0);updateDMX?.();return log('Blackout — all lights off','ok');}
   if(/^(full|all)$/.test(c)){const ids=allOrSelected();fadeFixtures(ids,{intensity:100,strobe:0},500);setIntensityUI(100);return log(State.selected?.size?`Full — ${ids.size} selected at 100%`:'Full On — all lights 100%','ok');}
   if(c==='all half')applyLevel(50),log('All @ 50%','ok');
   else if(c==='all 25')applyLevel(25),log('All @ 25%','ok');

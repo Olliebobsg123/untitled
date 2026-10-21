@@ -251,7 +251,7 @@
 
   function installCommands(){
     const current=window.parseCommand; if(typeof current!=="function")return;
-    if(window.__targetWrappedParseCommand===current)return;
+    if(window.__targetWrappedParseCommand)return; // once: re-wrapping whenever another layer was on top stacked wrappers without end
     const previous=current;
     window.parseCommand=function(raw){
       const command=clean(raw);

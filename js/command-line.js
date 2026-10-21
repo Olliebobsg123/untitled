@@ -369,9 +369,12 @@
 
   const QUIET = /^(undo|redo|help|\?|status|info\b|list\b|commands)/;
 
+  let installed = false;
   function install() {
     const previous = window.parseCommand;
+    if (installed) return true;
     if (typeof previous !== "function" || previous.__lxCommandLine) return false;
+    installed = true;
     const wrapped = function (rawCommand) {
       const raw = String(rawCommand ?? "").trim();
       const c = raw.toLowerCase();
@@ -504,7 +507,8 @@
     ["Levels", [["1 thru 10 @ 50", "set a level"], ["group 1 @ full", "full is 100"], ["2 @ out", "out is 0"], ["@ 75", "the selected fixtures"], ["@ +10", "up 10% (each from its own level)"], ["@ -20", "down 20%"], ["1 thru 5 @ 80 time 4", "fade over 4 seconds"], ["rem dim", "everything not selected to 0"]]],
     ["Colour & movement", [["1 thru 4 red", "colour by name"], ["group 2 @ 60 blue", "level and colour together"], ["5 pan 100 tilt 40", "position (0–255)"], ["5 zoom 200", "also focus, frost, iris, gobo, prism"], ["group 3 home", "pan and tilt to centre"], ["1 strobe 120", "strobe (strobe off to stop)"]]],
     ["Cues", [["record cue 5 Opening", "record a cue"], ["go", "next cue"], ["go 3", "jump to cue 3"], ["back", "previous cue"], ["update cue 3", "save the stage into cue 3"], ["fade 3 2.5", "set cue 3's fade"], ["sneak", "fade back to the current cue"], ["cue list", "open the Cue List window"], ["block cue 4", "cue 4 stores its whole look"], ["track cue 4", "cue 4 stores only changes"], ["mib off", "turn move in black off"], ["sneak 5", "…over 5 seconds"]]],
-    ["Other", [["undo", `undo a level change (${/Mac/.test(navigator.platform) ? "⌘Z" : "Ctrl+Z"})`], ["redo", `redo it (${/Mac/.test(navigator.platform) ? "⇧⌘Z" : "Ctrl+Y"})`], ["info 5", "what fixture 5 is doing, and why (window)"], ["blackout", "everything off"], ["full", "everything on"], ["auto create", "groups, palettes, effects and chases"], ["viz", "3D visualiser"], ["save MyShow.json", "save the show"]]]
+    ["Other", [["undo", `undo a level change (${/Mac/.test(navigator.platform) ? "⌘Z" : "Ctrl+Z"})`], ["redo", `redo it (${/Mac/.test(navigator.platform) ? "⇧⌘Z" : "Ctrl+Y"})`], ["info 5", "what fixture 5 is doing, and why (window)"], ["blackout", "everything off"], ["full", "everything on"], ["auto create", "groups, palettes, effects and chases"], ["viz", "3D visualiser"], ["save MyShow.json", "save the show"]]],
+    ["Checking", [["errors", "what's gone wrong this session, and how often"], ["check", "health check: outputs, patch, clashes, saved…"], ["stats", "running time, GOs, commands, errors"], ["clashes", "fixtures whose addresses overlap"], ["address 5", "where fixture 5 is patched"], ["dmx 5", "the DMX fixture 5 is sending now"], ["locate 5", "fixture 5 full, open white, centred"], ["history", "the last commands typed"], ["haze 50", "every hazer to 50% (also fog, fan)"], ["update", "check for a new Light Spark"]]]
   ];
 
   function buildReference(body) {
@@ -575,7 +579,10 @@
   // Other scripts wrap parseCommand on load; take the front spot after them,
   // and again if one wraps later.
   window.addEventListener("load", () => setTimeout(boot, 400));
-  setInterval(() => { if (!window.parseCommand?.__lxCommandLine) install(); }, 1000);
+  // Retry until it's in (parseCommand may not exist yet), then never again:
+  // re-adding it whenever another layer sat on top made the two leapfrog,
+  // stacking wrappers until commands overflowed and Enter did nothing.
+  const retry = setInterval(() => { if (installed || install()) clearInterval(retry); }, 1000);
 
   window.LXCommandLine = Object.freeze({ parse, describe, undo, redo, history: () => [...history] });
 })();

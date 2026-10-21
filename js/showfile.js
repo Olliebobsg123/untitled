@@ -195,7 +195,7 @@
     const effects = cloneValue(state.savedEffects || {});
     return {
       format: "lx-console-show",
-      version: 7,
+      version: 8,
       savedAt: new Date().toISOString(),
       fixtures: cloneValue(fixtures).map(fixture => {
         if (!fixture?.tapo) return fixture;
@@ -318,8 +318,33 @@
     } catch (_) {}
   }
 
+  // Shows before version 8: a light nobody had coloured was stored as red at
+  // full saturation (hue 0, sat 100). On a colour wheel that used to pick the
+  // white slot (white and red were both "hue 0"), so the light looked white.
+  // The wheel now picks real red, so keep those lights looking as they did.
+  function keepOldWheelWhite(show) {
+    if (Number(show.version) >= 8) return;
+    const lib = window.FixtureLibrary || {};
+    const fixtureOf = new Map((show.fixtures || []).filter(Boolean).map(f => [String(f.id), f]));
+    const wasWhite = id => {
+      const f = fixtureOf.get(String(id));
+      const def = (f && (lib[f.name] || f.definition)) || {};
+      const map = def.map || {};
+      if (typeof map.colour !== "number" || ["r", "g", "b"].every(k => typeof map[k] === "number")) return false;
+      const wheel = Array.isArray(def.colourWheel) ? def.colourWheel : [];
+      // The slot the old code picked for hue 0: the first one nearest in hue.
+      let best = null, bestDist = Infinity;
+      for (const slot of wheel) { if (slot?.hue == null) continue; const d = Math.min(Math.abs(slot.hue % 360), 360 - Math.abs(slot.hue % 360)); if (d < bestDist) { bestDist = d; best = slot; } }
+      return Boolean(best && Array.isArray(best.rgb) && Math.min(...best.rgb) >= 0.95);
+    };
+    const fix = (id, st) => { if (st && typeof st === "object" && Number(st.hue) === 0 && Number(st.sat) === 100 && wasWhite(id)) st.sat = 0; };
+    for (const [id, st] of show.fixtureStates || []) fix(id, st);
+    for (const cue of show.cues || []) for (const [id, st] of cue?.fixtureStates || []) fix(id, st);
+  }
+
   function restoreShow(show) {
     if (!show || typeof show !== "object" || (show.format && show.format !== "lx-console-show")) throw new Error("Not a valid LX Console show file");
+    keepOldWheelWhite(show);
     stopLivePlayback();
     const state = window.State || (window.State = {});
     state.fixtures = Array.isArray(show.fixtures) ? show.fixtures : [];

@@ -199,12 +199,32 @@ function fxLoop(now) {
 }
 function fxEnsureLoop() { if (State.effectFrame === null) State.effectFrame = LXClock.frame(fxLoop); }
 
+// Put an effect's lights back as they were before it (or as the live cue
+// has them, if a GO happened meanwhile), with a short fade.
+function fxRestore(effect, ids) {
+  const cueNow = State.currentCue;
+  const cue = cueNow !== effect.cueAtStart && cueNow >= 0 ? State.cues?.[cueNow] : null;
+  const look = cue && typeof window.getCueTarget === "function" ? window.getCueTarget(cue).fixtureMap : null;
+  const targets = [];
+  for (const id of ids) {
+    const was = look?.get(id) || effect.before?.get(id);
+    const now = typeof window.ensureFixtureState === "function" ? window.ensureFixtureState(id) : null;
+    if (was && now) targets.push([id, { ...now, ...JSON.parse(JSON.stringify(was)) }]);
+  }
+  if (!targets.length || typeof window.fadeTo !== "function") return;
+  window.finishFade?.();
+  window.fadeTo({}, 300, targets);
+}
+
 // Stop every effect (Stop All, Clear Programmer, a cue without an effect…).
-function stopEffect(silent = false) {
+// restore: put the lights back (a stop you asked for). A GO or Clear
+// Programmer stops them silently and sets the lights itself.
+function stopEffect(silent = false, restore = !silent) {
   if (State.effectFrame !== null) { LXClock.cancel(State.effectFrame); State.effectFrame = null; }
   const had = State.effects.filter(e => typeof e.render === "function");
   State.effects = [];
   fxRefreshActive();
+  if (restore) for (const e of had) fxRestore(e, [...e.ids]);
   if (!silent && had.length) fxLog(`■ ${had.length === 1 ? `Effect stopped: ${had[0].name || had[0].type}` : `${had.length} effects stopped`}`, "ok");
 }
 // Stop one running effect (by its id or name).
@@ -213,6 +233,7 @@ function stopEffectById(idOrName, silent = false) {
   if (!e) return false;
   State.effects = State.effects.filter(x => x !== e);
   fxRefreshActive();
+  fxRestore(e, [...e.ids]);
   if (!silent) fxLog(`■ Effect stopped: ${e.name || e.type}`, "ok");
   return true;
 }
@@ -231,6 +252,14 @@ function fxStart(type, options = {}, renderFrame, filter) {
   if (!fixtures.length) { fxLog("No fixtures selected for this effect", "warn"); return false; }
   const speed = Math.max(type === "strobe" ? 1 : 0.05, fxNumber(options.speed, type === "strobe" ? 8 : 1));
   const ids = fixtures.map(fxGetFixtureId);
+  // How each light looked before any effect touched it (taken over from an
+  // effect that had it, so stopping goes back to the real look).
+  const before = new Map();
+  for (const id of ids) {
+    const prev = State.effects.find(e => e.ids.has(id) && e.before?.has(id));
+    const st = prev ? prev.before.get(id) : (typeof window.ensureFixtureState === "function" ? window.ensureFixtureState(id) : null);
+    if (st) before.set(id, JSON.parse(JSON.stringify(st)));
+  }
   // These fixtures leave any effect that had them.
   stopEffectsOn(ids, true);
   const base = Number(State.current && State.current.intensity);
@@ -239,7 +268,8 @@ function fxStart(type, options = {}, renderFrame, filter) {
     id: `fx${fxNextId++}`, type, name: options.name ? String(options.name) : "", speed,
     fixtureMode: targetInfo.fixtureMode, ids: new Set(ids), fixtures,
     level, levels: new Map(ids.map(id => [id, Number.isFinite(Number(options.levels?.[id])) ? Number(options.levels[id]) : level])),
-    started: performance.now(), render: renderFrame
+    started: performance.now(), render: renderFrame,
+    before, cueAtStart: State.currentCue
   };
   State.effects.push(effect);
   fxRefreshActive();

@@ -2,7 +2,7 @@
 
 (function initialiseState() {
   const DEFAULT_FIXTURE_STATE = Object.freeze({
-    hue: 0, sat: 100, light: 50, intensity: 100, master: 100,
+    hue: 0, sat: 0, light: 100, intensity: 100, master: 100, // a new light is open white (not red)
     pan: 128, tilt: 128,
     strobe: 0, gobo: 0, gobo2: 0, gobor: 0, gobo2r: 0,
     prism: 0, prismr: 0, focus: 0, zoom: 0, frost: 0, iris: 0,

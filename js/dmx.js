@@ -30,7 +30,7 @@ selected:State.selected instanceof Set?State.selected:new Set(),
 groups:Array.isArray(State.groups)?State.groups:[],
 blackout:Boolean(State.blackout),
 current:{
-hue:0,sat:100,light:50,intensity:100,master:100,
+hue:0,sat:0,light:100,intensity:100,master:100,
 pan:128,tilt:128,strobe:0,gobo:0,gobo2:0,gobor:0,gobo2r:0,
 prism:0,prismr:0,focus:0,zoom:0,frost:0,iris:0,rot:0,effect:0,
 speed:0,macro:0,preset:0,shake:0,mode:0,zone:0,fog:0,fana:0,haze:0,fluid:0,colmacro:0,

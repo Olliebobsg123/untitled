@@ -8,6 +8,11 @@
   const $ = id => document.getElementById(id);
   const say = (m, l) => window.log?.(`🎵 ${m}`, l);
   let heard = false;
+  // Light Spark also syncs by itself when the link starts: only shout about
+  // a failure in the log when you pressed Sync Cues (the page always shows it).
+  let askedAt = 0;
+  document.addEventListener("click", e => { if (/syncCues/.test(e.target.closest("[onclick]")?.getAttribute("onclick") || "")) askedAt = Date.now(); }, true);
+  const asked = () => Date.now() - askedAt < 15000;
 
   function reason(msg) {
     const ip = msg.ip || Q.ip;
@@ -49,7 +54,7 @@
       } else {
         const text = reason(message);
         show(`NO CUES — ${text}`, "bad");
-        say(`Sync Cues: ${text}`, "warn");
+        if (asked()) say(`Sync Cues: ${text}`, "warn");
       }
       Q.updateStatus(Q.connected);
       return;

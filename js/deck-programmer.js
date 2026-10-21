@@ -241,8 +241,9 @@
 
   // What a cue programs, per light: a tracked cue's own changes; for a
   // block cue, lights that are on and whatever isn't at its default.
-  const DEFAULTS = { hue: 0, sat: 100, light: 50, pan: 128, tilt: 128, intensity: 0 };
+  const DEFAULTS = { hue: 0, sat: 0, light: 100, pan: 128, tilt: 128, intensity: 0 };
   const SKIP = /^(master|__)/;
+  const PARTS = [["hue", "sat", "light"], ["pan", "tilt", "panf", "tiltf"], ["r", "g", "b"]];
   function programmed(index) {
     const cue = S().cues?.[index];
     const map = new Map();
@@ -262,6 +263,9 @@
         if (SKIP.test(k) || typeof v !== "number") continue;
         if (k === "intensity" || Math.abs(v - (DEFAULTS[k] ?? 0)) > 1e-6) keep[k] = v;
       }
+      // Colour and position only make sense whole: red is hue 0 like the
+      // default, and a mover can sit at pan 128 while its tilt has moved.
+      for (const group of PARTS) if (group.some(k => k in keep)) for (const k of group) if (typeof st[k] === "number") keep[k] = st[k];
       map.set(id, keep);
     });
     return map;

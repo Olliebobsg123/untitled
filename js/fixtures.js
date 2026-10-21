@@ -4020,8 +4020,7 @@ function validateFixtureLibrary() {
                      * Fixed beam angle.
                      */
                     if (
-                        p.beamAngle !==
-                            null &&
+                        p.beamAngle != null && !(p.beamAngle === 0 && !(p.ratedLumens > 0)) && /* missing, or 0 on something that makes no light (haze, motor), is fine */
                         (
                             typeof p.beamAngle !==
                                 "number" ||
@@ -4043,8 +4042,7 @@ function validateFixtureLibrary() {
                      * Zoom range.
                      */
                     if (
-                        p.beamAngleMin !==
-                            null &&
+                        p.beamAngleMin != null && !(p.beamAngleMin === 0 && !(p.ratedLumens > 0)) && /* missing, or 0 on something that makes no light (haze, motor), is fine */
                         (
                             typeof p.beamAngleMin !==
                                 "number" ||
@@ -4063,8 +4061,7 @@ function validateFixtureLibrary() {
 
 
                     if (
-                        p.beamAngleMax !==
-                            null &&
+                        p.beamAngleMax != null && !(p.beamAngleMax === 0 && !(p.ratedLumens > 0)) && /* missing, or 0 on something that makes no light (haze, motor), is fine */
                         (
                             typeof p.beamAngleMax !==
                                 "number" ||

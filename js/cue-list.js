@@ -289,7 +289,7 @@
         if (r) window.parseCommand?.(`rename cue ${n} ${r.name.trim() || `Cue ${n}`}`);
       } else if (a === "copy") window.parseCommand?.(`copy cue ${n} to ${S().cues.length + 1}`);
       else if (a === "insert") window.LXDeck?.insertCue(i);
-      else if (a === "tcnow") { const t = window.LXTimecode?.now(); if (t == null) window.log?.("No timecode yet — start the source first", "warn"); else { window.LXTimecode.setCue(i, t); window.log?.(`Cue ${n} fires at ${window.LXTimecode.format(t)}`, "ok"); } }
+      else if (a === "tcnow") { const t = window.LXTimecode?.now(); if (t == null) window.log?.("No timecode yet — start the source first", "warn"); else { window.LXTimecode.setCue(i, t); window.log?.(`Cue ${n} fires at ${window.LXTimecode.format(Math.max(0, t))}`, "ok"); } }
       else if (a === "block") window.parseCommand?.(`${tracked ? "block" : "track"} cue ${n}`);
       else if (a === "mib") {
         cue.noMib = !cue.noMib;

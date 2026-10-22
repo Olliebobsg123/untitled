@@ -210,7 +210,7 @@
   }
 
   function learnNext() {
-    const t = now();
+    const t = now() == null ? null : Math.max(0, now());
     if (t == null) return say("No timecode yet — start the source first", "warn");
     const i = window.LXCueList?.next?.() ?? -1;
     if (!(i >= 0)) return say("No next cue to set", "warn");
@@ -223,7 +223,7 @@
     if (!body) return;
     const src = pref("tcSource", "off");
     const t = now();
-    setText(body.querySelector('[data-tc="time"]'), format(t));
+    setText(body.querySelector('[data-tc="time"]'), format(t == null ? t : Math.max(0, t))); // the few frames before zero read 00:00:00:00
     body.querySelector(".tcw").classList.toggle("running", Boolean(clock.running));
     setText(body.querySelector('[data-tc="source"]'), { off: "Timecode off", mtc: "MIDI timecode (MTC)", ltc: "Audio timecode (LTC)", internal: "Internal clock" }[src] || src);
     const state = src === "off" ? "turn it on in Settings…" : clock.freewheel ? "FREEWHEEL — signal lost" : clock.running ? `running · ${Math.round((clock.fps || fpsPref()) * 100) / 100} fps` : t == null ? "waiting for timecode" : "stopped";
@@ -252,7 +252,8 @@
       el.addEventListener("click", open);
       status.prepend(el);
     }
-    setText(el, `TC ${format(now())}`);
+    const t = now();
+    setText(el, `TC ${format(t == null ? t : Math.max(0, t))}`);
     el.classList.toggle("running", Boolean(clock.running));
     el.classList.toggle("freewheel", Boolean(clock.freewheel));
   }

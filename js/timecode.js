@@ -221,7 +221,7 @@
     setText(body.querySelector('[data-tc="source"]'), { off: "Timecode off", mtc: "MIDI timecode (MTC)", ltc: "Audio timecode (LTC)", internal: "Internal clock" }[src] || src);
     const state = src === "off" ? "turn it on in Settings…" : clock.freewheel ? "FREEWHEEL — signal lost" : clock.running ? `running · ${Math.round((clock.fps || fpsPref()) * 100) / 100} fps` : t == null ? "waiting for timecode" : "stopped";
     // Timecode can't go below zero: a time "before zero" wraps round to 23:59:59.
-    const wrapped = src !== "internal" && t != null && t >= 23.5 * 3600 ? ` · that's ${Math.round(24 * 3600 - t)} s before 00:00:00 — the sender's timecode starts before zero` : "";
+    const wrapped = src !== "internal" && t != null && t >= 23.5 * 3600 ? ` · ${24 * 3600 - t < 1 ? "just under a second" : `${Math.round(24 * 3600 - t)} s`} before 00:00:00 — the sender's timecode starts before zero` : "";
     setText(body.querySelector('[data-tc="state"]'), state + wrapped);
     const list = timed();
     const next = list.find(([, c]) => t == null || c.timecode > t + 1e-6);

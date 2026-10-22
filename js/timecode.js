@@ -227,7 +227,10 @@
     body.querySelector(".tcw").classList.toggle("running", Boolean(clock.running));
     setText(body.querySelector('[data-tc="source"]'), { off: "Timecode off", mtc: "MIDI timecode (MTC)", ltc: "Audio timecode (LTC)", internal: "Internal clock" }[src] || src);
     const state = src === "off" ? "turn it on in Settings…" : clock.freewheel ? "FREEWHEEL — signal lost" : clock.running ? `running · ${Math.round((clock.fps || fpsPref()) * 100) / 100} fps` : t == null ? "waiting for timecode" : "stopped";
-    setText(body.querySelector('[data-tc="state"]'), state);
+    // Held at 00:00:00:00 because the sender's time is below zero (REAPER:
+    // its Timecode item starts partway into its own timeline).
+    const below = clock.running && src !== "internal" && t != null && t < -0.5 ? ` · held at zero: the timecode coming in is ${Math.round(-t)} s below zero. In REAPER, select the Timecode item: F2 → set \"Start in source\" to 0, and Ctrl+F2 → set \"Start time\" to 00:00:00:00` : "";
+    setText(body.querySelector('[data-tc="state"]'), state + below);
     const list = timed();
     const next = list.find(([, c]) => t == null || c.timecode > t + 1e-6);
     setText(body.querySelector('[data-tc="next"]'), next ? `next: cue ${next[0] + 1} at ${format(next[1].timecode)}` : list.length ? "no more timed cues" : "no cues have a time yet");

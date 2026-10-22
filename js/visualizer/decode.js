@@ -44,19 +44,44 @@ const DEFAULT_WHEEL = [
   { min: 121, max: 140, rgb: [0, 0, 1] }, { min: 141, max: 160, rgb: [0.5, 0, 1] }, { min: 161, max: 180, rgb: [1, 0, 1] },
   { min: 181, max: 255, rgb: [1, 1, 1] }
 ];
+// Colour wheel / macro colours in fixture profiles are display (sRGB)
+// colours picked by eye; light is mixed in linear units, so convert.
+export const srgbToLinear = v => { v = clamp01(v); return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+const linear = rgb => rgb.map(srgbToLinear);
+
 export function wheelColour(def, value) {
   const wheel = Array.isArray(def?.colourWheel) && def.colourWheel.length ? def.colourWheel : DEFAULT_WHEEL;
   const slot = wheel.find(s => value >= Number(s.min) && value <= Number(s.max));
-  return Array.isArray(slot?.rgb) ? slot.rgb.map(clamp01) : [1, 1, 1];
+  return Array.isArray(slot?.rgb) ? linear(slot.rgb) : [1, 1, 1];
 }
 
-// Colour temperature (kelvin) → linear-ish RGB, close enough for a visualiser.
+// The colour of white light at a colour temperature, as the camera sees it.
+// The Planckian locus (Kim et al. cubic fit) gives the chromaticity; that goes
+// to linear sRGB and is white-balanced to WHITE_BALANCE, as a camera or the
+// eye is: tungsten (3000K) looks warm amber, cool LED (6500K) a little blue,
+// and daylight-balanced sources near white. Scaled so the brightest of R/G/B
+// is 1 (the fixture's brightness comes from its lumens).
+export const WHITE_BALANCE = 5000;
+function planckXYZ(kelvin) {
+  const T = Math.max(1667, Math.min(25000, kelvin));
+  const x = T <= 4000
+    ? -0.2661239e9 / T ** 3 - 0.2343589e6 / T ** 2 + 0.8776956e3 / T + 0.17991
+    : -3.0258469e9 / T ** 3 + 2.1070379e6 / T ** 2 + 0.2226347e3 / T + 0.24039;
+  const y = T <= 2222
+    ? -1.1063814 * x ** 3 - 1.3481102 * x ** 2 + 2.18555832 * x - 0.20219683
+    : T <= 4000
+      ? -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+      : 3.081758 * x ** 3 - 5.8733867 * x ** 2 + 3.75112997 * x - 0.37001483;
+  return [x / y, 1, (1 - x - y) / y];
+}
+function xyzToLinearSrgb([X, Y, Z]) {
+  return [3.2406 * X - 1.5372 * Y - 0.4986 * Z, -0.9689 * X + 1.8758 * Y + 0.0415 * Z, 0.0557 * X - 0.204 * Y + 1.057 * Z];
+}
+const balance = xyzToLinearSrgb(planckXYZ(WHITE_BALANCE));
 export function kelvinToRgb(kelvin) {
-  const t = Math.max(1000, Math.min(12000, kelvin)) / 100;
-  const r = t <= 66 ? 1 : clamp01((329.698727446 * Math.pow(t - 60, -0.1332047592)) / 255);
-  const g = t <= 66 ? clamp01((99.4708025861 * Math.log(t) - 161.1195681661) / 255) : clamp01((288.1221695283 * Math.pow(t - 60, -0.0755148492)) / 255);
-  const b = t >= 66 ? 1 : t <= 19 ? 0 : clamp01((138.5177312231 * Math.log(t - 10) - 305.0447927307) / 255);
-  return [r, g, b];
+  const rgb = xyzToLinearSrgb(planckXYZ(Math.max(1000, Math.min(12000, Number(kelvin) || 3200)))).map((v, i) => Math.max(0, v / balance[i]));
+  const peak = Math.max(...rgb) || 1;
+  return rgb.map(v => v / peak);
 }
 
 export const isTungsten = (def, name = "") =>
@@ -64,12 +89,15 @@ export const isTungsten = (def, name = "") =>
 
 // Generic colour-macro palette for fixtures whose macro tables we don't have:
 // most LED fixtures step through primaries and mixes in DMX bands.
-const MACRO_PALETTE = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 0.5, 0], [0.5, 0, 1], [1, 1, 1]];
+const MACRO_PALETTE = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [1, 0, 1], [0, 1, 1], [1, 0.5, 0], [0.5, 0, 1], [1, 1, 1]].map(linear);
 const MACRO_KEYS = ["colmacro", "colorPreset", "presetColors", "colorMacros"];
 
 // The colour a fixture makes (0-1 per channel, before brightness), and whether
 // that colour also carries the brightness (LED fixtures with no dimmer).
+const AMBER = [1, 0.32, 0], LIME = [0.55, 1, 0.04], CYAN = [0, 0.85, 1];
+let WHITE_LED = null;
 export function decodeColour(def, read, name = "") {
+  WHITE_LED ||= kelvinToRgb(5700);
   const map = def?.map || {};
   const has = key => isChannel(map[key]);
   const level = key => read.fine(key, `${key}Fine`) ?? 0;
@@ -81,10 +109,13 @@ export function decodeColour(def, read, name = "") {
     result = { rgb: [1 - level("cyan"), 1 - level("magenta"), 1 - level("yellow")], carriesLevel: false };
   } else if (hasEmitters) {
     // Additive LED mixing: each emitter adds its own colour.
+    // Each emitter's colour in linear light (what its LED die looks like):
+    // amber ~590nm, lime is a broad yellow-green phosphor, cyan ~500nm, the
+    // white die ~5700K. UV is mostly invisible: a dim violet.
     const emitters = [
       ["r", [1, 0, 0]], ["g", [0, 1, 0]], ["b", [0, 0, 1]],
-      ["w", [1, 0.95, 0.88]], ["a", [1, 0.62, 0]], ["amber", [1, 0.62, 0]],
-      ["l", [0.7, 1, 0]], ["lime", [0.7, 1, 0]], ["c", [0, 1, 1]], ["cyan", [0, 1, 1]], ["uv", [0.3, 0, 1]]
+      ["w", WHITE_LED], ["a", AMBER], ["amber", AMBER],
+      ["l", LIME], ["lime", LIME], ["c", CYAN], ["cyan", CYAN], ["uv", [0.08, 0, 0.35]]
     ];
     const seen = new Set();
     const mixed = [0, 0, 0];

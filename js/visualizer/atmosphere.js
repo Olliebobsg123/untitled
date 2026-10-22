@@ -15,6 +15,11 @@ import { glow } from "./gobos.js";
 const MAX_PARTICLES = 1400;
 const HAZE_CAP = 3.5;
 
+// The puffs are drawn into the beams' low-resolution layer (main.js), added
+// on like the beams: fog is a lot of big soft sprites, and drawing them at
+// full resolution was the slowest part of a smoky stage. They test against
+// the stage's depth themselves and fade out just before a surface (soft
+// particles), so there's no hard line where a cloud meets the floor.
 const vertexShader = /* glsl */ `
   attribute float aSize;
   attribute float aAlpha;
@@ -22,22 +27,34 @@ const vertexShader = /* glsl */ `
   uniform float uScale;
   varying float vAlpha;
   varying vec3 vColor;
+  varying float vDistance;
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_PointSize = aSize * uScale / max(0.1, -mv.z);
     gl_Position = projectionMatrix * mv;
     vAlpha = aAlpha;
     vColor = aColor;
+    vDistance = length(mv.xyz);
   }
 `;
 const fragmentShader = /* glsl */ `
   uniform sampler2D uMap;
+  uniform sampler2D uSceneDepth;
+  uniform vec2 uResolution;
+  uniform mat4 uProjectionInverse;
   varying float vAlpha;
   varying vec3 vColor;
+  varying float vDistance;
   void main() {
     float a = texture2D(uMap, gl_PointCoord).a * vAlpha;
     if (a < 0.002) discard;
-    gl_FragColor = vec4(vColor, a);
+    vec2 uv = gl_FragCoord.xy / uResolution;
+    float depth = texture2D(uSceneDepth, uv).x;
+    vec4 view = uProjectionInverse * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    float surface = length(view.xyz / view.w);
+    a *= clamp((surface - vDistance + 0.15) / 0.6, 0.0, 1.0);
+    if (a < 0.002) discard;
+    gl_FragColor = vec4(vColor * a, 1.0);
   }
 `;
 
@@ -60,14 +77,19 @@ export class Atmosphere {
     this.material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
-      uniforms: { uMap: { value: glow() }, uScale: { value: 500 } },
+      uniforms: { uMap: { value: glow() }, uScale: { value: 500 }, uSceneDepth: shared.uniforms.depth, uResolution: shared.uniforms.resolution, uProjectionInverse: shared.uniforms.projectionInverse },
       transparent: true,
-      depthWrite: false
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor
     });
     this.points = new THREE.Points(geometry, this.material);
     this.points.frustumCulled = false;
     this.points.renderOrder = 3;
-    shared.scene.add(this.points);
+    (shared.beamScene || shared.scene).add(this.points);
     // The air itself: distant things fade into lit haze as the room fills.
     this.air = new THREE.FogExp2(0x000000, 0);
     shared.scene.fog = this.air;
@@ -127,7 +149,7 @@ export class Atmosphere {
       if (!(l.level > 0) || !l.apex || !l.axis || !l.rgb) continue;
       const k = (l.candela || 0) * (this.shared.beamScale || 1) * 1.1;
       if (k <= 0) continue;
-      const half = l.halfAngle || 0.2;
+      const half = l.spread || l.halfAngle || 0.2; // where the light reaches (the field angle)
       beams.push({ apex: l.apex, axis: l.axis, cos: Math.cos(Math.min(1.4, half * 1.15)), cosIn: Math.cos(Math.min(1.4, half * 0.7)), r: l.rgb[0] * k, g: l.rgb[1] * k, b: l.rgb[2] * k });
     }
     const ambR = 0.01 + stageLight.r * 0.3, ambG = 0.01 + stageLight.g * 0.3, ambB = 0.012 + stageLight.b * 0.3; // a little general light; the beams themselves do most of it

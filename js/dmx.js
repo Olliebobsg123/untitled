@@ -63,30 +63,48 @@ State.fixtures.forEach(initialiseFixtureState);
 window.ensureFixtureState=fixtureState;
 
 window.connectVisualizer=()=>{
-if(visualizerWindow&&!visualizerWindow.closed){visualizerWindow.focus();sendToVisualizer();return;}
+if(visualizerWindow&&!visualizerWindow.closed){visualizerWindow.focus();sendToVisualizer(true);return;}
 visualizerWindow=window.open("visualizer.html","visualizer","width=1440,height=900");
 if(!visualizerWindow)console.error("Visualizer popup blocked");
 };
-window.sendToVisualizer=()=>{
+// The patch (and the fixture library, which is big) only go when they've
+// changed: this is called on every fade and effect frame, and copying the
+// whole library to the visualiser 60 times a second made both windows lag.
+let lastVisualizerPatch="",lastVisualizerLibrary=null,lastVisualizerLibraryCount=-1,lastVisualizerLibraryAt=0;
+window.sendToVisualizer=(force=false)=>{
 if(!visualizerWindow||visualizerWindow.closed)return;
-visualizerWindow.postMessage({type:"SYNC_FIXTURES",fixtures:Array.isArray(State.fixtures)?State.fixtures:[],fixtureLibrary:window.FixtureLibrary||{}},"*");
+const fixtures=Array.isArray(State.fixtures)?State.fixtures:[];
+const library=window.FixtureLibrary||{};
+let patch="";try{patch=JSON.stringify(fixtures);}catch(_){patch=String(Math.random());}
+const count=Object.keys(library).length;
+// A library edited in place keeps its size: resend it at most every 5 s while the patch is being changed.
+const libraryChanged=library!==lastVisualizerLibrary||count!==lastVisualizerLibraryCount||(patch!==lastVisualizerPatch&&Date.now()-lastVisualizerLibraryAt>5000);
+if(force===true||patch!==lastVisualizerPatch||libraryChanged){
+lastVisualizerPatch=patch;lastVisualizerLibrary=library;lastVisualizerLibraryCount=count;lastVisualizerLibraryAt=Date.now();
+visualizerWindow.postMessage({type:"SYNC_FIXTURES",fixtures,fixtureLibrary:library},"*");
+}
 sendVisualizerDMX();
 };
-// At most one frame every 25ms, and only when something changed.
-let lastVisualizerDMX=null,visualizerDMXTimer=null;
-function sendVisualizerDMX(){
-if(!visualizerWindow||visualizerWindow.closed||visualizerDMXTimer)return;
-visualizerDMXTimer=setTimeout(()=>{
+// Every change goes at once, at most one frame every 16ms (a fade's 40
+// frames a second all get through), and only when something changed.
+let lastVisualizerDMX=null,visualizerDMXTimer=null,lastVisualizerSentAt=0;
+function postVisualizerDMX(){
 visualizerDMXTimer=null;
 if(!visualizerWindow||visualizerWindow.closed)return;
 const dmx=State.dmx;
 if(lastVisualizerDMX&&lastVisualizerDMX.length===dmx.length&&lastVisualizerDMX.every((v,i)=>v===dmx[i]))return;
 lastVisualizerDMX=dmx.slice();
+lastVisualizerSentAt=performance.now();
 visualizerWindow.postMessage({type:"DMX_UPDATE",dmx:lastVisualizerDMX.slice()},"*");
-},25);
+}
+function sendVisualizerDMX(){
+if(!visualizerWindow||visualizerWindow.closed||visualizerDMXTimer)return;
+const wait=16-(performance.now()-lastVisualizerSentAt);
+if(wait<=0)postVisualizerDMX();
+else visualizerDMXTimer=setTimeout(postVisualizerDMX,wait);
 }
 window.addEventListener("message",e=>{
-if(e.data?.type==="VISUALIZER_READY"){visualizerWindow=e.source;window.visualizerWindow=e.source;lastVisualizerDMX=null;sendToVisualizer();}
+if(e.data?.type==="VISUALIZER_READY"){visualizerWindow=e.source;window.visualizerWindow=e.source;lastVisualizerDMX=null;sendToVisualizer(true);}
 });
 
 function connectArtNet(){

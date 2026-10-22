@@ -209,23 +209,37 @@ export function glow() {
   return glowTexture;
 }
 
-// A plain round pool of light with a soft edge, for fixtures drawn without
-// a real stage light (see the pool decal in fixture-model.js).
-let poolTexture = null;
-export function poolDisc() {
-  if (poolTexture) return poolTexture;
+// A plain round pool of light, for fixtures drawn without a real stage
+// light (see the pool decal in fixture-model.js). Hard-edged optics
+// (profiles, spots) make a flat field with a crisp edge; pars, washes and
+// fresnels a bell-shaped (Gaussian) one: 50% of the centre at the beam angle,
+// 10% at the field angle (the disc's edge).
+const poolTextures = {};
+export function poolDisc(gaussian = false) {
+  const key = gaussian ? "gaussian" : "flat";
+  if (poolTextures[key]) return poolTextures[key];
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 128;
   const g = canvas.getContext("2d");
   const gradient = g.createRadialGradient(64, 64, 0, 64, 64, 63);
-  gradient.addColorStop(0, "#fff");
-  gradient.addColorStop(0.7, "#e6e6e6");
-  gradient.addColorStop(0.9, "#555");
-  gradient.addColorStop(1, "#000");
+  if (gaussian) {
+    for (let i = 0; i <= 16; i++) {
+      const r = i / 16;
+      const v = Math.exp(-2.3 * r * r) * (1 - Math.max(0, (r - 0.8) / 0.2) ** 2);
+      const c = Math.round(255 * Math.max(0, v)); // linear light, read as-is
+      gradient.addColorStop(r, `rgb(${c},${c},${c})`);
+    }
+  } else {
+    gradient.addColorStop(0, "#fff");
+    gradient.addColorStop(0.7, "#e6e6e6");
+    gradient.addColorStop(0.9, "#555");
+    gradient.addColorStop(1, "#000");
+  }
   g.fillStyle = gradient;
   g.fillRect(0, 0, 128, 128);
-  poolTexture = new THREE.CanvasTexture(canvas);
-  return poolTexture;
+  const texture = new THREE.CanvasTexture(canvas);
+  poolTextures[key] = texture;
+  return texture;
 }
 
 // LED lens: a grid of emitters, so LED fixtures read as LED fixtures.

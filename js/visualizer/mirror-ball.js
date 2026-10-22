@@ -180,9 +180,9 @@ export class MirrorBall {
       toBall.divideScalar(distance);
       // Is the ball inside this fixture's beam? (soft edge)
       const off = Math.acos(Math.min(1, toBall.dot(light.axis)));
-      const edge = light.halfAngle * 1.2;
+      const edge = (light.spread || light.halfAngle) * 1.2;
       if (off > edge) continue;
-      const profile = 1 - THREE.MathUtils.smoothstep(off, light.halfAngle * 0.8, edge);
+      const profile = 1 - THREE.MathUtils.smoothstep(off, (light.spread || light.halfAngle) * 0.8, edge);
       const lux = (light.candela * profile) / (distance * distance);
       // Apparent size of the source from the ball: how fast each reflection spreads.
       const spread = Math.max(0.004, (light.lensRadius * 2) / distance);

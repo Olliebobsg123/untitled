@@ -33,9 +33,20 @@ const $ = id => document.getElementById(id);
 const consoleWindow = window.opener;
 const send = message => { try { consoleWindow?.postMessage(message, "*"); } catch (_) {} };
 
-// Brightness calibration: candela → scene units, and beam scattering.
-const LIGHT_SCALE = 0.08;
-const BEAM_SCALE = 0.0006;
+// Brightness calibration. Everything is in real units (candela, lux) and
+// multiplied by one exposure, as a camera would see it:
+//   LIGHT_SCALE  scene brightness per lux at Exposure 0
+//   BEAM_SCALE   = LIGHT_SCALE x σs / 4π: haze scatters σs ≈ 0.045 per metre
+//                  per unit of haze (a hazer at full ≈ 0.1/m: typical
+//                  theatre haze is 0.02-0.15/m)
+// The Exposure slider moves both by the same number of stops.
+const LIGHT_SCALE = 0.055;
+const BEAM_SCALE = LIGHT_SCALE * 0.045 / (4 * Math.PI);
+// Light bouncing off the stage lights everything else a little: the room's
+// surfaces (~500 m², reflecting ~15% on average) share what the lit
+// surfaces reflect.
+const ROOM_AREA = 500;
+const ROOM_REFLECTANCE = 0.15;
 
 // Quality presets. "Auto" starts at Medium and moves down (or up) with the
 // frame rate. The big costs are pixels (resolution), real stage lights and
@@ -57,7 +68,7 @@ const VIEWS = {
 };
 // Beams only show in haze, as in a real room: with no hazer, fog machine or
 // room haze there are no beams, just the light landing on stage.
-const DEFAULT_SETTINGS = { house: false, work: false, grid: false, targets: true, haze: 0, quality: "auto" };
+const DEFAULT_SETTINGS = { house: false, work: false, grid: false, targets: true, haze: 0, exposure: 0, quality: "auto" };
 
 // --- Renderer and scene -------------------------------------------------
 
@@ -67,7 +78,7 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.shadowMap.autoUpdate = false; // redrawn only when a light moves (see shadowsDirty)
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.NoToneMapping; // done by toneMap below, after the bloom
 renderer.toneMappingExposure = 1;
 renderer.setClearColor(0x000000, 1);
 $("viz").appendChild(renderer.domElement);
@@ -115,21 +126,29 @@ shared.solids = theatre.solids;
 const atmosphere = new Atmosphere(shared);
 window.__atmosphere = atmosphere; // for tests: how much haze is in the room
 const lightPool = new LightPool(scene);
+const bounce = new THREE.HemisphereLight(0x000000, 0x000000, 1);
+scene.add(bounce);
+const bounceColour = new THREE.Color();
 
 const composer = new EffectComposer(renderer);
 const composite = new ShaderPass({
   uniforms: { tScene: { value: null }, tBeams: { value: null } },
   vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-  // Beams pass through unchanged up to a knee, then roll off smoothly, so a
-  // beam at full keeps its shape instead of its edges blowing out to white.
+  // Beams pass through unchanged up to a knee, then roll off smoothly
+  // (never quite flat), so a beam light that's far brighter than a wash -
+  // as it really is - still shows its falloff instead of a flat bar.
   fragmentShader: `uniform sampler2D tScene; uniform sampler2D tBeams; varying vec2 vUv;
     void main() {
       vec3 beams = texture2D(tBeams, vUv).rgb;
       float l = max(max(beams.r, beams.g), beams.b);
       float knee = 0.6;
-      float rolled = l < knee ? l : knee + knee * (1.0 - exp(-(l - knee) / knee));
+      float over = l - knee;
+      float rolled = l < knee ? l : knee + over / (1.0 + over / 2.0);
       beams *= l > 0.0 ? rolled / l : 0.0;
-      gl_FragColor = vec4(texture2D(tScene, vUv).rgb + beams, 1.0);
+      // Capped far above white (tone mapping makes anything past ~6 white
+      // anyway) so the bloom doesn't smear a tiny, very bright spot into
+      // blocky squares.
+      gl_FragColor = vec4(min(texture2D(tScene, vUv).rgb + beams, vec3(8.0)), 1.0);
     }`
 }, null);
 // Set after construction: ShaderPass copies its uniforms, and render-target
@@ -138,8 +157,27 @@ composite.uniforms.tScene.value = sceneTarget.texture;
 composite.uniforms.tBeams.value = beamTarget.texture;
 // Only genuinely hot things (lenses, the hottest part of a pool) glow.
 const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.3, 1.4);
+// Tone mapping, as a camera: a filmic curve on the brightest of R, G and B,
+// so a colour keeps its hue and saturation (a deep red LED stays red rather
+// than going orange or pink, as ACES and AgX make it), and only light far
+// past white desaturates towards it, as a camera sensor clips.
+const toneMap = new ShaderPass({
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    float filmic(float x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
+    void main() {
+      vec3 c = max(texture2D(tDiffuse, vUv).rgb, 0.0);
+      float m = max(max(c.r, c.g), c.b);
+      if (m <= 1e-6) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+      vec3 hue = c / m;
+      float white = 0.75 * clamp((m - 1.2) / 8.0, 0.0, 1.0);
+      gl_FragColor = vec4(mix(hue, vec3(1.0), white) * filmic(m), 1.0);
+    }`
+});
 composer.addPass(composite);
 composer.addPass(bloom);
+composer.addPass(toneMap);
 composer.addPass(new OutputPass());
 
 function resize() {
@@ -154,7 +192,7 @@ function resize() {
   shared.uniforms.resolution.value.set(bx, by);
   composer.setSize(innerWidth, innerHeight);
   bloom.setSize(x, y);
-  atmosphere.setViewportHeight(y, camera.fov);
+  atmosphere.setViewportHeight(by, camera.fov); // drawn in the beams' layer
 }
 window.addEventListener("resize", () => { resize(); wake(); });
 
@@ -205,6 +243,7 @@ const settings = () => {
 };
 const definitionOf = fixture => library[fixture?.name] || fixture?.definition || null;
 
+const exposureText = ev => { ev = Number(ev) || 0; return ev === 0 ? "0" : `${ev > 0 ? "+" : "−"}${Math.abs(ev).toFixed(1)}`; };
 function setStatus(text) { $("status").textContent = text; }
 
 function applySettings() {
@@ -214,6 +253,8 @@ function applySettings() {
   theatre.setGrid(s.grid);
   for (const [id, key] of [["house", "house"], ["work", "work"], ["grid", "grid"], ["targets", "targets"]]) $(id).classList.toggle("on", Boolean(s[key]));
   targetGroup.visible = Boolean(s.targets);
+  $("exposure").value = String(Math.round((Number(s.exposure) || 0) * 10));
+  $("exposureValue").textContent = exposureText(s.exposure);
   $("haze").value = String(Math.round(s.haze * 100));
   $("hazeValue").textContent = `${Math.round(s.haze * 100)}%`;
   $("quality").value = s.quality;
@@ -296,6 +337,12 @@ function update() {
   const lights = [];
   stageLight.setRGB(0, 0, 0);
 
+  const gain = Math.pow(2, Number(s.exposure) || 0);
+  shared.exposureGain = gain;
+  shared.lightScale = LIGHT_SCALE * gain;
+  shared.beamScale = BEAM_SCALE * gain;
+  bounceColour.setRGB(0, 0, 0);
+
   for (const model of fixtures.values()) {
     const base = baseAddress(model.fixture);
     const state = decodeFixture(model.def, dmx, base, model.fixture.name, model.fixture.manualShutters, model.fixture.beamAngle);
@@ -307,20 +354,31 @@ function update() {
       machines.push({ kind: model.kind, output: base < 0 ? 0 : fog, nozzle, direction: model.head.getWorldDirection(new THREE.Vector3()) });
     } else if (model.state?.level > 0) {
       lights.push({ ...model.state, lensRadius: model.lensRadius });
-      const k = Math.min(0.08, (model.state.candela * LIGHT_SCALE) / 4000);
+      // Lumens landing on what the beam hits, reflected by its colour.
+      if (model.hit) {
+        const [r, g, b] = model.state.rgb, a = model.hit.albedo;
+        const flux = model.lumens * model.state.level * 0.85;
+        bounceColour.r += flux * r * a.r; bounceColour.g += flux * g * a.g; bounceColour.b += flux * b * a.b;
+      }
+      const k = Math.min(0.08, (model.state.candela * shared.lightScale) / 4000);
       stageLight.r += model.state.rgb[0] * k;
       stageLight.g += model.state.rgb[1] * k;
       stageLight.b += model.state.rgb[2] * k;
     }
   }
   if (s.work) stageLight.r += 0.05, stageLight.g += 0.05, stageLight.b += 0.055;
+  // Bounce: lux everywhere = reflected lumens / (room area x (1 - reflectance)).
+  // Mostly up from the floor, a little from above.
+  bounceColour.multiplyScalar(shared.lightScale / (ROOM_AREA * (1 - ROOM_REFLECTANCE)));
+  bounce.groundColor.copy(bounceColour);
+  bounce.color.copy(bounceColour).multiplyScalar(0.35);
   const haze = atmosphere.update(dt, machines, s.haze, stageLight, lights);
   shared.uniforms.haze.value = haze;
   if (ball) {
     const state = decodeFixture(definitionOf(ball.fixture), dmx, baseAddress(ball.fixture), ball.fixture.name);
     ball.model.update(dt, state.speed, lights, haze);
   }
-  if (lightPool.update(fixtures.values(), LIGHT_SCALE)) shared.shadowsDirty = true;
+  if (lightPool.update(fixtures.values(), shared.lightScale)) shared.shadowsDirty = true;
   // Fixtures without a real light draw their pool as a decal instead.
   const lit = new Set(lightPool.owners);
   for (const model of fixtures.values()) model.poolLit = lit.has(model);
@@ -367,7 +425,9 @@ function render() {
   }
   lastFrame = now;
   countFrame(now);
+  const t0 = performance.now();
   update();
+  const t1 = performance.now();
   if (shared.shadowsDirty) {
     renderer.shadowMap.needsUpdate = true;
     shared.shadowsDirty = false;
@@ -378,7 +438,12 @@ function render() {
   renderer.render(beamScene, camera);
   renderer.setRenderTarget(null);
   composer.render();
+  // How long the CPU spends per frame (for tests and the Show Log).
+  const t2 = performance.now();
+  timing.update = timing.update * 0.9 + (t1 - t0) * 0.1;
+  timing.draw = timing.draw * 0.9 + (t2 - t1) * 0.1;
 }
+const timing = { update: 0, draw: 0 };
 
 // --- Selection and dragging ------------------------------------------------
 
@@ -690,6 +755,13 @@ $("haze").addEventListener("input", () => {
   $("hazeValue").textContent = `${$("haze").value}%`;
 });
 $("haze").addEventListener("change", saveLayout);
+$("exposure").addEventListener("input", () => {
+  wake();
+  layout.settings = { ...settings(), exposure: Number($("exposure").value) / 10 };
+  $("exposureValue").textContent = exposureText(layout.settings.exposure);
+});
+$("exposure").addEventListener("change", saveLayout);
+$("exposure").addEventListener("dblclick", () => { $("exposure").value = "0"; $("exposure").dispatchEvent(new Event("input")); saveLayout(); });
 $("resetLayout").addEventListener("click", () => {
   if (!confirm("Put every fixture back in its default place and aim?")) return;
   layout.positions = {};
@@ -774,4 +846,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { timing, fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

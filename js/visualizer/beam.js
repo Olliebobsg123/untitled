@@ -36,6 +36,7 @@ const fragmentShader = /* glsl */ `
   uniform float uStart;
   uniform vec3 uColor;
   uniform float uSoft;
+  uniform float uGauss;
   uniform float uHaze;
   uniform float uTime;
   uniform float uHasMask;
@@ -121,8 +122,13 @@ const fragmentShader = /* glsl */ `
       float radius = h * uTanHalf;
       float r = length(radial) / radius;
       if (r > 1.0) continue;
-      // Soft edge, plus the brighter centre real optics give.
-      float profile = (1.0 - smoothstep(1.0 - uSoft, 1.0, r)) * (1.0 - 0.35 * r * r);
+      // Across the beam: hard-edged optics (profiles, spots) give a flat
+      // field with a slightly hotter centre and an edge set by focus; pars,
+      // washes and fresnels a bell curve, 50% at the beam angle and 10% at
+      // the field angle (the cone's edge, r = 1).
+      float even = (1.0 - smoothstep(1.0 - uSoft, 1.0, r)) * (1.0 - 0.35 * r * r);
+      float bell = exp(-2.3 * r * r) * (1.0 - smoothstep(0.8, 1.0, r));
+      float profile = mix(even, bell, uGauss);
       if (uHasMask > 0.5) {
         vec2 uv = vec2(dot(radial, uRight), dot(radial, uUp)) / radius * 0.5 + 0.5;
         profile *= texture2D(uMask, uv).r;
@@ -174,6 +180,7 @@ export function createBeamMaterial(shared, steps) {
       uStart: { value: 0 },
       uColor: { value: new THREE.Color(0, 0, 0) },
       uSoft: { value: 0.3 },
+      uGauss: { value: 0 },
       uHaze: shared.haze,
       uTime: shared.time,
       uHasMask: { value: 0 },
@@ -232,7 +239,8 @@ export class BeamVolume {
     this.mesh.visible = false;
   }
 
-  update({ apex, axis, halfAngle, length, colour, softness, start, mask, camera }) {
+  // halfAngle is the cone's edge: the field angle for a bell-shaped beam.
+  update({ apex, axis, halfAngle, length, colour, softness, start, mask, camera, gaussian = false }) {
     const u = this.material.uniforms;
     const visible = colour.r + colour.g + colour.b > 1e-4;
     this.mesh.visible = visible;
@@ -261,6 +269,7 @@ export class BeamVolume {
     u.uStart.value = start;
     u.uColor.value.copy(colour).multiplyScalar(dim);
     u.uSoft.value = Math.max(0.03, Math.min(1, softness));
+    u.uGauss.value = gaussian ? 1 : 0;
     u.uHasMask.value = mask ? 1 : 0;
     u.uMask.value = mask;
     basis(axis, u.uRight.value, u.uUp.value);

@@ -35,7 +35,7 @@
   button.on { background: rgba(25, 214, 163, 0.16); border-color: rgba(25, 214, 163, 0.5); color: #7ff0cd; }
   input[type=range] { width: 120px; accent-color: var(--accent); }
   select { height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); background: #161a1e; color: var(--text); font: 600 12px/1 inherit; }
-  #hazeValue { width: 36px; font-variant-numeric: tabular-nums; color: var(--muted); }
+  #hazeValue, #exposureValue { width: 36px; font-variant-numeric: tabular-nums; color: var(--muted); }
   .spacer { flex: 1; }
   #status, #fps { color: var(--muted); font-size: 12px; }
   #blind { padding: 4px 9px; border-radius: 999px; background: rgba(92, 168, 255, 0.18); color: #9cc7ff; font-weight: 800; font-size: 11px; letter-spacing: 0.06em; }
@@ -87,6 +87,10 @@
   <div class="group" title="Haze already in the room, on top of any hazers and fog machines you've patched. Beams only show where there's haze."><span class="label">Room haze</span>
     <input id="haze" type="range" min="0" max="100" value="0">
     <span id="hazeValue">0%</span>
+  </div>
+  <div class="group" title="Like a camera: brighter or darker overall. Lights keep their real brightness compared with each other."><span class="label">Exposure</span>
+    <input id="exposure" type="range" min="-30" max="30" value="0">
+    <span id="exposureValue">0</span>
   </div>
   <div class="group"><span class="label">Quality</span>
     <select id="quality" title="Lower quality runs faster on laptops">

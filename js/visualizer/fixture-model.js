@@ -21,19 +21,41 @@ const tmpU = new THREE.Vector3(), tmpV = new THREE.Vector3(), tmpW = new THREE.V
 const PRISM_FACETS = 3;
 const PRISM_SPREAD = 0.11; // rad between the centre line and each copy
 
-// How bright a fixture reads. Physically, candela = lumens / beam solid angle,
-// so a 1kW fresnel is ~7x a small LED par and a 4° beam light is ~100x a
-// 30° wash. Eyes (and cameras) compress that range a lot, so we do too:
-// brightness grows gently with lumens and with how narrow the beam is,
-// relative to a 3000 lm, 25° reference, and is capped so a tight beam light
-// reads punchy (up to ~4x a par) rather than blinding.
-const REFERENCE_LUMENS = 3000;
-const REFERENCE_SOLID_ANGLE = 2 * Math.PI * (1 - Math.cos((12.5 * Math.PI) / 180));
-const REFERENCE_CANDELA = REFERENCE_LUMENS / REFERENCE_SOLID_ANGLE;
-export function perceivedCandela(lumens, halfAngle) {
-  const solidAngle = 2 * Math.PI * (1 - Math.cos(Math.max(halfAngle, 0.01)));
-  const gain = Math.pow(lumens / REFERENCE_LUMENS, 0.4) * Math.pow(REFERENCE_SOLID_ANGLE / solidAngle, 0.3);
-  return REFERENCE_CANDELA * Math.min(4, gain);
+// How bright a fixture is, from its photometrics, as the real thing:
+// luminous intensity (candela) = lumens / the solid angle the light fills.
+//
+// Hard-edged optics (profiles, moving spots and beams) fill their beam
+// angle evenly, with a slightly hotter centre (1 - 0.35 r²), so
+//   I = lumens / (2π (1 - cos θ) x 0.83).
+// Pars, washes and fresnels throw a bell-shaped (Gaussian) beam: the beam
+// angle is where it's half the centre, the field angle (1.82 x wider) where
+// it's a tenth, so σ = θ / 1.1774 and the solid angle it fills is
+//   Ω = 2π ∫ e^(-θ²/2σ²) sin θ dθ   (≈ 2πσ² for narrow beams).
+// So a 4° beam light really is ~40x brighter on axis than a 25° par of the
+// same lumens: the exposure (main.js) and tone mapping handle the range,
+// as a camera does.
+export const GAUSSIAN = new Set(["par", "movingWash", "fresnel", "bar", "blinder", "strobe"]);
+export const FIELD_RATIO = 1.82; // field angle / beam angle for a Gaussian beam
+const solidAngles = new Map();
+function solidAngle(halfAngle, gaussian) {
+  const key = `${gaussian ? "g" : "f"}${halfAngle.toFixed(4)}`;
+  let omega = solidAngles.get(key);
+  if (omega != null) return omega;
+  if (!gaussian) omega = 2 * Math.PI * (1 - Math.cos(halfAngle)) * 0.83;
+  else {
+    const sigma = halfAngle / 1.1774;
+    const end = Math.min(Math.PI / 2, sigma * 4);
+    const steps = 96;
+    omega = 0;
+    for (let i = 0; i < steps; i++) { const t = ((i + 0.5) / steps) * end; omega += Math.exp(-(t * t) / (2 * sigma * sigma)) * Math.sin(t); }
+    omega *= (2 * Math.PI * end) / steps;
+  }
+  if (solidAngles.size > 2000) solidAngles.clear();
+  solidAngles.set(key, omega);
+  return omega;
+}
+export function candelaFor(lumens, halfAngle, gaussian) {
+  return lumens / Math.max(1e-5, solidAngle(Math.max(halfAngle, 0.005), gaussian));
 }
 
 // How hard a beam's edge is when it's in focus, by kind of light (0 = razor
@@ -191,7 +213,7 @@ export class Fixture {
   // The pool decal: lit as a real light would light that surface (diffuse,
   // albedo/π x candela/d² x cos of the angle it lands at), stretched into
   // the ellipse a cone makes on a slanted surface, with the gobo/shutter mask.
-  updatePoolDecal(level, rgb, candela, axis, halfAngle, softness, prism, mask) {
+  updatePoolDecal(level, rgb, candela, axis, halfAngle, softness, prism, mask, gaussian = false) {
     const decal = this.poolDecal, hit = this.hit;
     if (!decal || !hit || level <= 0 || this.poolLit) { if (decal) decal.visible = false; return; }
     const n = hit.normal;
@@ -205,7 +227,7 @@ export class Fixture {
     decal.matrix.setPosition(hit.point.x + n.x * 0.01, hit.point.y + n.y * 0.01, hit.point.z + n.z * 0.01);
     decal.matrixWorldNeedsUpdate = true;
     const material = decal.material;
-    const map = mask || poolDisc();
+    const map = mask || poolDisc(gaussian);
     if (material.map !== map) { material.map = map; material.needsUpdate = true; }
     const k = (candela * this.shared.lightScale * cos) / (Math.PI * hit.distance * hit.distance);
     material.color.setRGB(rgb[0] * k * hit.albedo.r, rgb[1] * k * hit.albedo.g, rgb[2] * k * hit.albedo.b);
@@ -286,9 +308,11 @@ export class Fixture {
     this.root.updateMatrixWorld(true);
     const axis = this.head.getWorldDirection(tmpAxis).clone();
     const lensWorld = this.head.localToWorld(tmpLens.copy(this.lensLocal)).clone();
-    const halfAngle = (state.beamAngle * Math.PI) / 360;
+    const halfAngle = (state.beamAngle * Math.PI) / 360;        // half the beam angle (50%)
+    const gaussian = GAUSSIAN.has(this.kind);
+    const spread = Math.min(1.5, gaussian ? halfAngle * FIELD_RATIO : halfAngle); // where the light ends
     const softness = edgeSoftness(this.kind, state, this.beamLength, Number.isFinite(this.fixture.edge) ? this.fixture.edge : null);
-    const candela = perceivedCandela(this.lumens, halfAngle) * level;
+    const candela = candelaFor(this.lumens, halfAngle, gaussian) * level;
     const [r, g, b] = rgb;
 
     // Gobo / framing / prism mask, blurred by focus and frost.
@@ -335,39 +359,41 @@ export class Fixture {
         side.applyQuaternion(tmpQuat.setFromAxisAngle(axis, around));
         beamAxis = axis.clone().applyQuaternion(tmpQuat.setFromAxisAngle(side, PRISM_SPREAD)).normalize();
       }
-      const tanHalf = Math.tan(Math.max(halfAngle, 0.004));
+      const tanHalf = Math.tan(Math.max(spread, 0.004));
       const back = Math.min(0.6, this.lensRadius / tanHalf);
       const apex = lensWorld.clone().addScaledVector(beamAxis, -back);
       const colour = new THREE.Color(r, g, b).multiplyScalar((candela / facets) * this.shared.beamScale);
-      beam.update({ apex, axis: beamAxis, halfAngle, length: this.beamLength + back, colour, softness, start: back, mask: masks.beam, camera: this.shared.camera });
+      beam.update({ apex, axis: beamAxis, halfAngle: spread, length: this.beamLength + back, colour, softness, start: back, mask: masks.beam, camera: this.shared.camera, gaussian });
     }
 
     // What the stage-lighting pool needs to light the room for this fixture.
     this.light = level > 0 ? {
       position: lensWorld,
       target: lensWorld.clone().addScaledVector(axis, 10),
-      angle: Math.min(1.5, halfAngle * (state.prism ? 1.6 : 1) * (1 + softness * 0.2)),
-      penumbra: Math.min(1, 0.02 + softness * 0.9),
+      angle: Math.min(1.5, spread * (state.prism ? 1.6 : 1) * (gaussian ? 1 : 1 + softness * 0.2)),
+      // A Gaussian beam fades from the centre: half at the beam angle.
+      penumbra: gaussian ? 0.9 : Math.min(1, 0.02 + softness * 0.9),
       colour: [r, g, b],
       intensity: candela,
       mask: masks.pool
     } : null;
 
-    this.updatePoolDecal(level, rgb, candela, axis, halfAngle, softness, state.prism, masks.pool);
+    this.updatePoolDecal(level, rgb, candela, axis, spread, gaussian ? 0 : softness, state.prism, masks.pool, gaussian);
 
     // Lens: lit in the light's colour; glow flares when you look into it.
-    const lensLevel = level * (1.5 + 3 * Math.min(1, this.lumens / 8000));
+    const ev = this.shared.exposureGain ?? 1;
+    const lensLevel = level * ev * (1.5 + 3 * Math.min(1, this.lumens / 8000));
     this.lens.material.emissive?.setRGB(r * lensLevel, g * lensLevel, b * lensLevel);
     const toCamera = tmpCamera.copy(this.shared.camera.position).sub(lensWorld).normalize();
     const facing = Math.max(0, axis.dot(toCamera));
-    const flare = level * (0.12 + 1.2 * Math.pow(facing, 8));
+    const flare = level * ev * (0.12 + 1.2 * Math.pow(facing, 8));
     this.glow.position.copy(lensWorld).addScaledVector(axis, 0.02);
     this.glow.material.color.setRGB(r * flare, g * flare, b * flare);
     const size = this.lensRadius * (3 + 9 * Math.pow(facing, 4)) * (0.6 + 0.4 * Math.min(1, this.lumens / 5000));
     this.glow.scale.set(size, size, 1);
     this.glow.visible = flare > 0.002;
 
-    this.state = { level, rgb, candela, axis, apex: lensWorld, halfAngle, slewing, strobing, turning };
+    this.state = { level, rgb, candela, axis, apex: lensWorld, halfAngle, spread, gaussian, slewing, strobing, turning };
     if (this.selection.visible) this.selection.update();
     return 0;
   }

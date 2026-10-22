@@ -237,6 +237,7 @@
   function steady(seconds) {
     const T = window.LXTimecode;
     if (!T) return;
+    seconds = T.unwrap(seconds);
     const frame = 1 / mtc.fps, t = performance.now();
     const st = T.status?.();
     const ahead = st?.running && st.source === "mtc" ? st.time : null;

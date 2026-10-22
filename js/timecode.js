@@ -66,9 +66,16 @@
     return clock.running ? clock.time + (performance.now() - clock.at) / 1000 : clock.time;
   }
 
+  // Timecode can't go below zero, so a sender that starts a moment early
+  // (REAPER starts its timecode a few frames before 00:00:00:00 to make up
+  // for the audio delay) sends 23:59:59:xx. Read the last minute before
+  // midnight as just before zero, so the clock counts up into 00:00:00:00
+  // and a cue at zero still fires.
+  const unwrap = seconds => (seconds > 24 * 3600 - 60 ? seconds - 24 * 3600 : seconds);
   // A source reports a time. Ignored unless it's the chosen source.
   function feed(seconds, source, fps) {
     if (source !== pref("tcSource", "off")) return;
+    seconds = unwrap(seconds);
     const t = performance.now();
     const was = lastSeen; // the last time cues were checked against, not the clock's guess
     clock.time = seconds; clock.at = t; clock.lastFeed = t; clock.running = true; clock.freewheel = false;
@@ -220,9 +227,7 @@
     body.querySelector(".tcw").classList.toggle("running", Boolean(clock.running));
     setText(body.querySelector('[data-tc="source"]'), { off: "Timecode off", mtc: "MIDI timecode (MTC)", ltc: "Audio timecode (LTC)", internal: "Internal clock" }[src] || src);
     const state = src === "off" ? "turn it on in Settings…" : clock.freewheel ? "FREEWHEEL — signal lost" : clock.running ? `running · ${Math.round((clock.fps || fpsPref()) * 100) / 100} fps` : t == null ? "waiting for timecode" : "stopped";
-    // Timecode can't go below zero: a time "before zero" wraps round to 23:59:59.
-    const wrapped = src !== "internal" && t != null && t >= 23.5 * 3600 ? ` · ${24 * 3600 - t < 1 ? "just under a second" : `${Math.round(24 * 3600 - t)} s`} before 00:00:00 — the sender's timecode starts before zero` : "";
-    setText(body.querySelector('[data-tc="state"]'), state + wrapped);
+    setText(body.querySelector('[data-tc="state"]'), state);
     const list = timed();
     const next = list.find(([, c]) => t == null || c.timecode > t + 1e-6);
     setText(body.querySelector('[data-tc="next"]'), next ? `next: cue ${next[0] + 1} at ${format(next[1].timecode)}` : list.length ? "no more timed cues" : "no cues have a time yet");
@@ -285,5 +290,5 @@
   // Changing source starts from scratch.
   window.LXPrefs?.on?.(key => { if (key === "tcSource") { clock.time = null; clock.running = false; clock.freewheel = false; lastSeen = null; } });
 
-  window.LXTimecode = Object.freeze({ feed, halt, now, format, parse, play, pause, stop, locate, setCue, open, learnNext, status: () => ({ ...clock, time: now() }) });
+  window.LXTimecode = Object.freeze({ unwrap, feed, halt, now, format, parse, play, pause, stop, locate, setCue, open, learnNext, status: () => ({ ...clock, time: now() }) });
 })();

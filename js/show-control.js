@@ -193,26 +193,67 @@
   // -------------------------------------------------------------- MTC
 
   const RATES = [24, 25, 29.97, 30];
-  const mtc = { pieces: new Array(8).fill(0), seen: 0, last: -1, fps: 25 };
-  function quarterFrame(byte, port) {
+  const mtc = { pieces: new Array(8).fill(0), seen: 0, last: -1, fps: 25, port: "", portAt: 0, other: "", warnedAt: 0 };
+  // With "Any input", REAPER (or a loopback) often sends the same timecode
+  // out of several ports, a few ms apart. Mixing their pieces garbles the
+  // time, so follow the first port that sends it and ignore the rest until
+  // it goes quiet for a second.
+  function fromPort(port) {
     const want = pref("tcMtcPort", "any");
-    if (want !== "any" && port && port !== want) return;
+    if (want !== "any") return !port || port === want;
+    const t = performance.now();
+    if (mtc.port && port !== mtc.port && t - mtc.portAt < 1000) {
+      if (port !== mtc.other && t - mtc.warnedAt > 30000) {
+        mtc.other = port; mtc.warnedAt = t;
+        say(`Timecode is coming in on two MIDI inputs ("${mtc.port}" and "${port}") — following "${mtc.port}". To choose, set Preferences → Show Control → MTC input.`, "warn");
+      }
+      return false;
+    }
+    if (port !== mtc.port) { mtc.port = port; mtc.seen = 0; mtc.last = -1; if (port) say(`Timecode (MTC) coming in on "${port}"`, "ok"); }
+    mtc.portAt = t;
+    return true;
+  }
+  function quarterFrame(byte, port) {
+    if (!fromPort(port)) return;
     const piece = (byte >> 4) & 7, value = byte & 15;
+    if (piece === 0) mtc.seen = 0;
     mtc.pieces[piece] = value;
     mtc.seen |= 1 << piece;
     // A full time every 8 pieces; it was true 2 frames ago when piece 0 began.
     if (piece === 7 && mtc.seen === 0xff) {
       const p = mtc.pieces;
       const f = p[0] | (p[1] << 4), s = p[2] | (p[3] << 4), m = p[4] | (p[5] << 4), h = p[6] | ((p[7] & 1) << 4);
-      mtc.fps = RATES[(p[7] >> 1) & 3];
-      const seconds = h * 3600 + m * 60 + s + (f + 2) / mtc.fps;
       mtc.seen = 0;
-      window.LXTimecode?.feed(seconds, "mtc", mtc.fps);
+      const fps = RATES[(p[7] >> 1) & 3];
+      if (f >= Math.ceil(fps) || s > 59 || m > 59 || h > 23) return;
+      mtc.fps = fps;
+      steady(h * 3600 + m * 60 + s + (f + 2) / fps);
     }
   }
+  // Pieces from two copies of the stream (or a glitch) can mix into a time
+  // that's way off. A time far from where the clock is heading only counts
+  // once the next one agrees with it (a real jump or locate); small wobbles
+  // are eased out so the clock runs smoothly.
+  function steady(seconds) {
+    const T = window.LXTimecode;
+    if (!T) return;
+    const frame = 1 / mtc.fps, t = performance.now();
+    const st = T.status?.();
+    const ahead = st?.running && st.source === "mtc" ? st.time : null;
+    if (ahead != null && Math.abs(seconds - ahead) <= 0.25) {
+      mtc.jump = null;
+      const off = seconds - ahead;
+      return T.feed(Math.abs(off) < 3 * frame ? ahead + off * 0.3 : seconds, "mtc", mtc.fps);
+    }
+    const j = mtc.jump;
+    if (ahead == null || (j && Math.abs(seconds - (j.time + (t - j.at) / 1000)) < 3 * frame)) {
+      mtc.jump = null;
+      return T.feed(seconds, "mtc", mtc.fps);
+    }
+    mtc.jump = { time: seconds, at: t };
+  }
   function fullFrame(d, port) {
-    const want = pref("tcMtcPort", "any");
-    if (want !== "any" && port && port !== want) return;
+    if (!fromPort(port)) return;
     const hr = d[5] ?? 0, mn = d[6] ?? 0, sc = d[7] ?? 0, fr = d[8] ?? 0;
     mtc.fps = RATES[(hr >> 5) & 3];
     const seconds = (hr & 0x1f) * 3600 + mn * 60 + sc + fr / mtc.fps;

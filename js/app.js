@@ -756,25 +756,34 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   button("btnRecordCue", () => {
-    const number = State.cues.length + 1;
+    const suggested = window.nextCueNumber ? window.nextCueNumber() : State.cues.length + 1;
     const defaultFade = Number(window.LXPrefs?.get("cueFadeMs") ?? 800);
 
     // Preferences → Programming → "Ask when saving a cue" off: save now.
     if (window.LXPrefs?.get("askCueDetails") === false) {
-      if (typeof recordCue === "function") recordCue(number, `Cue ${number}`, defaultFade, 0, false);
+      if (typeof recordCue === "function") recordCue(suggested, `Cue ${suggested}`, defaultFade, 0, false);
       return;
     }
 
-    LXAsk(`Record cue ${number}`, [
-      { key: "name", label: "Name", value: `Cue ${number}` },
+    // Any number works, including in between: 2.5 goes between 2 and 3.
+    LXAsk("Record cue", [
+      { key: "number", label: "Cue number (2.5 goes between 2 and 3)", value: String(suggested), type: "number", step: "any", min: 0.001 },
+      { key: "name", label: "Name", value: "" },
       { key: "fade", label: "Fade (seconds)", value: defaultFade / 1000, type: "number", step: 0.1, min: 0 },
       { key: "follow", label: "Follow after (seconds, empty = no follow)", value: "", type: "number", step: 0.1, min: 0 }
-    ], { ok: "Record" }).then(answer => {
+    ], { ok: "Record" }).then(async answer => {
       if (!answer) return;
+      const number = window.parseCueNumber ? window.parseCueNumber(answer.number) : Number(answer.number);
+      if (number == null) return log?.("Cue numbers are 0.001 or more, e.g. 5, 0.5 or 2.25", "warn");
+      const label = window.formatCueNumber ? window.formatCueNumber(number) : String(number);
+      if (window.cueIndexOf?.(number) >= 0) {
+        const replace = await LXAsk(`Replace cue ${label}?`, [], { ok: "Replace", message: `Cue ${label} already exists. Recording replaces its look.` });
+        if (!replace) return;
+      }
       const fade = Math.max(0, Math.round((Number(answer.fade) || 0) * 1000));
       const follow = Math.max(0, Number(answer.follow) || 0);
       const followEnabled = String(answer.follow).trim() !== "";
-      if (typeof recordCue === "function") recordCue(number, answer.name.trim() || `Cue ${number}`, fade, follow, followEnabled);
+      if (typeof recordCue === "function") recordCue(number, String(answer.name || "").trim() || `Cue ${label}`, fade, follow, followEnabled);
     });
   });
 
@@ -783,8 +792,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   button("btnDelCue", () => {
-    const current = State.currentCue >= 0 ? State.currentCue + 1 : State.cues.length;
-    LXAsk("Delete a cue", [{ key: "number", label: "Cue number", value: current || "", type: "number", min: 1 }], { ok: "Delete" }).then(answer => {
+    const current = State.currentCue >= 0 ? window.cueLabel(State.currentCue) : State.cues.length ? window.cueLabel(State.cues.length - 1) : "";
+    LXAsk("Delete a cue", [{ key: "number", label: "Cue number", value: current, type: "number", step: "any", min: 0.001 }], { ok: "Delete" }).then(answer => {
       if (answer && answer.number && typeof deleteCue === "function") deleteCue(answer.number);
     });
   });
@@ -840,7 +849,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       option.value = index;
       option.textContent =
-        `${index + 1}. ${cue.name || `Cue ${index + 1}`}`;
+        `${window.cueLabel(index)}. ${cue.name || `Cue ${window.cueLabel(index)}`}`;
 
       select.appendChild(option);
     });
@@ -861,7 +870,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (content) content.style.display = "block";
 
     const values = {
-      inspectCueName: cue.name || `Cue ${index + 1}`,
+      inspectCueName: cue.name || `Cue ${window.cueLabel(index)}`,
       inspectMaster: state.master ?? 100,
       inspectIntensity: state.intensity ?? 100,
       inspectHue: state.hue ?? 0,
@@ -901,7 +910,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     cue.name =
       $("inspectCueName")?.value.trim() ||
-      `Cue ${index + 1}`;
+      `Cue ${window.cueLabel(index)}`;
 
     const value = id => {
       const number = Number($(id)?.value);
@@ -944,7 +953,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     log(
-      `Updated Cue ${index + 1}: ${cue.name}`,
+      `Updated Cue ${window.cueLabel(index)}: ${cue.name}`,
       "ok"
     );
   });

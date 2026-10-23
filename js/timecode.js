@@ -132,9 +132,9 @@
   function fire(index, fade, why) {
     if (window.LXSession && !window.LXSession.drives()) return; // another console is running the show
     const cue = S().cues[index];
-    window.LXFixtureInfo?.act("cue", `Cue ${index + 1} “${cue?.name || ""}”`, `timecode ${format(cue.timecode)}`, 1500);
+    window.LXFixtureInfo?.act("cue", `Cue ${window.cueLabel(index)} “${cue?.name || ""}”`, `timecode ${format(cue.timecode)}`, 1500);
     window.goToCue?.(index, fade);
-    if (pref("tcLog", true) !== false) say(`Cue ${index + 1} at ${format(cue.timecode)} (${why})`, "ok");
+    if (pref("tcLog", true) !== false) say(`Cue ${window.cueLabel(index)} at ${format(cue.timecode)} (${why})`, "ok");
   }
 
   // ------------------------------------------------------ internal clock
@@ -215,7 +215,7 @@
     const i = window.LXCueList?.next?.() ?? -1;
     if (!(i >= 0)) return say("No next cue to set", "warn");
     setCue(i, t);
-    say(`Cue ${i + 1} fires at ${format(t)}`, "ok");
+    say(`Cue ${window.cueLabel(i)} fires at ${format(t)}`, "ok");
   }
 
   const setText = (el, v) => { if (el && el.textContent !== v) el.textContent = v; };

@@ -35,7 +35,7 @@
       sat: Number(cur.sat ?? 0),
       strobe: Number(cur.strobe ?? 0),
       currentCue: Number.isInteger(s.currentCue) ? s.currentCue : -1,
-      cues: (Array.isArray(s.cues) ? s.cues : []).map((q, i) => q ? { i, name: q.name || "Cue", fade: q.fade ?? 800 } : null),
+      cues: (Array.isArray(s.cues) ? s.cues : []).map((q, i) => q ? { i, number: window.cueLabel ? window.cueLabel(i) : String(i + 1), name: q.name || "Cue", fade: q.fade ?? 800 } : null),
       groups: (Array.isArray(s.groups) ? s.groups : []).map(g => ({ name: g.name, count: (g.members || []).length })),
       palettes: (Array.isArray(s.palettes) ? s.palettes : []).map(p => ({ name: p.name })),
       chases: (Array.isArray(s.chases) ? s.chases : []).map((c, i) => ({ i, name: c?.name || `Chase ${i + 1}` })),
@@ -89,7 +89,7 @@
     record(m) {
       const name = String(m.name || "").trim().replace(/[\r\n]+/g, " ").slice(0, 60);
       const n = Number(m.number);
-      if (Number.isInteger(n) && n >= 1 && has("recordCue")) window.recordCue(n, name || "Cue");
+      if (window.parseCueNumber?.(n) != null && has("recordCue")) window.recordCue(n, name || "");
     },
     cmd(m) { const c = String(m.text || "").trim(); if (c && has("parseCommand")) window.parseCommand(c); },
     hello() { publish(true); }

@@ -274,15 +274,15 @@
   function insertCue(index) {
     const s = S();
     const cue = s.cues?.[index];
-    if (!cue) { window.log?.(`Cue ${index + 1} not found`, "warn"); return false; }
+    if (!cue) { window.log?.(`That cue wasn't found`, "warn"); return false; }
     const map = programmed(index);
-    if (!map.size) { window.log?.(`Cue ${index + 1} doesn't program anything to insert`, "warn"); return false; }
+    if (!map.size) { window.log?.(`Cue ${window.cueLabel(index)} doesn't program anything to insert`, "warn"); return false; }
     window.clearProgrammer?.({ insert: { index, map } });
     s.selected = new Set(map.keys());
     s.selectedFixtureId = [...map.keys()][0];
     window.renderFixtures?.();
     window.syncControlsFromSelection?.();
-    window.log?.(`Cue ${index + 1} “${cue.name || `Cue ${index + 1}`}” inserted into the Control Deck — ${map.size} light${map.size === 1 ? "" : "s"} selected, what the cue doesn't program is Not set`, "ok");
+    window.log?.(`Cue ${window.cueLabel(index)} “${cue.name || `Cue ${window.cueLabel(index)}`}” inserted into the Control Deck — ${map.size} light${map.size === 1 ? "" : "s"} selected, what the cue doesn't program is Not set`, "ok");
     return true;
   }
 

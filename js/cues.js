@@ -36,6 +36,107 @@ function num(value, fallback = 0) {
     return Number.isFinite(n) ? n : fallback;
 }
 
+/*
+ * Cue numbers. Every cue carries its own number (cue.number), so cues can
+ * go in between others: 0.5 before 1, 1.5 between 1 and 2, 2.25, and so on
+ * (up to three decimal places, like a lighting desk's point cues). The
+ * list is always kept in number order; an index is only a cue's place in
+ * that list. Shows from before point cues are numbered 1, 2, 3… in order.
+ */
+const CUE_EPSILON = 1e-6;
+function parseCueNumber(value) {
+    const n = Math.round(Number(String(value ?? "").trim()) * 1000) / 1000;
+    return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
+}
+function formatCueNumber(n) {
+    const v = Math.round(Number(n) * 1000) / 1000;
+    return Number.isFinite(v) ? String(v) : "?";
+}
+function cueNumberOf(index) {
+    const cue = State.cues?.[index];
+    return cue && Number.isFinite(Number(cue.number)) ? Number(cue.number) : index + 1;
+}
+function cueLabel(index) {
+    return formatCueNumber(cueNumberOf(index));
+}
+function cueIndexOf(number) {
+    const n = parseCueNumber(number);
+    if (n == null) return -1;
+    return (State.cues || []).findIndex(cue => cue && Math.abs(Number(cue.number) - n) < CUE_EPSILON);
+}
+// The next whole number after the last cue (what "record" with no number uses).
+function nextCueNumber() {
+    let top = 0;
+    (State.cues || []).forEach(cue => { if (cue && Number(cue.number) > top) top = Number(cue.number); });
+    return Math.floor(top + CUE_EPSILON) + 1;
+}
+// Move every index that points into the cue list (live cue, chosen next
+// cue, chase steps) after the list has been rearranged. `where` maps an old
+// index to its new one, or -1 when that cue is gone.
+function reindexCues(where) {
+    const map = i => (Number.isInteger(Number(i)) && Number(i) >= 0 ? where(Number(i)) : -1);
+    if (Number.isInteger(State.currentCue) && State.currentCue >= 0) State.currentCue = map(State.currentCue);
+    if (State.nextCue != null && State.nextCue !== "") { const n = map(State.nextCue); State.nextCue = n >= 0 ? n : null; }
+    (State.chases || []).forEach(chase => {
+        if (chase && Array.isArray(chase.steps)) chase.steps = chase.steps.map(map).filter(i => i >= 0);
+    });
+}
+// Give every cue a number, keep them in number order, drop empty slots.
+// Cheap when nothing needs doing (called on every redraw).
+function normaliseCueNumbers() {
+    const cues = State.cues;
+    if (!Array.isArray(cues)) return false;
+    let fine = true, last = 0;
+    for (const cue of cues) {
+        const n = cue ? Number(cue.number) : NaN;
+        if (!cue || !Number.isFinite(n) || n <= last + CUE_EPSILON / 2) { fine = false; break; }
+        last = n;
+    }
+    if (fine) return false;
+    // Numbers for cues without one: their old place (1, 2, 3…), never
+    // going backwards.
+    let previous = 0;
+    cues.forEach((cue, i) => {
+        if (!cue) return;
+        let n = parseCueNumber(cue.number);
+        if (n == null) n = Math.max(i + 1, Math.floor(previous + CUE_EPSILON) + 1);
+        cue.number = n;
+        previous = n;
+    });
+    const order = cues.map((cue, i) => ({ cue, i })).filter(e => e.cue).sort((a, b) => a.cue.number - b.cue.number || a.i - b.i);
+    // Two cues with the same number: the later one moves just after.
+    for (let k = 1; k < order.length; k++) {
+        const prev = order[k - 1].cue.number;
+        if (order[k].cue.number <= prev + CUE_EPSILON / 2) order[k].cue.number = Math.round((prev + 0.001) * 1000) / 1000;
+    }
+    const newIndex = new Map(order.map((e, k) => [e.i, k]));
+    reindexCues(i => (newIndex.has(i) ? newIndex.get(i) : -1));
+    State.cues = order.map(e => e.cue);
+    return true;
+}
+// A tidy number between two cue numbers (either can be missing): the
+// roundest one that fits, so dropping a cue between 2 and 3 makes it 2.5,
+// between 2 and 2.5 makes it 2.3.
+function cueNumberBetween(a, b) {
+    a = Number(a) || 0;
+    if (b == null || !Number.isFinite(Number(b))) return Math.floor(a + CUE_EPSILON) + 1;
+    b = Number(b);
+    for (const step of [1, 0.5, 0.1, 0.05, 0.01, 0.005, 0.001]) {
+        const x = Math.round((Math.floor((a + CUE_EPSILON) / step) + 1) * step * 1000) / 1000;
+        if (x > a + CUE_EPSILON && x < b - CUE_EPSILON) return x;
+    }
+    return null; // no room (they're 0.001 apart)
+}
+// Make room for a new cue numbered `number` at its place in the list.
+function insertCueSlot(number) {
+    normaliseCueNumbers();
+    let index = State.cues.findIndex(cue => cue && Number(cue.number) > number);
+    if (index < 0) index = State.cues.length;
+    State.cues.splice(index, 0, null);
+    reindexCues(i => (i >= index ? i + 1 : i));
+    return index;
+}
+
 function normaliseEffectFixtureIds(ids) {
     if (!Array.isArray(ids) && !(ids instanceof Set)) return [];
     return [...new Set([...ids].filter(id => id != null).map(String))];
@@ -446,6 +547,7 @@ function fadeLighting(from, to, duration, finished) {
 }
 
 function renderCues() {
+    normaliseCueNumbers();
     healLooks();
     const list = document.getElementById("cueList");
     if (!list) return;
@@ -454,13 +556,13 @@ function renderCues() {
         if (!cue) return;
         const el = document.createElement("div");
         el.className = "cue-item" + (index === State.currentCue ? " active" : "");
-        const title = String(cue.name || "Cue " + (index + 1));
+        const title = String(cue.name || "Cue " + cueLabel(index));
         const fade = num(cue.fade, 800);
         let info = "(" + fade + "ms";
         if (cue.followEnabled === true) info += " · Follow " + num(cue.follow, 0) + "s";
         info += ")";
         const strong = document.createElement("strong");
-        strong.textContent = (index + 1) + ". " + title;
+        strong.textContent = cueLabel(index) + ". " + title;
         const small = document.createElement("small");
         small.textContent = info;
         el.appendChild(strong);
@@ -496,11 +598,11 @@ function scheduleCueFollow(cue, cueIndex) {
     stopFollow();
     if (!cue || cue.followEnabled !== true) return;
     const seconds = Math.max(0, num(cue.follow, 0));
-    cueLog("Follow armed: Cue " + (cueIndex + 1) + " -> next cue in " + seconds + "s");
+    cueLog("Follow armed: Cue " + cueLabel(cueIndex) + " -> next cue in " + seconds + "s");
     State.followTimer = setTimeout(() => {
         State.followTimer = null;
         if (State.currentCue !== cueIndex) return;
-        cueLog("Follow firing: Cue " + (cueIndex + 1), "ok");
+        cueLog("Follow firing: Cue " + cueLabel(cueIndex), "ok");
         goNextCue();
     }, seconds * 1000);
 }
@@ -508,7 +610,7 @@ function scheduleCueFollow(cue, cueIndex) {
 function goToCue(index, forceFade = null) {
     index = Number(index);
     if (!Number.isInteger(index) || index < 0 || index >= State.cues.length || !State.cues[index]) {
-        cueLog("Cue " + (index + 1) + " does not exist", "warn");
+        cueLog("That cue does not exist", "warn");
         return false;
     }
     stopCueTimers();
@@ -522,13 +624,13 @@ function goToCue(index, forceFade = null) {
         syncCueControls(target.globalState);
         startCueEffectIfNeeded(cue);
         renderCues();
-        cueLog("Cue " + (index + 1) + " active", "ok");
+        cueLog("Cue " + cueLabel(State.cues.indexOf(cue)) + " active", "ok");
         scheduleCueFollow(cue, index);
         window.dispatchEvent(new CustomEvent("lx-cue-complete", { detail: { index } }));
     });
     syncCueControls(target.globalState);
     renderCues();
-    cueLog("Cue " + (index + 1) + ": " + (cue.name || "Cue " + (index + 1)) + " - " + (fade <= 0 ? "instant" : "fade " + fade + "ms"));
+    cueLog("Cue " + cueLabel(index) + ": " + (cue.name || "Cue " + cueLabel(index)) + " - " + (fade <= 0 ? "instant" : "fade " + fade + "ms"));
     return true;
 }
 
@@ -561,19 +663,22 @@ function goPreviousCue(forceFade = null) {
 
 function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs") ?? 800), follow = 0, followEnabled = false) {
     window.finishFade?.();
-    number = Number(number);
-    if (!Number.isInteger(number) || number < 1) {
-        cueLog("Invalid cue number", "warn");
+    number = parseCueNumber(number);
+    if (number == null) {
+        cueLog("Cue numbers are 0.001 or more, e.g. 5, 0.5 or 2.25", "warn");
         return false;
     }
-    const index = number - 1;
-    while (State.cues.length <= index) State.cues.push(null);
+    normaliseCueNumbers();
+    let index = cueIndexOf(number);
+    const existing = index >= 0 ? State.cues[index] : null;
+    if (index < 0) index = insertCueSlot(number);
+    const label = formatCueNumber(number);
     const globalState = clone(State.current || {});
     const effect = snapshotCueEffect();
-    const existing = State.cues[index];
     const cue = storeLook(index, {
-        ...(existing ? { noMib: existing.noMib, blocked: existing.blocked } : {}),
-        name: String(name || "").trim() || "Cue " + number,
+        ...(existing ? { noMib: existing.noMib, blocked: existing.blocked, timecode: existing.timecode } : {}),
+        number,
+        name: String(name || "").trim() || "Cue " + label,
         globalState,
         state: clone(globalState),
         fade: Math.max(0, num(fadeMs, 800)),
@@ -584,7 +689,7 @@ function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs"
     }, existing ? existing.mode === "block" && existing.blocked === true : false);
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
-    let message = "Recorded Cue " + number + ": " + cue.name + (cue.mode === "track" ? " - tracked, " + cue.fixtureStates.length + " fixtures changed" : " - " + cue.fixtureStates.length + " fixtures saved");
+    let message = "Recorded Cue " + label + ": " + cue.name + (cue.mode === "track" ? " - tracked, " + cue.fixtureStates.length + " fixtures changed" : " - " + cue.fixtureStates.length + " fixtures saved");
     message += effect ? " - Effect: " + (effect.name || effect.type) : " - No effect";
     cueLog(message, "ok");
     return true;
@@ -633,7 +738,7 @@ function clearProgrammer(options = {}) {
 
     const ids = [...target.fixtureMap.keys()];
     const source = cue
-        ? { kind: "cue", label: "Cue " + (index + 1) + " “" + (cue.name || "Cue " + (index + 1)) + "”", detail: "programmer cleared" }
+        ? { kind: "cue", label: "Cue " + cueLabel(index) + " “" + (cue.name || "Cue " + cueLabel(index)) + "”", detail: "programmer cleared" }
         : { kind: "clear", label: "Clear", detail: "programmer cleared" };
     window.LXFixtureInfo?.act(source.kind, source.label, source.detail, ms + 500, ids);
     const keys = new Set();
@@ -644,7 +749,7 @@ function clearProgrammer(options = {}) {
     const claimInserted = () => {
         if (!insert) return;
         const from = State.cues[insert.index];
-        const inserted = { kind: "insert", label: "Cue " + (insert.index + 1) + " “" + (from?.name || "Cue " + (insert.index + 1)) + "”", detail: "inserted into the Control Deck" };
+        const inserted = { kind: "insert", label: "Cue " + cueLabel(insert.index) + " “" + (from?.name || "Cue " + cueLabel(insert.index)) + "”", detail: "inserted into the Control Deck" };
         insert.map.forEach((part, id) => window.LXFixtureInfo?.claimKeys([id], Object.keys(part), inserted));
     };
     claimInserted();
@@ -657,7 +762,7 @@ function clearProgrammer(options = {}) {
     });
     if (typeof window.syncControlsFromSelection === "function") window.syncControlsFromSelection();
     if (insert) return true;
-    cueLog(cue ? "Programmer cleared — back to Cue " + (index + 1) + (ms ? " over " + (ms / 1000) + "s" : "")
+    cueLog(cue ? "Programmer cleared — back to Cue " + cueLabel(index) + (ms ? " over " + (ms / 1000) + "s" : "")
         : mode === "cue" ? "Programmer cleared — no cue is live, so everything is at 0" : "Programmer cleared — all fixtures set to 0", "ok");
     return true;
 }
@@ -670,13 +775,15 @@ window.clearProgrammer = clearProgrammer;
  * existing cue name/fade/follow settings, and replace the look.
  */
 function updateCue(number, options = {}) {
-    number = Number(number);
-    if (!Number.isInteger(number) || number < 1 || !State.cues[number - 1]) {
+    normaliseCueNumbers();
+    const index = cueIndexOf(number);
+    if (index < 0) {
         cueLog("Cue " + number + " does not exist", "warn");
         return false;
     }
+    number = formatCueNumber(State.cues[index].number);
 
-    const existing = State.cues[number - 1];
+    const existing = State.cues[index];
     const name = Object.prototype.hasOwnProperty.call(options, "name")
         ? String(options.name || "").trim() || "Cue " + number
         : existing.name;
@@ -711,13 +818,13 @@ function updateCue(number, options = {}) {
         effect: effect && effect.type ? effect : null,
         effects: Object.prototype.hasOwnProperty.call(options, "effect") ? (effect && effect.type ? [effect] : []) : keepLook ? existing.effects : snapshotCueEffects()
     };
-    if (keepLook) State.cues[number - 1] = entry;
-    else storeLook(number - 1, entry, existing.mode === "block" && existing.blocked === true);
+    if (keepLook) State.cues[index] = entry;
+    else storeLook(index, entry, existing.mode === "block" && existing.blocked === true);
     rememberLooks();
 
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
-    const saved = State.cues[number - 1];
+    const saved = State.cues[index];
     cueLog("Updated Cue " + number + ": " + name + (keepLook ? "" : saved.mode === "track" ? " - tracked, " + saved.fixtureStates.length + " fixtures changed" : " - " + (saved.fixtureStates?.length || 0) + " fixtures saved"), "ok");
     return true;
 }
@@ -727,37 +834,55 @@ function updateCurrentCue(options = {}) {
         cueLog("No cue is currently selected", "warn");
         return false;
     }
-    return updateCue(State.currentCue + 1, options);
+    return updateCue(cueNumberOf(State.currentCue), options);
 }
 
 async function recordNextCue() {
-    const number = State.cues.length + 1;
-    const answer = await window.LXAsk("Record cue " + number, [{ key: "name", label: "Name", value: "Cue " + number }], { ok: "Record" });
+    const suggested = nextCueNumber();
+    const answer = await window.LXAsk("Record cue", [
+        { key: "number", label: "Cue number (e.g. 5, or 2.5 to go between 2 and 3)", value: String(suggested) },
+        { key: "name", label: "Name", value: "" }
+    ], { ok: "Record" });
     if (!answer) return false;
-    return recordCue(number, answer.name.trim() || "Cue " + number, Number(window.LXPrefs?.get("cueFadeMs") ?? 800), 0, false);
+    const number = parseCueNumber(answer.number);
+    if (number == null) { cueLog("Cue numbers are 0.001 or more, e.g. 5, 0.5 or 2.25", "warn"); return false; }
+    if (cueIndexOf(number) >= 0) {
+        const replace = window.LXAsk ? await window.LXAsk("Replace cue " + formatCueNumber(number) + "?", [], { ok: "Replace", message: "Cue " + formatCueNumber(number) + " already exists. Recording replaces its look." }) : window.confirm("Replace cue " + number + "?");
+        if (!replace) return false;
+    }
+    return recordCue(number, String(answer.name || "").trim() || "Cue " + formatCueNumber(number), Number(window.LXPrefs?.get("cueFadeMs") ?? 800), 0, false);
 }
 
 function deleteCue(number) {
-    number = Number(number);
-    if (!Number.isInteger(number) || number < 1) return false;
-    const index = number - 1;
-    if (!State.cues[index]) {
+    normaliseCueNumbers();
+    const index = cueIndexOf(number);
+    if (index < 0) {
         cueLog("Cue " + number + " not found", "warn");
         return false;
     }
+    const label = cueLabel(index);
     stopCueTimers();
     stopCueEffect();
+    const wasLive = State.currentCue === index;
     State.cues.splice(index, 1);
-    if (State.currentCue > index) State.currentCue--;
-    else if (State.currentCue === index) State.currentCue = Math.min(State.currentCue, State.cues.length - 1);
+    reindexCues(i => (i === index ? (wasLive ? Math.min(index, State.cues.length - 1) : -1) : i > index ? i - 1 : i));
     if (!State.cues.length) State.currentCue = -1;
     renderCues();
     if (typeof window.renderChases === "function") window.renderChases();
-    cueLog("Deleted Cue " + number, "ok");
+    cueLog("Deleted Cue " + label, "ok");
     return true;
 }
 
 Object.assign(window, {
+    parseCueNumber,
+    formatCueNumber,
+    cueNumberOf,
+    cueLabel,
+    cueIndexOf,
+    nextCueNumber,
+    cueNumberBetween,
+    normaliseCueNumbers,
+    insertCueSlot,
     getCueTarget,
     renderCues,
     syncCueControls,

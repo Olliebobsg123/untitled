@@ -409,7 +409,7 @@
       const srcs = window.LXTracking && cue.mode === "track" ? attr.keys.map(key => window.LXTracking.sourceOf(s.currentCue, f.id, key)).filter(i => i >= 0) : [];
       const from = srcs.length ? Math.max(...srcs) : s.currentCue;
       const how = from === s.currentCue ? (cue.mode === "track" ? "moved in this cue" : "LTP set") : `tracked from cue ${from + 1}`;
-      cards.push(card("PLAYBACK", "#2fbf63", `Cue ${s.currentCue + 1}  → ${esc(held)}   ${how}   ${(Number(cue.fade ?? 800) / 1000).toFixed(1)} s`, inControl));
+      cards.push(card("PLAYBACK", "#2fbf63", `Cue ${window.cueLabel(s.currentCue)}  → ${esc(held)}   ${how}   ${(Number(cue.fade ?? 800) / 1000).toFixed(1)} s`, inControl));
     }
     const effect = effectHas(f.id), chase = chaseHas(f.id);
     if (chase) cards.push(card("EXECUTOR", "#5ca8ff", `Chase ${s.currentChase + 1} “${esc(chase.name || "Chase")}”   running   ${Math.round(window.LXChaseSpeed?.bpmOf(chase) ?? 0)} BPM`, own?.kind === "chase"));

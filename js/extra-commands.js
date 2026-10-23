@@ -131,7 +131,7 @@
     const unknown = fixtures.filter(f => !Object.keys(defOf(f).map || {}).length);
     add(!unknown.length, "Fixture types", unknown.length ? `${unknown.map(f => `#${f.fixtureNumber} ${f.name}`).join(", ")} — not in the library` : "All known");
     const cues = (s.cues || []).filter(Boolean);
-    add(cues.length > 0, "Cues", `${cues.length} cue${cues.length === 1 ? "" : "s"}${s.currentCue >= 0 ? `, cue ${s.currentCue + 1} live` : ""}`);
+    add(cues.length > 0, "Cues", `${cues.length} cue${cues.length === 1 ? "" : "s"}${s.currentCue >= 0 ? `, cue ${window.cueLabel(s.currentCue)} live` : ""}`);
     const ids = new Set(fixtures.map(f => f.id));
     const ghost = cues.filter(q => (q.fixtureStates || []).some(([id]) => !ids.has(id))).length;
     add(true, "Cues and patch", ghost ? `${ghost} cue${ghost === 1 ? "" : "s"} still mention unpatched fixtures (harmless)` : "Match");

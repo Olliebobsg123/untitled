@@ -107,8 +107,8 @@
   $('cmdForm').onsubmit = e => { e.preventDefault(); const t = $('cmdText').value.trim(); if (t) { send({ type: 'cmd', text: t }); $('cmdText').value = ''; } };
   $('recForm').onsubmit = e => {
     e.preventDefault();
-    const n = parseInt($('recNum').value, 10);
-    if (!n) return toast('Enter a cue number');
+    const n = Number($('recNum').value.trim()); // 2.5 goes between 2 and 3
+    if (!(n > 0)) return toast('Enter a cue number');
     send({ type: 'record', number: n, name: $('recName').value });
     $('recName').value = '';
   };
@@ -149,7 +149,7 @@
       s.cues.forEach((q, i) => {
         if (!q) return;
         const b = el('button', 'btn cue' + (i === s.currentCue ? ' cur' : ''));
-        b.append(el('span', 'n', String(i + 1)), el('span', 't', q.name), el('small', null, `${(q.fade / 1000).toFixed(1)}s`));
+        b.append(el('span', 'n', String(q.number ?? i + 1)), el('span', 't', q.name), el('small', null, `${(q.fade / 1000).toFixed(1)}s`));
         box.append(tap(b, () => send({ type: 'cue', index: i })));
       });
     });

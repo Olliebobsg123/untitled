@@ -207,7 +207,7 @@
     if (!cue) return stopChase(false);
     const fade = fadeMs(chase);
     const fixtureIds = chaseFixtureIds(chase);
-    console.debug(`CHASE: sequence step ${step + 1}/${chase.steps.length} → Cue ${cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
+    console.debug(`CHASE: sequence step ${step + 1}/${chase.steps.length} → Cue ${window.cueLabel?.(cueIndex) ?? cueIndex + 1} on ${fixtureIds.length} fixture(s)`);
     if (fade > 0 && typeof window.fadeTo === "function") {
       const target = clone(cue.globalState || cue.state || {});
       const fixtureTargets = fixtureIds.map(id => [id, cueState(cue, id)]);
@@ -311,7 +311,7 @@
     s.chases.push(chase);
     selectedChase = s.chases.length - 1;
     renderChases();
-    log(`✅ Saved Chase: ${chase.name} — ${steps.map(i => `Cue ${i + 1}`).join(", ")} — ${ids.length} fixture(s)`, "ok");
+    log(`✅ Saved Chase: ${chase.name} — ${steps.map(i => `Cue ${window.cueLabel(i)}`).join(", ")} — ${ids.length} fixture(s)`, "ok");
     return true;
   }
 
@@ -395,7 +395,7 @@
       const label = document.createElement("label");
       label.style.cssText = "display:flex;gap:8px;padding:8px;background:#202020";
       const cb = document.createElement("input"); cb.type = "checkbox"; cb.value = String(i);
-      label.append(cb, document.createTextNode(`Cue ${i + 1} — ${cue.name || `Cue ${i + 1}`}`));
+      label.append(cb, document.createTextNode(`Cue ${window.cueLabel(i)} — ${cue.name || `Cue ${window.cueLabel(i)}`}`));
       list.appendChild(label);
     });
 
@@ -474,20 +474,21 @@
   window.recordSnapshotChase = recordSnapshotChase;
   window.addSnapshotToSelectedChase = addSnapshotToSelected;
   window.recordChaseToCue = function recordChaseToCue(cueNumber, chaseIndex = selectedChase, name = "") {
-    const s = S(); const number = Number(cueNumber); const ci = Number(chaseIndex);
-    if (!s || !Number.isInteger(number) || number < 1 || !s.chases?.[ci]) return false;
+    const s = S(); const number = window.parseCueNumber(cueNumber); const ci = Number(chaseIndex);
+    if (!s || number == null || !s.chases?.[ci]) return false;
     s.cues = Array.isArray(s.cues) ? s.cues : [];
-    const index = number - 1;
-    while (s.cues.length <= index) s.cues.push(null);
+    let index = window.cueIndexOf(number);
+    if (index < 0) index = window.insertCueSlot(number);
     const chase = s.chases[ci];
     s.cues[index] = {
+      number,
       name: String(name || `Chase ${chase.name || ci + 1}`).trim(),
       chase: { index: ci },
       globalState: clone(s.current || {}), state: clone(s.current || {}), fixtureStates: [],
       fade: n(chase.fade, 0), follow: 0, followEnabled: false, effect: null
     };
     window.renderCues?.();
-    log(`🔗 Recorded Chase ${ci + 1} into Cue ${number}`, "ok");
+    log(`🔗 Recorded Chase ${ci + 1} into Cue ${window.formatCueNumber(number)}`, "ok");
     return true;
   };
 

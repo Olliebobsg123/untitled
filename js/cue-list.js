@@ -46,7 +46,7 @@
     const before = nextIndex();
     s.nextCue = Number.isInteger(index) && s.cues?.[index] ? index : null;
     refreshAll();
-    if (s.nextCue != null && before !== index) window.log?.(`Next: cue ${index + 1} “${s.cues[index].name || `Cue ${index + 1}`}” — press GO`, "info");
+    if (s.nextCue != null && before !== index) window.log?.(`Next: cue ${window.cueLabel(index)} “${s.cues[index].name || `Cue ${window.cueLabel(index)}`}” — press GO`, "info");
   }
 
   function hookEngine() {
@@ -127,7 +127,7 @@
         else if (a === "back") window.parseCommand?.("back");
         else if (a === "clear") window.parseCommand?.("clear programmer");
         else if (a === "record") document.getElementById("btnRecordCue")?.click();
-        else if (a === "update") { const s = S(); if (s.currentCue >= 0) window.parseCommand?.(`update cue ${s.currentCue + 1}`); else window.log?.("No cue is live to update", "warn"); }
+        else if (a === "update") { const s = S(); if (s.currentCue >= 0) window.parseCommand?.(`update cue ${window.cueLabel(s.currentCue)}`); else window.log?.("No cue is live to update", "warn"); }
         return;
       }
       const row = e.target.closest(".cl-row");
@@ -160,7 +160,7 @@
     const rows = body.querySelector(".cl-rows");
     const mib = window.LXMoveInBlack?.status();
     const mibOn = pref("mib", true) !== false;
-    const key = cues.map((c, i) => (c ? `${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.timecode ?? ""}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
+    const key = cues.map((c, i) => (c ? `${c.number}|${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.timecode ?? ""}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
     const modeTag = (c, i) => {
       const tags = [c.mode === "track" ? `<b class="cl-mode t" title="Tracked: stores only what changed (${c.fixtureStates?.length || 0} lights)">T</b>` : `<b class="cl-mode b" title="Block: stores the whole look">B</b>`];
       if (c.noMib && mibOn) tags.push('<b class="cl-mib off" title="Move in black is off for this cue">MIB</b>');
@@ -170,8 +170,8 @@
     if (rows.dataset.key !== key && !rows.querySelector("input")) {
       rows.innerHTML = cues.map((c, i) => c ? `
         <div class="cl-row" data-i="${i}" draggable="true">
-          <span class="cl-dot"></span><span class="cl-num">${i + 1}</span><span class="cl-tags">${modeTag(c, i)}</span>
-          <span data-edit="name">${esc(c.name || `Cue ${i + 1}`)}</span>
+          <span class="cl-dot"></span><span class="cl-num" data-edit="num" title="Double-click to renumber (e.g. 2.5 puts it between 2 and 3)">${window.cueLabel(i)}</span><span class="cl-tags">${modeTag(c, i)}</span>
+          <span data-edit="name">${esc(c.name || `Cue ${window.cueLabel(i)}`)}</span>
           <span data-edit="fade">${secs(c.fade ?? 800)} s</span>
           <span data-edit="follow">${c.followEnabled ? `${secs((c.follow || 0) * 1000)} s` : "—"}</span>
           <span data-edit="tc" class="cl-tc">${Number.isFinite(c.timecode) ? window.LXTimecode?.format(c.timecode) ?? "" : "—"}</span>
@@ -196,7 +196,7 @@
       const w = p > 0 && p < 1 ? `${(p * 100).toFixed(1)}%` : "0%";
       if (bar.style.width !== w) bar.style.width = w;
     });
-    const label = i => (cues[i] ? `${i + 1} · ${cues[i].name || `Cue ${i + 1}`}` : "—");
+    const label = i => (cues[i] ? `${window.cueLabel(i)} · ${cues[i].name || `Cue ${window.cueLabel(i)}`}` : "—");
     const liveEl = body.querySelector('[data-k="live"]'), nextEl = body.querySelector('[data-k="next"]');
     const fading = running && running.index === live && performance.now() - running.start < running.fade;
     const liveText = live >= 0 ? `${label(live)}${fading ? `  ·  fading ${Math.round((performance.now() - running.start) / running.fade * 100)}%` : ""}` : "nothing yet";
@@ -213,8 +213,8 @@
     const row = cell.closest(".cl-row");
     const i = Number(row.dataset.i), cue = S().cues[i], field = cell.dataset.edit;
     if (!cue || cell.querySelector("input")) return;
-    const value = field === "name" ? cue.name : field === "fade" ? secs(cue.fade ?? 800) : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) ?? "" : "") : cue.followEnabled ? secs((cue.follow || 0) * 1000) : "";
-    cell.innerHTML = `<input class="cl-input" value="${esc(value)}" ${field === "name" ? "" : field === "tc" ? 'placeholder="00:00:00:00"' : 'inputmode="decimal" placeholder="off"'}>`;
+    const value = field === "num" ? window.cueLabel(i) : field === "name" ? cue.name : field === "fade" ? secs(cue.fade ?? 800) : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) ?? "" : "") : cue.followEnabled ? secs((cue.follow || 0) * 1000) : "";
+    cell.innerHTML = `<input class="cl-input" value="${esc(value)}" ${field === "name" ? "" : field === "num" ? 'inputmode="decimal"' : field === "tc" ? 'placeholder="00:00:00:00"' : 'inputmode="decimal" placeholder="off"'}>`;
     const input = cell.firstElementChild;
     input.focus(); input.select();
     let done = false;
@@ -222,16 +222,18 @@
       if (done) return; done = true;
       if (save) {
         const v = input.value.trim();
-        if (field === "name") cue.name = v || `Cue ${i + 1}`;
+        const label = window.cueLabel(i);
+        if (field === "num") { if (v && v !== label) window.parseCommand?.(`move cue ${label} to ${v}`); }
+        else if (field === "name") cue.name = v || `Cue ${label}`;
         else if (field === "fade") { const n = Number(v); if (Number.isFinite(n) && n >= 0) cue.fade = Math.round(n * 1000); }
         else if (field === "tc") { if (!v || /^(off|none|—)$/i.test(v)) delete cue.timecode; else { const t = window.LXTimecode?.parse(v); if (t != null) cue.timecode = t; } }
         else if (!v || /^off$/i.test(v)) { cue.followEnabled = false; cue.follow = 0; }
         else { const n = Number(v); if (Number.isFinite(n) && n >= 0) { cue.follow = n; cue.followEnabled = true; } }
-        window.log?.(`Cue ${i + 1} ${field === "tc" ? "timecode" : field} → ${field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode.format(cue.timecode) : "none") : cue.followEnabled ? `${cue.follow} s` : "off"}`, "ok");
+        if (field !== "num") window.log?.(`Cue ${label} ${field === "tc" ? "timecode" : field} → ${field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode.format(cue.timecode) : "none") : cue.followEnabled ? `${cue.follow} s` : "off"}`, "ok");
       }
       // Take the box away (and its keyboard focus) before redrawing.
       input.remove();
-      cell.textContent = field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade ?? 800)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) ?? "" : "—") : cue.followEnabled ? `${secs((cue.follow || 0) * 1000)} s` : "—";
+      cell.textContent = field === "num" ? window.cueLabel(S().cues.indexOf(cue)) : field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade ?? 800)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) ?? "" : "—") : cue.followEnabled ? `${secs((cue.follow || 0) * 1000)} s` : "—";
       body.querySelector(".cl-rows").dataset.key = "";
       window.renderCues?.();
       window.updateInspectorList?.();
@@ -253,7 +255,15 @@
       const row = e.target.closest(".cl-row");
       if (from == null || !row) return;
       const to = Number(row.dataset.i);
-      if (to !== from) window.parseCommand?.(`move cue ${from + 1} to ${to + 1}`);
+      if (to !== from) {
+        // Dropped on a cue: it goes just before it (moving up) or just
+        // after it (moving down), numbered between its new neighbours.
+        const cues = S().cues, number = i => (i >= 0 && cues[i] ? window.cueNumberOf(i) : null);
+        const [a, b] = to < from ? [to > 0 ? number(to - 1) : 0, number(to)] : [number(to), number(to + 1)];
+        const n = window.cueNumberBetween(a, b);
+        if (n == null) window.log?.("No room for a cue number there — renumber a cue first", "warn");
+        else window.parseCommand?.(`move cue ${window.cueLabel(from)} to ${window.formatCueNumber(n)}`);
+      }
       from = null;
     });
   }
@@ -269,7 +279,7 @@
     const tracked = cue.mode === "track";
     const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["insert", "Insert into Control Deck"], ["tcnow", "Set its time to the timecode now"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-",
       ["block", "Block cue (stores its whole look)", !tracked], ["mib", "Move in black before this cue", !cue.noMib], "-", ["delete", "Delete…"]];
-    menu.innerHTML = `<div class="lxw-menu-label">CUE ${i + 1} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick">${it[2] ? "✓" : ""}</span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
+    menu.innerHTML = `<div class="lxw-menu-label">CUE ${window.cueLabel(i)} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick">${it[2] ? "✓" : ""}</span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
     document.body.appendChild(menu);
     menu.style.left = `${Math.min(x, innerWidth - 250)}px`;
     menu.style.top = `${Math.min(y, innerHeight - 260)}px`;
@@ -280,14 +290,14 @@
       if (!b) return;
       menu.remove();
       document.removeEventListener("pointerdown", close, true);
-      const n = i + 1, a = b.dataset.a;
+      const n = window.cueLabel(i), a = b.dataset.a;
       if (a === "go") window.parseCommand?.(`go ${n}`);
       else if (a === "next") setNext(i);
       else if (a === "update") window.parseCommand?.(`update cue ${n}`);
       else if (a === "rename") {
         const r = await window.LXAsk?.(`Rename cue ${n}`, [{ key: "name", label: "Name", value: cue.name || "" }], { ok: "Rename" });
         if (r) window.parseCommand?.(`rename cue ${n} ${r.name.trim() || `Cue ${n}`}`);
-      } else if (a === "copy") window.parseCommand?.(`copy cue ${n} to ${S().cues.length + 1}`);
+      } else if (a === "copy") window.parseCommand?.(`copy cue ${n} to ${window.nextCueNumber()}`);
       else if (a === "insert") window.LXDeck?.insertCue(i);
       else if (a === "tcnow") { const t = window.LXTimecode?.now(); if (t == null) window.log?.("No timecode yet — start the source first", "warn"); else { window.LXTimecode.setCue(i, t); window.log?.(`Cue ${n} fires at ${window.LXTimecode.format(Math.max(0, t))}`, "ok"); } }
       else if (a === "block") window.parseCommand?.(`${tracked ? "block" : "track"} cue ${n}`);

@@ -25,12 +25,12 @@
     const state = S();
     switch (command.kind) {
       case "cue": {
-        const number = Number(command.cue);
-        if (!Number.isInteger(number)) return say(`cue ${command.cue} — Light Spark cues are whole numbers`, "warn");
-        if (!state.cues?.[number - 1]) return say(`GO cue ${number} — there's no cue ${number}`, "warn");
+        const number = command.cue, index = window.cueIndexOf(number);
+        if (window.parseCueNumber?.(number) == null) return say(`cue ${command.cue} — that isn't a cue number`, "warn");
+        if (index < 0) return say(`GO cue ${number} — there's no cue ${number}`, "warn");
         if (command.playback && command.playback !== "1") say(`playback ${command.playback} → Light Spark's cue list`, "info");
-        window.goToCue?.(number - 1);
-        return say(`GO cue ${number}${state.cues[number - 1]?.name ? ` (${state.cues[number - 1].name})` : ""}`);
+        window.goToCue?.(index);
+        return say(`GO cue ${window.cueLabel(index)}${state.cues[index]?.name ? ` (${state.cues[index].name})` : ""}`);
       }
       case "chase": {
         const chase = state.chases?.[command.number - 1];

@@ -873,6 +873,12 @@ function executeNamedControl(action,value){
 --------------------------------------------------------- */
 
 function triggerCue(number){
+  // MIDI pad "Cue 5" goes to cue number 5 (wherever it is in the list).
+  if(typeof window.cueIndexOf==="function"&&typeof window.goToCue==="function"){
+    const index=window.cueIndexOf(number);
+    if(index<0){midiLog(`Cue ${number} not found`);return false;}
+    window.goToCue(index);midiLog(`Cue ${number}`);return true;
+  }
   const list=document.getElementById("cueList");
   if(!list)return false;
 
@@ -943,6 +949,7 @@ function getExistingCueNumbers(){
 }
 
 function getNextCueNumber(){
+  if(typeof window.nextCueNumber==="function")return window.nextCueNumber();
   const nums=getExistingCueNumbers();
 
   if(nums.length&&MIDI.nextCueNumber<=nums.at(-1))
@@ -974,6 +981,8 @@ function findRecordCueButton(){
 }
 
 function callCueRecorder(number,fadeTime){
+  // recordCue(number, name, fadeMs): the fade isn't the name.
+  if(typeof window.recordCue==="function")return window.recordCue(number,"",fadeTime==null?undefined:fadeTime)!==false;
   for(const name of ["recordCueAt","recordCue","saveCueAt","saveCue","createCue"]){
     const fn=window[name];
     if(typeof fn!=="function")continue;

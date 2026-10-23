@@ -57,7 +57,7 @@
       if (!Number.isInteger(linked)) return;
       if (linked === n - 1) {
         delete cue.chase;
-        log(`Cue ${i + 1} no longer starts a chase (Chase ${n} was deleted)`, "warn");
+        log(`Cue ${window.cueLabel(i)} no longer starts a chase (Chase ${n} was deleted)`, "warn");
       } else if (linked > n - 1) cue.chase.index = linked - 1;
     });
     window.renderCues?.();

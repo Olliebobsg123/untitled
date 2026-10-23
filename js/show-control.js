@@ -93,14 +93,10 @@
     run(command, cue, time, port);
   }
 
+  // MSC cue numbers ("5", "2.5") are Light Spark cue numbers.
   function cueIndex(text) {
-    const n = Number(text);
-    if (!Number.isFinite(n)) return null;
-    if (!Number.isInteger(n)) {
-      say(`MSC cue ${text}: Light Spark cues are whole numbers — using cue ${Math.floor(n)}`, "warn");
-    }
-    const i = Math.floor(n) - 1;
-    return S().cues?.[i] ? i : -1;
+    if (window.parseCueNumber?.(text) == null) return null;
+    return window.cueIndexOf(text);
   }
 
   function run(command, cue, timeMs, port) {
@@ -350,8 +346,8 @@
       const c = String(raw ?? "").trim().toLowerCase();
       let m;
       if (c === "timecode" || c === "tc") { window.LXTimecode?.open(); return; }
-      if ((m = c.match(/^(?:timecode|tc)\s+cue\s+(\d+)\s+(.+)$/))) {
-        const i = Number(m[1]) - 1;
+      if ((m = c.match(/^(?:timecode|tc)\s+cue\s+(\d+(?:\.\d+)?|\.\d+)\s+(.+)$/))) {
+        const i = window.cueIndexOf(m[1]);
         if (/^(off|none|clear)$/.test(m[2])) { window.LXTimecode?.setCue(i, null); return say(`Cue ${m[1]} has no time now`, "ok"); }
         const t = window.LXTimecode?.parse(m[2]);
         if (t == null) return say("Times look like 00:01:30:00", "warn");

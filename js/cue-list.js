@@ -25,6 +25,7 @@
   // ------------------------------------------------------------ next cue
 
   function defaultNext() {
+    if (typeof window.peekNextCue === "function") return window.peekNextCue(); // follows links, skips disabled cues
     const s = S();
     let n = (s.currentCue ?? -1) + 1;
     while (n < (s.cues?.length || 0) && !s.cues[n]) n++;
@@ -70,7 +71,7 @@
         const cue = S().cues?.[index];
         const result = original.apply(this, arguments);
         if (result && cue) {
-          running = { index: Number(index), start: performance.now(), fade: forceFade != null ? Number(forceFade) : Number(cue.fade ?? 800) };
+          running = { index: Number(index), start: performance.now(), fade: window.cueDuration ? window.cueDuration(Number(index), forceFade) : forceFade != null ? Number(forceFade) : Number(cue.fade ?? 800) };
           if (chosenNext() === Number(index)) S().nextCue = null;
         }
         refreshAll();
@@ -160,20 +161,24 @@
     const rows = body.querySelector(".cl-rows");
     const mib = window.LXMoveInBlack?.status();
     const mibOn = pref("mib", true) !== false;
-    const key = cues.map((c, i) => (c ? `${c.number}|${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.timecode ?? ""}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
+    const key = cues.map((c, i) => (c ? `${c.number}|${c.scene}|${c.colourTag}|${c.disabled}|${c.link}|${c.loop}|${c.followMode}|${c.delay}|${JSON.stringify(c.timing || "")}|${c.macro ? 1 : 0}|${c.note ? 1 : 0}|${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.timecode ?? ""}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
     const modeTag = (c, i) => {
       const tags = [c.mode === "track" ? `<b class="cl-mode t" title="Tracked: stores only what changed (${c.fixtureStates?.length || 0} lights)">T</b>` : `<b class="cl-mode b" title="Block: stores the whole look">B</b>`];
+      if (c.link != null && c.link !== "") tags.push(`<b class="cl-mib" title="GO then jumps to cue ${esc(window.formatCueNumber?.(c.link) ?? c.link)}${c.loop ? `, ${c.loop} times` : ""}">↩${esc(window.formatCueNumber?.(c.link) ?? c.link)}</b>`);
+      if (c.timing?.split) tags.push('<b class="cl-mib" title="Split times: intensity up/down, moves, colour and beam each have their own time">⧉</b>');
+      if (c.macro) tags.push(`<b class="cl-mib" title="Runs: ${esc(c.macro)}">CMD</b>`);
       if (c.noMib && mibOn) tags.push('<b class="cl-mib off" title="Move in black is off for this cue">MIB</b>');
       else if (mibOn && mib?.cue === i && mib.ids.length) tags.push(`<b class="cl-mib" title="${mib.ids.length} light${mib.ids.length === 1 ? "" : "s"} preset in the dark for this cue">MIB</b>`);
       return tags.join("");
     };
     if (rows.dataset.key !== key && !rows.querySelector("input")) {
-      rows.innerHTML = cues.map((c, i) => c ? `
-        <div class="cl-row" data-i="${i}" draggable="true">
+      let scene = null;
+      rows.innerHTML = cues.map((c, i) => c ? `${c.scene && c.scene !== scene && (scene = c.scene) ? `<div class="cl-scene">${esc(c.scene)}</div>` : ""}
+        <div class="cl-row${c.disabled ? " cl-disabled" : ""}" data-i="${i}" draggable="true" style="--tag:${c.colourTag || "transparent"}"${c.note ? ` title="${esc(c.note)}"` : ""}>
           <span class="cl-dot"></span><span class="cl-num" data-edit="num" title="Double-click to renumber (e.g. 2.5 puts it between 2 and 3)">${window.cueLabel(i)}</span><span class="cl-tags">${modeTag(c, i)}</span>
           <span data-edit="name">${esc(c.name || `Cue ${window.cueLabel(i)}`)}</span>
           <span data-edit="fade">${secs(c.fade ?? 800)} s</span>
-          <span data-edit="follow">${c.followEnabled ? `${secs((c.follow || 0) * 1000)} s` : "—"}</span>
+          <span data-edit="follow">${c.followEnabled ? `${c.followMode === "go" ? "F " : ""}${secs((c.follow || 0) * 1000)} s` : "—"}</span>
           <span data-edit="tc" class="cl-tc">${Number.isFinite(c.timecode) ? window.LXTimecode?.format(c.timecode) ?? "" : "—"}</span>
           <span class="cl-fx">${esc(c.effect ? c.effect.name || c.effect.type : "")}</span>
           <i class="cl-progress"></i>
@@ -334,9 +339,12 @@
       .cl-go{height:40px;min-width:92px;border:0;border-radius:6px;background:#2fbf63;color:#04140a;font-size:16px;font-weight:900;letter-spacing:2px;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
       .cl-go:hover{background:#39d672}
       .cl-go:active{transform:translateY(1px)}
-      .cl-head,.cl-row{display:grid;grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px 92px minmax(0,.6fr);gap:8px;align-items:center;padding:0 10px}
+      .cl-head,.cl-row{display:grid;grid-template-columns:16px 44px 84px minmax(0,1fr) 60px 64px 92px minmax(0,.6fr);gap:8px;align-items:center;padding:0 10px}
       .cl-head{height:24px;border-bottom:1px solid var(--border);color:#5d6b68;font-size:9px;font-weight:850;letter-spacing:1.1px;text-transform:uppercase}
       .cl-rows{flex:1 1 auto;min-height:0;overflow:auto}
+      .cl-scene{padding:9px 10px 4px;font:800 9.5px/1 system-ui;letter-spacing:.09em;text-transform:uppercase;color:#6f7d7b;border-bottom:1px solid #141c20}
+      .cl-row.cl-disabled{opacity:.42}.cl-row.cl-disabled [data-edit=name]{text-decoration:line-through}
+      .cl-row{box-shadow:inset 3px 0 0 var(--tag,transparent)}
       .cl-row{position:relative;height:30px;border-bottom:1px solid #141c20;color:#b9c5c2;font-size:12px;cursor:pointer;user-select:none}
       .cl-row:hover{background:#121b20}
       .cl-row > span{position:relative;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -355,7 +363,7 @@
       .cl-mode.b{background:rgba(255,255,255,.07);color:#9aa8a5}
       .cl-mib{background:rgba(155,123,255,.2);color:#c7b6ff}
       .cl-mib.off{background:transparent;color:#5d6b68;text-decoration:line-through}
-      .cl.no-fx .cl-head,.cl.no-fx .cl-row{grid-template-columns:16px 34px 54px minmax(0,1fr) 60px 64px 92px}
+      .cl.no-fx .cl-head,.cl.no-fx .cl-row{grid-template-columns:16px 44px 84px minmax(0,1fr) 60px 64px 92px}
       .cl-tc{font-family:var(--mono);font-size:11px;color:#ffd27a}
       .cl.no-fx .cl-fx,.cl.no-fx .cl-fxh{display:none}
       .cl.no-mode .cl-mode{display:none}
@@ -382,5 +390,5 @@
   }
   window.addEventListener("load", () => setTimeout(boot, 500));
 
-  window.LXCueList = Object.freeze({ open: () => window.LXWindows?.open("cuelist"), setNext, next: nextIndex });
+  window.LXCueList = Object.freeze({ open: () => window.LXWindows?.open("cuelist"), setNext, next: nextIndex, refresh: () => refreshAll() });
 })();

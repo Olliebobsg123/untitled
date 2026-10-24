@@ -483,32 +483,99 @@ function applyLightingState(globalState, fixtureMap) {
     pushLightingUpdate();
 }
 
-function fadeLighting(from, to, duration, finished) {
+/*
+ * Cue timing, as on a professional desk. A cue can give each kind of change
+ * its own time and delay:
+ *
+ *   up      intensity going up         down    intensity going down
+ *   focus   pan/tilt (moves)           colour  colour of every kind
+ *   beam    gobo, zoom, focus, iris, prism, frost…
+ *
+ * Anything a cue doesn't split uses its fade time and delay. The curve
+ * shapes every part of the fade (smooth, linear, ease in/out, snap), and
+ * the rate plays the whole cue faster or slower (200% = twice as fast).
+ */
+const TIME_PARTS = ["up", "down", "focus", "colour", "beam"];
+const FOCUS_KEYS = new Set(["pan", "tilt", "panf", "tiltf", "panFine", "tiltFine"]);
+const COLOUR_KEYS = new Set(["hue", "sat", "light", "r", "g", "b", "w", "amber", "a", "lime", "uv", "cyan", "magenta", "yellow", "colour", "colourr", "colmacro", "cto", "cct", "warmWhite", "naturalWhite", "coolWhite", "preset"]);
+const BEAM_KEYS = new Set(["gobo", "gobo2", "gobor", "gobo2r", "prism", "prismr", "focus", "zoom", "frost", "iris", "rot", "shake", "effect", "speed"]);
+const INTENSITY_KEYS = new Set(["intensity", "master", "dimmer"]);
+const CURVES = {
+    smooth: p => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2),
+    linear: p => p,
+    in: p => p * p * p,
+    out: p => 1 - Math.pow(1 - p, 3),
+    snap: p => (p > 0 ? 1 : 0)
+};
+function partOf(key) {
+    if (INTENSITY_KEYS.has(key)) return "intensity";
+    if (FOCUS_KEYS.has(key)) return "focus";
+    if (COLOUR_KEYS.has(key)) return "colour";
+    if (BEAM_KEYS.has(key)) return "beam";
+    return "fade";
+}
+// Times (ms) for each part of this cue. forceFade (MSC timed GO, sneak…)
+// replaces every time.
+function cueTiming(cue, forceFade = null) {
+    const rate = Math.max(1, Math.min(1000, num(cue?.rate, 100))) / 100;
+    const base = { time: Math.max(0, num(cue?.fade, 800)), delay: Math.max(0, num(cue?.delay, 0)) };
+    const parts = { fade: base };
+    const split = cue?.timing && typeof cue.timing === "object" ? cue.timing : {};
+    TIME_PARTS.forEach(part => {
+        const time = split[part], delay = split[part + "Delay"];
+        parts[part] = {
+            time: Number.isFinite(Number(time)) && time !== "" && time != null ? Math.max(0, Number(time)) : base.time,
+            delay: Number.isFinite(Number(delay)) && delay !== "" && delay != null ? Math.max(0, Number(delay)) : base.delay
+        };
+    });
+    if (forceFade != null) Object.values(parts).forEach(p => { p.time = Math.max(0, num(forceFade, 0)); p.delay = 0; });
+    else Object.values(parts).forEach(p => { p.time /= rate; p.delay /= rate; });
+    const curve = CURVES[cue?.curve] ? cue.curve : "smooth";
+    const total = Math.max(...Object.values(parts).map(p => p.delay + p.time));
+    return { parts, curve, total };
+}
+// How long cue `index` takes to complete (for progress bars).
+function cueDuration(index, forceFade = null) {
+    const cue = State.cues?.[index];
+    return cue ? cueTiming(cue, forceFade).total : 0;
+}
+
+// Fade from one look to another. `timing` is a cueTiming() result, or a
+// plain number of milliseconds for everything.
+function fadeLighting(from, to, timing, finished) {
     stopCueFade();
-    duration = Math.max(0, num(duration, 0));
-    if (duration <= 0) {
+    if (typeof timing !== "object" || !timing) timing = cueTiming({ fade: Math.max(0, num(timing, 0)), curve: "smooth" });
+    const { parts, total } = timing;
+    const ease = CURVES[timing.curve] || CURVES.smooth;
+    if (total <= 0) {
         applyLightingState(to.globalState, to.fixtureMap);
         if (typeof finished === "function") finished();
         return;
     }
     const start = performance.now();
     const ids = new Set([...from.fixtureMap.keys(), ...to.fixtureMap.keys()]);
+    // Where a value is in its own part of the fade: 0 before its delay, 1 once done.
+    const progress = (part, elapsed) => {
+        const w = parts[part] || parts.fade;
+        if (elapsed < w.delay) return 0;
+        return w.time <= 0 ? 1 : Math.min(1, (elapsed - w.delay) / w.time);
+    };
+    const blend = (key, a, b, elapsed) => {
+        let part = partOf(key);
+        if (part === "intensity") part = num(b) >= num(a) ? "up" : "down";
+        const p = progress(part, elapsed);
+        if (typeof a === "number" || typeof b === "number") return num(a) + (num(b) - num(a)) * ease(p);
+        return p < 1 ? (a ?? b) : (b ?? a);
+    };
     function frame(now) {
-        const raw = Math.min(1, (now - start) / duration);
-        const t = raw < 0.5 ? 2 * raw * raw : 1 - Math.pow(-2 * raw + 2, 2) / 2;
+        const elapsed = now - start;
         const global = {};
         const globalKeys = new Set([
             ...Object.keys(from.globalState || {}),
             ...Object.keys(to.globalState || {})
         ]);
         globalKeys.forEach(key => {
-            const a = from.globalState && from.globalState[key];
-            const b = to.globalState && to.globalState[key];
-            if (typeof a === "number" || typeof b === "number") {
-                global[key] = num(a) + (num(b) - num(a)) * t;
-            } else {
-                global[key] = raw < 1 ? (a ?? b) : (b ?? a);
-            }
+            global[key] = blend(key, from.globalState && from.globalState[key], to.globalState && to.globalState[key], elapsed);
         });
         const fixtures = new Map();
         ids.forEach(id => {
@@ -516,22 +583,14 @@ function fadeLighting(from, to, duration, finished) {
             const b = to.fixtureMap.get(id) || a;
             const result = {};
             const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-            keys.forEach(key => {
-                const av = a[key];
-                const bv = b[key];
-                if (typeof av === "number" || typeof bv === "number") {
-                    result[key] = num(av) + (num(bv) - num(av)) * t;
-                } else {
-                    result[key] = raw < 1 ? (av ?? bv) : (bv ?? av);
-                }
-            });
+            keys.forEach(key => { result[key] = blend(key, a[key], b[key], elapsed); });
             fixtures.set(id, result);
         });
         State.current ||= {};
         Object.assign(State.current, global);
         fixtures.forEach((state, id) => State.fixtureStates.set(id, state));
         pushLightingUpdate();
-        if (raw >= 1) {
+        if (elapsed >= total) {
             State.fading = null;
             applyLightingState(to.globalState, to.fixtureMap);
             if (typeof finished === "function") finished();
@@ -594,17 +653,37 @@ function syncCueControls(state) {
     });
 }
 
-function scheduleCueFollow(cue, cueIndex) {
-    stopFollow();
+// Auto-go to the next cue: "complete" (a hang: N seconds after this cue
+// finishes fading) or "go" (a follow: N seconds after this cue's GO).
+function scheduleCueFollow(cue, cueIndex, when = "complete") {
     if (!cue || cue.followEnabled !== true) return;
+    const mode = cue.followMode === "go" ? "go" : "complete";
+    if (mode !== when) return;
+    stopFollow();
     const seconds = Math.max(0, num(cue.follow, 0));
-    cueLog("Follow armed: Cue " + cueLabel(cueIndex) + " -> next cue in " + seconds + "s");
+    cueLog("Follow armed: Cue " + cueLabel(cueIndex) + " -> next cue " + seconds + "s after its " + (mode === "go" ? "GO" : "fade finishes"));
     State.followTimer = setTimeout(() => {
         State.followTimer = null;
         if (State.currentCue !== cueIndex) return;
         cueLog("Follow firing: Cue " + cueLabel(cueIndex), "ok");
         goNextCue();
     }, seconds * 1000);
+}
+
+// A cue's command (its "macro"): any command line, run when the cue GOes.
+let macroDepth = 0;
+function runCueMacro(cue, index) {
+    const text = String(cue?.macro || "").trim();
+    if (!text || typeof window.parseCommand !== "function") return;
+    if (macroDepth > 2) return cueLog("Cue " + cueLabel(index) + " command skipped: commands calling cues too deep", "warn");
+    macroDepth++;
+    try {
+        text.split(/\s*;\s*|\n+/).filter(Boolean).forEach(line => window.parseCommand(line));
+    } catch (e) {
+        cueLog("Cue " + cueLabel(index) + " command failed: " + e.message, "error");
+    } finally {
+        macroDepth--;
+    }
 }
 
 function goToCue(index, forceFade = null) {
@@ -619,19 +698,45 @@ function goToCue(index, forceFade = null) {
     const previous = snapshotCurrentLighting();
     const target = getCueTarget(cue);
     State.currentCue = index;
-    const fade = forceFade !== null ? Math.max(0, num(forceFade, 0)) : Math.max(0, num(cue.fade, 800));
-    fadeLighting(previous, target, fade, () => {
+    const timing = cueTiming(cue, forceFade);
+    const fade = timing.total;
+    State.cueStartedAt = performance.now();
+    fadeLighting(previous, target, timing, () => {
         syncCueControls(target.globalState);
         startCueEffectIfNeeded(cue);
         renderCues();
         cueLog("Cue " + cueLabel(State.cues.indexOf(cue)) + " active", "ok");
-        scheduleCueFollow(cue, index);
+        scheduleCueFollow(cue, State.cues.indexOf(cue), "complete");
         window.dispatchEvent(new CustomEvent("lx-cue-complete", { detail: { index } }));
     });
+    scheduleCueFollow(cue, index, "go");
     syncCueControls(target.globalState);
     renderCues();
-    cueLog("Cue " + cueLabel(index) + ": " + (cue.name || "Cue " + cueLabel(index)) + " - " + (fade <= 0 ? "instant" : "fade " + fade + "ms"));
+    cueLog("Cue " + cueLabel(index) + ": " + (cue.name || "Cue " + cueLabel(index)) + " - " + (fade <= 0 ? "instant" : "fade " + Math.round(fade) + "ms"));
+    runCueMacro(cue, index);
     return true;
+}
+
+// What GO plays after cue `index`: its link (a jump, e.g. back to 5 to
+// loop a sequence, `loop` times then on), else the next cue that isn't
+// disabled. Returns -1 at the end of the list.
+const linkCounts = new Map(); // cue -> times its link has been taken
+function cueAfter(index) {
+    const cues = State.cues;
+    const cue = cues[index];
+    if (cue && cue.link != null && cue.link !== "") {
+        const target = cueIndexOf(cue.link);
+        const loops = Math.max(0, Math.floor(num(cue.loop, 0)));
+        const taken = linkCounts.get(cue) || 0;
+        if (target >= 0 && target !== index && (loops === 0 || taken < loops)) {
+            linkCounts.set(cue, taken + 1);
+            return target;
+        }
+        linkCounts.delete(cue); // done looping: carry on, and loop again next time round
+    }
+    let next = index + 1;
+    while (next < cues.length && (!cues[next] || cues[next].disabled)) next++;
+    return next < cues.length ? next : -1;
 }
 
 function goNextCue(forceFade = null) {
@@ -640,9 +745,8 @@ function goNextCue(forceFade = null) {
         return false;
     }
     // Stop at the end of the list instead of jumping back to the first cue.
-    let next = State.currentCue + 1;
-    while (next < State.cues.length && !State.cues[next]) next++;
-    if (!State.cues[next]) {
+    const next = cueAfter(State.currentCue);
+    if (next < 0) {
         cueLog("End of the cue list", "warn");
         return false;
     }
@@ -653,7 +757,7 @@ function goPreviousCue(forceFade = null) {
     if (!State.cues.length) return false;
     stopFollow();
     let previous = State.currentCue - 1;
-    while (previous >= 0 && !State.cues[previous]) previous--;
+    while (previous >= 0 && (!State.cues[previous] || State.cues[previous].disabled)) previous--;
     if (previous < 0) {
         cueLog("Already at the first cue", "warn");
         return false;
@@ -661,7 +765,24 @@ function goPreviousCue(forceFade = null) {
     return goToCue(previous, forceFade);
 }
 
-function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs") ?? 800), follow = 0, followEnabled = false) {
+// What GO would play next, without playing it (for the cue list and inspector).
+function peekNextCue() {
+    const cues = State.cues || [];
+    const index = State.currentCue;
+    const cue = cues[index];
+    if (cue && cue.link != null && cue.link !== "") {
+        const target = cueIndexOf(cue.link);
+        const loops = Math.max(0, Math.floor(num(cue.loop, 0)));
+        if (target >= 0 && target !== index && (loops === 0 || (linkCounts.get(cue) || 0) < loops)) return target;
+    }
+    let next = index + 1;
+    while (next < cues.length && (!cues[next] || cues[next].disabled)) next++;
+    return next < cues.length ? next : -1;
+}
+
+// Everything about a cue that isn't its look (kept when it's re-recorded).
+const CUE_OPTIONS = ["noMib", "blocked", "timecode", "delay", "timing", "curve", "rate", "followMode", "link", "loop", "disabled", "note", "scene", "colourTag", "macro"];
+function recordCue(number, name, fadeMs, follow, followEnabled) {
     window.finishFade?.();
     number = parseCueNumber(number);
     if (number == null) {
@@ -676,14 +797,16 @@ function recordCue(number, name, fadeMs = Number(window.LXPrefs?.get("cueFadeMs"
     const globalState = clone(State.current || {});
     const effect = snapshotCueEffect();
     const cue = storeLook(index, {
-        ...(existing ? { noMib: existing.noMib, blocked: existing.blocked, timecode: existing.timecode } : {}),
+        // Re-recording a cue keeps everything about it except its look.
+        ...(existing ? Object.fromEntries(CUE_OPTIONS.filter(k => k in existing).map(k => [k, cloneValue(existing[k])])) : {}),
         number,
         name: String(name || "").trim() || "Cue " + label,
         globalState,
         state: clone(globalState),
-        fade: Math.max(0, num(fadeMs, 800)),
-        follow: Math.max(0, num(follow, 0)),
-        followEnabled: followEnabled === true,
+        // Times not given: an existing cue keeps its own, a new one gets the default.
+        fade: Math.max(0, num(fadeMs ?? existing?.fade ?? window.LXPrefs?.get("cueFadeMs") ?? 800, 800)),
+        follow: Math.max(0, num(follow ?? existing?.follow, 0)),
+        followEnabled: (followEnabled ?? existing?.followEnabled) === true,
         effect,
         effects: snapshotCueEffects()
     }, existing ? existing.mode === "block" && existing.blocked === true : false);
@@ -876,6 +999,7 @@ function deleteCue(number) {
 Object.assign(window, {
     parseCueNumber,
     formatCueNumber,
+    CUE_CURVES: Object.keys(CURVES),
     cueNumberOf,
     cueLabel,
     cueIndexOf,
@@ -891,6 +1015,10 @@ Object.assign(window, {
     goPreviousCue,
     recordCue,
     recordNextCue,
+    cueTiming,
+    cueDuration,
+    peekNextCue,
+    runCueMacro,
     updateCue,
     updateCurrentCue,
     deleteCue,

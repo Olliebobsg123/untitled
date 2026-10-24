@@ -122,6 +122,11 @@
       return render(true);
     }
     if (a === "split") { cue.timing ||= {}; cue.timing.split = !cue.timing.split; if (!cue.timing.split) { PARTS.forEach(([k]) => { delete cue.timing[k]; delete cue.timing[k + "Delay"]; }); delete cue.timing.split; if (!Object.keys(cue.timing).length) delete cue.timing; } return changed(cue, null); }
+    if (a.startsWith("curtain:")) {
+      const v = a.slice(8);
+      if (v === "") delete cue.curtain; else cue.curtain = Number(v);
+      return changed(cue, v === "" ? "leaves the curtain as it is" : v === "1" ? "opens the curtain" : "closes the curtain");
+    }
     if (a === "disabled") { cue.disabled = !cue.disabled; if (!cue.disabled) delete cue.disabled; return changed(cue, cue.disabled ? "disabled — GO skips it" : "enabled"); }
     if (a === "mib") { cue.noMib = !cue.noMib; return changed(cue, `move in black ${cue.noMib ? "off" : "on"}`); }
     if (a === "block") { window.parseCommand?.(`${cue.mode === "track" ? "block" : "track"} cue ${n}`); return render(true); }
@@ -200,6 +205,16 @@
     return `<p class="ci-muted">${rows.length} light${rows.length === 1 ? "" : "s"} change${before ? " from the cue before" : ""}</p><div class="ci-fxs">${rows.slice(0, 80).join("")}${rows.length > 80 ? `<p class="ci-muted">…and ${rows.length - 80} more</p>` : ""}</div>`;
   }
 
+  // The curtain, as part of the cue's look.
+  function curtainRow(cue, i) {
+    const own = Number.isFinite(Number(cue.curtain)) ? Number(cue.curtain) : null;
+    const tracked = own == null ? window.cueCurtain?.(i) : null;
+    const word = v => (v >= 1 ? "open" : v <= 0 ? "closed" : `${Math.round(v * 100)}% open`);
+    const current = own == null ? "" : own >= 1 ? "1" : own <= 0 ? "0" : "part";
+    const note = own != null ? (current === "part" ? `${word(own)}` : "") : tracked != null ? `left as it is (${word(tracked)} from an earlier cue)` : "left as it is";
+    return `<div class="ci-line ci-curtain"><b>Curtain</b><div class="ci-seg">${[["1", "Open"], ["0", "Closed"], ["", "Leave"]].map(([v, l]) => `<button type="button" data-a="curtain:${v}" class="${current === v ? "on" : ""}">${l}</button>`).join("")}</div></div>${note ? `<p class="ci-muted">Curtain ${note}</p>` : ""}`;
+  }
+
   function editor(cue, i) {
     const s = S();
     const live = s.currentCue === i;
@@ -260,6 +275,7 @@
           <button type="button" class="ci-check${cue.mode === "track" ? " on" : ""}" data-a="block"><i></i><span><b>Tracked</b> — stores only what changed; off = a block cue with its whole look</span></button>
           <button type="button" class="ci-check${!cue.noMib ? " on" : ""}" data-a="mib"><i></i><span><b>Move in black</b> — moving lights preset in the dark before this cue</span></button>
           <button type="button" class="ci-check${cue.disabled ? " on warn" : ""}" data-a="disabled"><i></i><span><b>Disabled</b> — GO skips this cue (you can still go to it directly)</span></button>
+          ${curtainRow(cue, i)}
           ${effect ? `<div class="ci-line">Effect: <b>${esc(effect)}</b> <button type="button" class="btn-secondary ci-small" data-a="noeffect">Remove</button></div>` : ""}
           ${cue.chase ? `<div class="ci-line">Starts chase ${Number(cue.chase.index) + 1}</div>` : ""}
         </section>
@@ -373,7 +389,7 @@
   const PART_WORDS = { up: "up", down: "down", move: "focus", focus: "focus", colour: "colour", color: "colour", beam: "beam" };
   function command(raw) {
     const text = String(raw ?? "").trim();
-    const m = text.match(/^cue\s+(\d+(?:\.\d+)?|\.\d+)\s+(up|down|move|focus|colou?r|beam|delay|curve|rate|link|loop|follow|hang|wait|disable|enable|scene|note|command|macro)\b\s*(.*)$/i);
+    const m = text.match(/^cue\s+(\d+(?:\.\d+)?|\.\d+)\s+(up|down|move|focus|colou?r|beam|delay|curve|rate|link|loop|follow|hang|wait|disable|enable|scene|note|command|macro|curtain)\b\s*(.*)$/i);
     if (!m) return false;
     const i = window.cueIndexOf(m[1]);
     if (i < 0) { say(`Cue ${m[1]} not found`, "warn"); return true; }
@@ -406,6 +422,12 @@
         if (!(Number(rest) >= 0) || rest === "") { say(`Try: cue ${n} ${word} 2 (seconds)`, "warn"); return true; }
         cue.follow = Number(rest); act(cue, `then:${word}`); return true;
       case "wait": act(cue, "then:wait"); return true;
+      case "curtain": {
+        const w = rest.toLowerCase();
+        const v = /^(open|out)$/.test(w) ? "1" : /^(close|closed|in|shut)$/.test(w) ? "0" : /^(off|none|leave|clear)$/.test(w) ? "" : null;
+        if (v == null) { say(`Try: cue ${n} curtain open, close or leave`, "warn"); return true; }
+        act(cue, `curtain:${v}`); return true;
+      }
       case "disable": if (!cue.disabled) act(cue, "disabled"); return true;
       case "enable": if (cue.disabled) act(cue, "disabled"); return true;
       case "scene": setField(cue, "scene", /^(off|none|clear)$/i.test(rest) ? "" : rest); return true;
@@ -515,6 +537,7 @@
   .ci-check.on i{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent-line)}.ci-check.on i::after{left:14px;background:var(--accent)}
   .ci-check.on.warn i::after{background:var(--danger)}
   .ci-check b{color:var(--text)}
+  .ci-curtain{justify-content:space-between}.ci-curtain b{color:var(--text)}.ci-curtain .ci-seg{width:210px}
   .ci-tags{display:flex;gap:6px;flex-wrap:wrap}
   .ci-tags button{width:22px;height:22px;border-radius:50%;border:2px solid var(--border-strong);background:var(--c);color:var(--text-muted);font-size:11px;cursor:pointer;padding:0}
   .ci-tags button.on{border-color:var(--text)}

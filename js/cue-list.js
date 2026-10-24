@@ -161,11 +161,13 @@
     const rows = body.querySelector(".cl-rows");
     const mib = window.LXMoveInBlack?.status();
     const mibOn = pref("mib", true) !== false;
-    const key = cues.map((c, i) => (c ? `${c.number}|${c.scene}|${c.colourTag}|${c.disabled}|${c.link}|${c.loop}|${c.followMode}|${c.delay}|${JSON.stringify(c.timing || "")}|${c.macro ? 1 : 0}|${c.note ? 1 : 0}|${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.timecode ?? ""}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
+    const key = cues.map((c, i) => (c ? `${c.number}|${c.scene}|${c.colourTag}|${c.disabled}|${c.link}|${c.loop}|${c.followMode}|${c.delay}|${JSON.stringify(c.timing || "")}|${c.macro ? 1 : 0}|${c.note ? 1 : 0}|${c.curtain}|${c.name}|${c.fade}|${c.follow}|${c.followEnabled}|${c.effect?.name || c.effect?.type || ""}|${c.mode}|${c.fixtureStates?.length}|${c.timecode ?? ""}|${c.noMib}|${mib?.cue === i ? mib.ids.length : ""}` : "·")).join("¦") + `|${mibOn}`;
     const modeTag = (c, i) => {
       const tags = [c.mode === "track" ? `<b class="cl-mode t" title="Tracked: stores only what changed (${c.fixtureStates?.length || 0} lights)">T</b>` : `<b class="cl-mode b" title="Block: stores the whole look">B</b>`];
       if (c.link != null && c.link !== "") tags.push(`<b class="cl-mib" title="GO then jumps to cue ${esc(window.formatCueNumber?.(c.link) ?? c.link)}${c.loop ? `, ${c.loop} times` : ""}">↩${esc(window.formatCueNumber?.(c.link) ?? c.link)}</b>`);
       if (c.timing?.split) tags.push('<b class="cl-mib" title="Split times: intensity up/down, moves, colour and beam each have their own time">⧉</b>');
+      // The curtain moves in this cue (it differs from the cue before).
+      if (Number.isFinite(Number(c.curtain)) && window.cueCurtain && (i === 0 ? Number(c.curtain) < 1 : window.cueCurtain(i - 1) !== Number(c.curtain))) tags.push(`<b class="cl-mib" title="The curtain ${Number(c.curtain) >= 1 ? "opens" : Number(c.curtain) <= 0 ? "closes" : "moves"} in this cue">${Number(c.curtain) >= 1 ? "▲CUR" : "▼CUR"}</b>`);
       if (c.macro) tags.push(`<b class="cl-mib" title="Runs: ${esc(c.macro)}">CMD</b>`);
       if (c.noMib && mibOn) tags.push('<b class="cl-mib off" title="Move in black is off for this cue">MIB</b>');
       else if (mibOn && mib?.cue === i && mib.ids.length) tags.push(`<b class="cl-mib" title="${mib.ids.length} light${mib.ids.length === 1 ? "" : "s"} preset in the dark for this cue">MIB</b>`);

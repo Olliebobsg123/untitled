@@ -44,7 +44,7 @@
     ["cue <cue> link <cue|off>", "after it, GO jumps to a cue", "Cue options"], ["cue <cue> loop <count>", "how many times the link loops", "Cue options"],
     ["cue <cue> disable", "GO skips it", "Cue options"], ["cue <cue> enable", "GO plays it again", "Cue options"],
     ["cue <cue> scene <text>", "a scene heading", "Cue options"], ["cue <cue> note <text>", "a note on the cue", "Cue options"],
-    ["cue <cue> command <command>", "run a command when it GOes", "Cue options"], ["cue <cue> go", "go to a cue", "Cue options"],
+    ["cue <cue> command <command>", "run a command when it GOes", "Cue options"], ["cue <cue> curtain <curtainstate>", "the cue opens or closes the curtain", "Cue options"], ["cue <cue> go", "go to a cue", "Cue options"],
     ["timecode cue <cue> <tc>", "fire a cue at a timecode", "Timecode"], ["tc cue <cue> <tc>", "fire a cue at a timecode", "Timecode"],
     // Selection and levels (the rest is in the selection grammar below)
     ["group <group>", "select a group", "Select"], ["group <group> @ <level>", "a group to a level", "Select"],
@@ -118,6 +118,7 @@
       case "pct": return [["150", "% — faster"], ["200", "% — twice as fast"], ["50", "% — half speed"], ["100", "% — normal"]].map(([v, d]) => [v, d, "RATE"]);
       case "count": return [["2", "times"], ["3", "times"], ["0", "forever"]].map(([v, d]) => [v, d, "LOOPS"]);
       case "curtain": return [["open", "open the curtain"], ["close", "close the curtain"], ["toggle", "open ↔ close"], ["50", "% open"]].map(([v, d]) => [v, d, "CURTAIN"]);
+      case "curtainstate": return [["open", "the cue opens it"], ["close", "the cue closes it"], ["leave", "the cue doesn't move it"]].map(([v, d]) => [v, d, "CURTAIN"]);
       case "tcsource": return [["mtc", "MIDI timecode"], ["ltc", "audio timecode"], ["internal", "Light Spark's clock"], ["off", "no timecode"]].map(([v, d]) => [v, d, "SOURCE"]);
       case "metres": return [["0", "metres"], ["2", "metres"], ["-2", "metres"]].map(([v, d]) => [v, d, "METRES"]);
       case "number": return [["1", ""], ["2", ""], ["3", ""]].map(([v, d]) => [v, d, "NUMBER"]);

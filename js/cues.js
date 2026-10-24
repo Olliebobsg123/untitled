@@ -670,6 +670,30 @@ function scheduleCueFollow(cue, cueIndex, when = "complete") {
     }, seconds * 1000);
 }
 
+// The house curtain is part of a cue's look: recording stores whether it's
+// open (1), closed (0) or part way, and playing the cue moves it there.
+// A cue recorded before this (no curtain) leaves it alone; going straight
+// to a cue uses the last curtain setting at or before it, like tracking.
+function curtainNow() {
+    const v = Number(State.visualizer?.settings?.curtain);
+    return Number.isFinite(v) ? v : 1;
+}
+function cueCurtain(index) {
+    for (let i = index; i >= 0; i--) {
+        const c = State.cues?.[i];
+        if (c && Number.isFinite(Number(c.curtain))) return Number(c.curtain);
+    }
+    return null;
+}
+function playCueCurtain(index, timing) {
+    const want = cueCurtain(index);
+    if (want == null || Math.abs(want - curtainNow()) < 0.005 || !window.LXVisualizer?.curtain) return;
+    // It travels over the cue's fade (a snap cue still takes a moment), 4 s if none.
+    const seconds = timing && timing.total > 0 ? timing.total / 1000 : 4;
+    window.LXVisualizer.curtain(want, Math.max(0.3, seconds));
+    cueLog("Curtain " + (want >= 1 ? "opens" : want <= 0 ? "closes" : "to " + Math.round(want * 100) + "% open") + " with Cue " + cueLabel(index), "info");
+}
+
 // A cue's command (its "macro"): any command line, run when the cue GOes.
 let macroDepth = 0;
 function runCueMacro(cue, index) {
@@ -713,6 +737,7 @@ function goToCue(index, forceFade = null) {
     syncCueControls(target.globalState);
     renderCues();
     cueLog("Cue " + cueLabel(index) + ": " + (cue.name || "Cue " + cueLabel(index)) + " - " + (fade <= 0 ? "instant" : "fade " + Math.round(fade) + "ms"));
+    playCueCurtain(index, timing);
     runCueMacro(cue, index);
     return true;
 }
@@ -808,7 +833,8 @@ function recordCue(number, name, fadeMs, follow, followEnabled) {
         follow: Math.max(0, num(follow ?? existing?.follow, 0)),
         followEnabled: (followEnabled ?? existing?.followEnabled) === true,
         effect,
-        effects: snapshotCueEffects()
+        effects: snapshotCueEffects(),
+        curtain: curtainNow()
     }, existing ? existing.mode === "block" && existing.blocked === true : false);
     renderCues();
     if (typeof window.updateInspectorList === "function") window.updateInspectorList();
@@ -935,6 +961,7 @@ function updateCue(number, options = {}) {
         name,
         globalState,
         state: keepLook ? existing.state : clone(globalState),
+        curtain: keepLook ? existing.curtain : curtainNow(),
         fade,
         follow,
         followEnabled,
@@ -1019,6 +1046,7 @@ Object.assign(window, {
     cueDuration,
     peekNextCue,
     runCueMacro,
+    cueCurtain,
     updateCue,
     updateCurrentCue,
     deleteCue,

@@ -449,7 +449,7 @@
         const v = input.value.trim();
         if (v && history[history.length - 1] !== v) { history.push(v); while (history.length > (Number(window.LXPrefs?.get("cmdHistory")) || 200)) history.shift(); try { localStorage.setItem(HISTORY, JSON.stringify(history)); } catch (_) {} }
         hIndex = -1; preview.textContent = "";
-        setTimeout(() => document.getElementById("cmdAutocompleteList")?.classList.remove("is-visible"), 0);
+        
         return;
       }
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -465,7 +465,7 @@
       if (hIndex < 0) hIndex = 0;
       if (hIndex >= history.length) { hIndex = -1; input.value = draft; }
       else input.value = history[hIndex];
-      document.getElementById("cmdAutocompleteList")?.classList.remove("is-visible");
+      window.LXAutocomplete?.hide();
       input.setSelectionRange(input.value.length, input.value.length);
       showPreview();
     }, true);

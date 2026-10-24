@@ -779,6 +779,15 @@ function toggle(key) {
   wake();
 }
 
+// Hide the controls to see more of the stage (remembered; B toggles).
+function setBarHidden(on) {
+  document.body.classList.toggle("bar-hidden", on);
+  $("showBar").hidden = !on;
+  try { localStorage.setItem("vizBarHidden", on ? "1" : "0"); } catch (_) {}
+}
+$("hideBar").addEventListener("click", () => setBarHidden(true));
+$("showBar").addEventListener("click", () => setBarHidden(false));
+try { setBarHidden(localStorage.getItem("vizBarHidden") === "1"); } catch (_) {}
 for (const key of ["house", "work", "grid", "targets"]) $(key).addEventListener("click", () => toggle(key));
 $("curtain").addEventListener("click", () => moveCurtain(curtain.target >= 0.5 ? 0 : 1));
 $("aimMode").addEventListener("click", () => setAimMode(!aimMode));
@@ -821,6 +830,7 @@ window.addEventListener("keydown", event => {
   if (event.key === "g") toggle("grid");
   if (event.key === "t") toggle("targets");
   if (event.key === "c") moveCurtain(curtain.target >= 0.5 ? 0 : 1);
+  if (event.key === "b" || event.key === "B") setBarHidden(!document.body.classList.contains("bar-hidden"));
   if (event.key === "f" && selected) {
     const model = modelFor(selected);
     if (model) controls.target.copy(model.root.position);

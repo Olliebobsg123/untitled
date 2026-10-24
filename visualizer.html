@@ -56,6 +56,10 @@
   .coords input { width: 74px; height: 26px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font: 600 12px/1 inherit; font-variant-numeric: tabular-nums; user-select: text; }
 
   #help { position: fixed; right: 12px; bottom: 12px; z-index: 5; color: var(--muted); font-size: 11px; text-align: right; line-height: 1.6; }
+  /* Controls tucked away: the stage gets the whole window. */
+  body.bar-hidden .bar, body.bar-hidden #help { display: none; }
+  #showBar { position: fixed; top: 10px; right: 10px; z-index: 6; height: 28px; padding: 0 10px; font-size: 11px; opacity: 0.35; background: var(--panel); transition: opacity .2s; }
+  #showBar:hover { opacity: 1; }
   [hidden] { display: none !important; }
 </style>
 <script type="importmap">
@@ -107,6 +111,7 @@
   <span id="blind" hidden>BLIND PREVIEW</span>
   <span id="status"></span>
   <span id="fps"></span>
+  <button id="hideBar" title="B — hide these controls to see more of the stage">▴ Hide</button>
 </div>
 
 <div id="selection" hidden>
@@ -122,6 +127,7 @@
 </div>
 
 <div id="aimHelp" hidden>🎯 Click or drag on the stage — the moving heads selected in the console aim there. P or Esc to stop.</div>
+<button id="showBar" hidden title="B — show the controls">☰ Controls</button>
 <div id="help"><span id="viewKeys">Drag a light to slide it along its bar · Drag empty space to look around · Right-drag to pan · Scroll to zoom</span><br>Positions save automatically with the show</div>
 
 <script type="module" src="js/visualizer/main.js"></script>

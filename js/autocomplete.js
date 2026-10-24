@@ -300,6 +300,9 @@
   // --------------------------------------------------------------- the box
 
   let input = null, box = null, ghost = null, items = [], index = 0, picked = false, hidden = false, lastTyped = "";
+  // Compact (about six rows, beside the command line) unless made bigger.
+  let big = false;
+  try { big = localStorage.getItem("lxSuggestBig") === "1"; } catch (_) {}
 
   function render() {
     if (!input || !box) return;
@@ -315,7 +318,8 @@
       const match = s.value && value.toLowerCase().startsWith(typed) ? `<b>${esc(value.slice(0, text.length))}</b>${esc(value.slice(text.length).trimEnd())}` : shown;
       return `<div class="lxs-item${i === index ? " on" : ""}${s.value ? "" : " lxs-placeholder"}" data-i="${i}"><span class="lxs-cmd">${match}${s.hint ? ` <i>${esc(s.hint)}</i>` : ""}</span><span class="lxs-desc">${esc(s.desc || "")}</span><span class="lxs-tag">${esc(s.tag || "")}</span></div>`;
     }).join("") || `<div class="lxs-empty">Nothing matches — press Enter to try it anyway, or type help</div>`}</div>
-      <div class="lxs-foot"><span>${items.length} suggestion${items.length === 1 ? "" : "s"}</span><span><kbd>Tab</kbd> complete · <kbd>↑</kbd><kbd>↓</kbd> choose · <kbd>Enter</kbd> run · <kbd>Esc</kbd> hide</span></div>`;
+      <div class="lxs-foot"><span>${items.length} suggestion${items.length === 1 ? "" : "s"} · <kbd>Tab</kbd> complete · <kbd>↑</kbd><kbd>↓</kbd> choose · <kbd>Esc</kbd> hide</span><button type="button" class="lxs-size" title="${big ? "Make the list smaller" : "Show more of the list"}">${big ? "▾ smaller" : "▴ bigger"}</button></div>`;
+    box.classList.toggle("big", big);
     box.querySelector(".lxs-item.on")?.scrollIntoView({ block: "nearest" });
     // Ghost: the rest of the best match, after the text.
     const best = items[index];
@@ -362,6 +366,13 @@
     input.addEventListener("blur", () => setTimeout(render, 120));
     input.addEventListener("scroll", syncGhost);
     box.addEventListener("mousedown", e => {
+      if (e.target.closest(".lxs-size")) {
+        e.preventDefault();
+        big = !big;
+        try { localStorage.setItem("lxSuggestBig", big ? "1" : "0"); } catch (_) {}
+        render();
+        return;
+      }
       const row = e.target.closest(".lxs-item");
       if (!row) return;
       e.preventDefault();
@@ -403,10 +414,13 @@
   const style = document.createElement("style");
   style.textContent = `
     #cmdAutocompleteList{display:none!important}
-    #lxSuggest{position:absolute;left:0;right:0;bottom:calc(100% + 4px);z-index:9999;max-height:320px;display:flex;flex-direction:column;background:#0a0f12;border:1px solid #2b383f;border-radius:10px;box-shadow:0 -12px 32px rgba(0,0,0,.45);overflow:hidden;font:12px var(--sans,system-ui)}
+    #lxSuggest{position:absolute;left:0;width:min(640px,100%);bottom:calc(100% + 4px);z-index:9999;max-height:178px;display:flex;flex-direction:column;background:#0a0f12;border:1px solid #2b383f;border-radius:10px;box-shadow:0 -12px 32px rgba(0,0,0,.45);overflow:hidden;font:12px var(--sans,system-ui)}
     #lxSuggest[hidden]{display:none}
-    .lxs-list{overflow:auto;flex:1;padding:4px}
-    .lxs-item{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(0,1fr) auto;gap:12px;align-items:center;padding:5px 9px;border-radius:6px;cursor:pointer;color:#b9c5c2}
+    #lxSuggest.big{width:auto;right:0;max-height:min(360px,55vh)}
+    .lxs-list{overflow:auto;flex:1 1 auto;min-height:0;padding:3px}
+    .lxs-foot{flex:none}
+    .lxs-item{display:grid;grid-template-columns:minmax(150px,1.3fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:3px 8px;border-radius:5px;cursor:pointer;color:#b9c5c2;font-size:11.5px}
+    #lxSuggest.big .lxs-item{padding:5px 9px;font-size:12px}
     .lxs-item:hover{background:#141c21}
     .lxs-item.on{background:rgba(25,214,163,.12);color:#edf4f2;box-shadow:inset 2px 0 0 #19d6a3}
     .lxs-cmd{font:500 12px var(--mono,monospace);color:#dfe7e5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -416,7 +430,9 @@
     .lxs-tag{font:800 9px var(--sans,system-ui);letter-spacing:.08em;color:#6f7d7b;border:1px solid #243036;border-radius:9px;padding:2px 6px}
     .lxs-placeholder{cursor:default;opacity:.7}
     .lxs-empty{padding:10px;color:#8b9aa1}
-    .lxs-foot{display:flex;justify-content:space-between;gap:10px;padding:5px 10px;border-top:1px solid #1d272c;color:#5d6b6e;font-size:10.5px}
+    .lxs-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:3px 6px 3px 10px;border-top:1px solid #1d272c;color:#5d6b6e;font-size:10px;white-space:nowrap;overflow:hidden}
+    .lxs-size{flex:none;height:18px;padding:0 7px;border:1px solid #2b383f;border-radius:4px;background:#0f1519;color:#8b9aa1;font:700 9.5px var(--sans,system-ui);cursor:pointer}
+    .lxs-size:hover{color:#19d6a3;border-color:#19d6a3}
     .lxs-foot kbd{font:700 9.5px var(--mono,monospace);border:1px solid #2b383f;border-radius:3px;padding:0 4px;margin:0 1px;color:#8b9aa1}
     .lxs-ghost{position:absolute;pointer-events:none;color:#4f5d60;white-space:pre;overflow:hidden;box-sizing:border-box;z-index:0}
     .lxs-ghost .lxs-typed{color:transparent}

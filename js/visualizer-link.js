@@ -146,7 +146,37 @@
     }
   });
 
+  // The house curtain (tabs) in the visualiser:
+  //   curtain open / curtain close / curtain 50 (% open) / curtain toggle
+  //   …over 8 (seconds for a full open or close; 4 if not said)
+  // Kept with the show, so it can be part of a cue: cue 1 command curtain open
+  function curtain(open, seconds) {
+    State.visualizer.settings = { ...State.visualizer.settings, curtain: open };
+    persist();
+    if (visualizer && !visualizer.closed) visualizer.postMessage({ type: "CURTAIN", open, seconds }, "*");
+  }
+  // Installed once everything has loaded (js/commands.js defines the base
+  // parseCommand after this file).
+  function install() {
+    const previous = window.parseCommand;
+    if (typeof previous !== "function") return setTimeout(install, 300);
+    const wrapped = function (raw) {
+      const m = String(raw ?? "").trim().toLowerCase().match(/^(?:curtain|tabs|house curtain)\s+(open|out|close|in|shut|toggle|\d+(?:\.\d+)?%?)(?:\s+(?:over\s+|in\s+)?(\d*\.?\d+)\s*s?)?$/);
+      if (!m) return previous.apply(this, arguments);
+      const now = Number(State.visualizer.settings?.curtain ?? 1);
+      const word = m[1];
+      const open = /^(open|out)$/.test(word) ? 1 : /^(close|in|shut)$/.test(word) ? 0 : word === "toggle" ? (now >= 0.5 ? 0 : 1) : Math.max(0, Math.min(100, parseFloat(word))) / 100;
+      const seconds = m[2] != null ? Number(m[2]) : undefined;
+      curtain(open, seconds);
+      window.log?.(`🎭 Curtain ${open >= 1 ? "opening" : open <= 0 ? "closing" : `to ${Math.round(open * 100)}% open`}${seconds != null ? ` over ${seconds} s` : ""}${visualizer && !visualizer.closed ? "" : " (open the visualiser to see it)"}`, "ok");
+    };
+    Object.assign(wrapped, previous);
+    window.parseCommand = wrapped; // once, never re-wrapped
+  }
+  if (document.readyState === "complete") install(); else window.addEventListener("load", install, { once: true });
+
   window.LXVisualizer = Object.freeze({
+    curtain,
     layout: () => clone(State.visualizer),
     toShow: () => clone(State.visualizer),
     fromShow(layout) {

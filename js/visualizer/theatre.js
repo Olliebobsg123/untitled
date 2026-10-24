@@ -66,6 +66,12 @@ export function buildTheatre(scene) {
   }
   for (const z of [-2.5, -5.1, -7.6]) add(new THREE.BoxGeometry(STAGE.width, 1.2, 0.06), black, [0, 8.3, z], { cast: true });
 
+  // House tabs: the front curtain, two halves of pleated red velvet just
+  // upstage of the proscenium that draw off to the sides. set(open) puts
+  // them anywhere from closed (0) to fully open (1), gathered behind the
+  // legs. They're solid: light lands on them and beams stop at them.
+  const curtain = buildCurtain(scene, solids);
+
   // Lighting bars: steel pipe.
   const steel = new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.4, metalness: 0.8 });
   for (const bar of BARS) {
@@ -139,8 +145,71 @@ export function buildTheatre(scene) {
       lamps.forEach(lamp => lamp.material.color.set(on ? 0xffe2b8 : 0x222222));
     },
     setWork(on) { work.forEach(light => { light.intensity = 220; light.visible = on; }); },
-    setGrid(on) { grid.visible = on; }
+    setGrid(on) { grid.visible = on; },
+    curtain
   };
+}
+
+const CURTAIN = {
+  z: STAGE.frontZ - 0.45,      // just behind the proscenium
+  bottom: STAGE_TOP,
+  top: 8.7,                    // up behind the border
+  edge: STAGE.width / 2 + 1.05, // offstage edge, behind the leg
+  overlap: 0.08,               // the two halves overlap a little at centre
+  gathered: 1.0,               // how wide a half is when open (all behind the leg)
+  pleats: 26,
+  segments: 104
+};
+function buildCurtain(scene, solids) {
+  const material = new THREE.MeshPhysicalMaterial({
+    color: 0x5a0710, roughness: 0.82, metalness: 0,
+    sheen: 1, sheenRoughness: 0.45, sheenColor: new THREE.Color(0xb02a3a), // velvet: a soft bright rim where light skims it
+    side: THREE.DoubleSide
+  });
+  const height = CURTAIN.top - CURTAIN.bottom;
+  const halves = [-1, 1].map(side => {
+    const geometry = new THREE.PlaneGeometry(1, height, CURTAIN.segments, 1);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(0, CURTAIN.bottom + height / 2, 0);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.side = side;
+    mesh.userData.curtain = true;
+    scene.add(mesh);
+    solids.push(mesh);
+    return mesh;
+  });
+  let shown = -1;
+  function set(open) {
+    open = Math.max(0, Math.min(1, Number(open) || 0));
+    if (Math.abs(open - shown) < 1e-4) return false;
+    shown = open;
+    const closedWidth = CURTAIN.edge + CURTAIN.overlap;
+    const width = closedWidth + (CURTAIN.gathered - closedWidth) * open;
+    // Gathered fabric folds deeper; a closed curtain still hangs in soft pleats.
+    const depth = 0.07 + 0.16 * open;
+    for (const mesh of halves) {
+      const side = mesh.userData.side;
+      const position = mesh.geometry.attributes.position;
+      for (let i = 0; i < position.count; i++) {
+        const u = mesh.userData.across[i] + 0.5; // 0..1 across the cloth, left to right
+        const along = side < 0 ? 1 - u : u;      // 0 = leading (onstage) edge, 1 = offstage edge
+        const x = side * (CURTAIN.edge - (1 - along) * width);
+        const fold = Math.sin(along * CURTAIN.pleats * Math.PI * 2) * depth * (0.6 + 0.4 * Math.sin(along * 7.3));
+        position.setX(i, x);
+        position.setZ(i, CURTAIN.z + fold);
+      }
+      position.needsUpdate = true;
+      mesh.geometry.computeVertexNormals();
+      mesh.geometry.computeBoundingSphere();
+      mesh.geometry.computeBoundingBox();
+    }
+    return true;
+  }
+  // Each vertex's place across the cloth (-0.5..0.5), before set() moves it.
+  for (const mesh of halves) mesh.userData.across = Float32Array.from(mesh.geometry.attributes.position.array.filter((_, k) => k % 3 === 0));
+  set(1);
+  return { set, get: () => shown, meshes: halves, line: CURTAIN.z - 0.3 }; // behind this z is behind the curtain (pleats included)
 }
 
 // Where a new fixture hangs until it is moved: spread along the over-stage

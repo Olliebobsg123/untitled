@@ -68,7 +68,7 @@ const VIEWS = {
 };
 // Beams only show in haze, as in a real room: with no hazer, fog machine or
 // room haze there are no beams, just the light landing on stage.
-const DEFAULT_SETTINGS = { house: false, work: false, grid: false, targets: true, haze: 0, exposure: 0, quality: "auto" };
+const DEFAULT_SETTINGS = { house: false, work: false, grid: false, targets: true, haze: 0, exposure: 0, curtain: 1, quality: "auto" };
 
 // --- Renderer and scene -------------------------------------------------
 
@@ -76,6 +76,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "h
 renderer.setPixelRatio(QUALITY.medium.pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
+renderer.localClippingEnabled = true; // pools clipped at a closed curtain
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.shadowMap.autoUpdate = false; // redrawn only when a light moves (see shadowsDirty)
 renderer.toneMapping = THREE.NoToneMapping; // done by toneMap below, after the bloom
@@ -232,6 +233,11 @@ let layout = { version: 2, positions: {}, aims: {}, settings: { ...DEFAULT_SETTI
 let dmx = new Uint8Array(5120);
 const fixtures = new Map(); // id → Fixture
 let ball = null; // { model: MirrorBall, fixture }
+// House tabs: where they are (0 closed … 1 open), where they're going, and
+// how fast (a full open or close takes CURTAIN_SECONDS unless told otherwise).
+const CURTAIN_SECONDS = 4;
+const curtain = { now: 1, target: 1, perSecond: 1 / CURTAIN_SECONDS, loaded: false };
+shared.solidsVersion = 0;
 let selected = null;
 
 const settings = () => {
@@ -245,6 +251,24 @@ const definitionOf = fixture => library[fixture?.name] || fixture?.definition ||
 
 const exposureText = ev => { ev = Number(ev) || 0; return ev === 0 ? "0" : `${ev > 0 ? "+" : "−"}${Math.abs(ev).toFixed(1)}`; };
 function setStatus(text) { $("status").textContent = text; }
+
+function showCurtain() {
+  const b = $("curtain");
+  if (!b) return;
+  const moving = curtain.now !== curtain.target;
+  b.textContent = moving ? (curtain.target > curtain.now ? "Curtain opening…" : "Curtain closing…") : curtain.now >= 1 ? "Curtain: open" : curtain.now <= 0 ? "Curtain: closed" : `Curtain: ${Math.round(curtain.now * 100)}% open`;
+  b.classList.toggle("on", curtain.target < 1);
+}
+// Open (1) or close (0) the tabs, or stop them part way. seconds = how long
+// a full open/close takes.
+function moveCurtain(target, seconds = CURTAIN_SECONDS, save = true) {
+  curtain.target = Math.max(0, Math.min(1, Number(target)));
+  curtain.perSecond = 1 / Math.max(0.05, Number(seconds) || CURTAIN_SECONDS);
+  if (seconds === 0) curtain.now = curtain.target, theatre.curtain.set(curtain.target), shared.solidsVersion++, shared.shadowsDirty = true;
+  if (save) { layout.settings = { ...settings(), curtain: curtain.target }; saveLayout(); }
+  showCurtain();
+  wake(1000);
+}
 
 function applySettings() {
   const s = settings();
@@ -337,6 +361,22 @@ function update() {
   const lights = [];
   stageLight.setRGB(0, 0, 0);
 
+  if (curtain.now !== curtain.target) {
+    // Real time, not the frame time (which is capped when frames are slow).
+    const t = performance.now();
+    const step = curtain.perSecond * Math.min(0.5, (t - (curtain.at || t)) / 1000);
+    curtain.at = t;
+    curtain.now = Math.abs(curtain.target - curtain.now) <= step ? curtain.target : curtain.now + Math.sign(curtain.target - curtain.now) * step;
+    // Eased like a real traveller: slow away, slow in.
+    const shown = curtain.now * curtain.now * (3 - 2 * curtain.now);
+    if (theatre.curtain.set(shown)) {
+      shared.solidsVersion++; // beams re-find what they land on
+      shared.shadowsDirty = true;
+    }
+    showCurtain();
+  } else curtain.at = 0;
+  // Mostly closed: lights behind the curtain stay behind it (fixture-model.js).
+  shared.curtainLine = curtain.now < 0.5 ? theatre.curtain.line : null;
   const gain = Math.pow(2, Number(s.exposure) || 0);
   shared.exposureGain = gain;
   shared.lightScale = LIGHT_SCALE * gain;
@@ -357,7 +397,7 @@ function update() {
       // Lumens landing on what the beam hits, reflected by its colour.
       if (model.hit) {
         const [r, g, b] = model.state.rgb, a = model.hit.albedo;
-        const flux = model.lumens * model.state.level * 0.85;
+        const flux = model.lumens * model.state.level * 0.85 * (model.behindCurtain ? 0.15 : 1); // little gets past a closed curtain
         bounceColour.r += flux * r * a.r; bounceColour.g += flux * g * a.g; bounceColour.b += flux * b * a.b;
       }
       const k = Math.min(0.08, (model.state.candela * shared.lightScale) / 4000);
@@ -387,7 +427,7 @@ function update() {
 
 function animating() {
   for (const model of fixtures.values()) if (model.animating) return true;
-  return Boolean((ball && (ball.model.spots.count > 0 || ball.model.spinning)) || atmosphere.busy || drag);
+  return Boolean((ball && (ball.model.spots.count > 0 || ball.model.spinning)) || atmosphere.busy || drag || curtain.now !== curtain.target);
 }
 
 // Auto quality: step down after 3 slow seconds, up after 8 fast ones. Only
@@ -740,6 +780,7 @@ function toggle(key) {
 }
 
 for (const key of ["house", "work", "grid", "targets"]) $(key).addEventListener("click", () => toggle(key));
+$("curtain").addEventListener("click", () => moveCurtain(curtain.target >= 0.5 ? 0 : 1));
 $("aimMode").addEventListener("click", () => setAimMode(!aimMode));
 document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
 $("quality").addEventListener("change", () => {
@@ -779,6 +820,7 @@ window.addEventListener("keydown", event => {
   if (event.key === "w") toggle("work");
   if (event.key === "g") toggle("grid");
   if (event.key === "t") toggle("targets");
+  if (event.key === "c") moveCurtain(curtain.target >= 0.5 ? 0 : 1);
   if (event.key === "f" && selected) {
     const model = modelFor(selected);
     if (model) controls.target.copy(model.root.position);
@@ -822,10 +864,15 @@ window.addEventListener("message", event => {
       const before = settings().quality;
       layout = normaliseLayout(message.layout);
       applySettings();
+      // The curtain goes where the show left it: at once on opening, else it travels.
+      { const want = Math.max(0, Math.min(1, Number(settings().curtain ?? 1))); if (want !== curtain.target) moveCurtain(want, curtain.loaded ? CURTAIN_SECONDS : 0, false); curtain.loaded = true; }
       if (settings().quality !== before) applyQuality(settings().quality === "auto" ? "medium" : settings().quality);
       if (patch.length) rebuild();
       break;
     }
+    case "CURTAIN":
+      moveCurtain(message.open, message.seconds ?? CURTAIN_SECONDS);
+      break;
     case "TARGETS":
       showTargets(message.targets);
       break;
@@ -846,4 +893,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { timing, fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { timing, curtain, moveCurtain, fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

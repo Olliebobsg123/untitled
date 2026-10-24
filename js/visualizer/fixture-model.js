@@ -171,7 +171,10 @@ export class Fixture {
       // Pool of light where the beam lands, drawn when this fixture isn't
       // one of the few given a real stage light (light-pool.js), so every
       // light still shows on stage however many are on.
-      this.poolDecal = new THREE.Mesh(POOL_PLANE, new THREE.MeshBasicMaterial({ map: poolDisc(), color: 0x000000, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      // Clipped at the curtain line when this light is behind a closed curtain
+      // (the plane is pushed far away otherwise: same shader either way).
+      this.decalClip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 1e6);
+      this.poolDecal = new THREE.Mesh(POOL_PLANE, new THREE.MeshBasicMaterial({ map: poolDisc(), color: 0x000000, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, clippingPlanes: [this.decalClip] }));
       this.poolDecal.matrixAutoUpdate = false;
       this.poolDecal.visible = false;
       this.poolDecal.renderOrder = 1;
@@ -215,7 +218,7 @@ export class Fixture {
   // the ellipse a cone makes on a slanted surface, with the gobo/shutter mask.
   updatePoolDecal(level, rgb, candela, axis, halfAngle, softness, prism, mask, gaussian = false) {
     const decal = this.poolDecal, hit = this.hit;
-    if (!decal || !hit || level <= 0 || this.poolLit) { if (decal) decal.visible = false; return; }
+    if (!decal || !hit || level <= 0 || this.poolLit || hit.behindCurtain) { if (decal) decal.visible = false; return; }
     const n = hit.normal;
     const cos = Math.max(0.15, Math.abs(axis.dot(n)));
     const radius = hit.distance * Math.tan(Math.min(1.3, halfAngle * (prism ? 1.6 : 1) * (1 + softness * 0.2)));
@@ -329,14 +332,21 @@ export class Fixture {
     });
 
     // Beam length: to the first solid thing along the axis.
-    if (this.lastAxis.distanceToSquared(axis) > 1e-7 || this.lastApex.distanceToSquared(lensWorld) > 1e-7) {
+    if (this.lastAxis.distanceToSquared(axis) > 1e-7 || this.lastApex.distanceToSquared(lensWorld) > 1e-7 || this.solidsVersion !== this.shared.solidsVersion) {
+      this.solidsVersion = this.shared.solidsVersion; // something it could land on moved (the curtain)
       raycaster.set(lensWorld, axis);
       raycaster.far = 60;
       const hit = raycaster.intersectObjects(this.shared.solids, false)[0];
       this.beamLength = hit ? hit.distance + 0.6 : 30;
+      // The surface's normal, turned to face the light (a thin surface like
+      // the curtain can be hit from either side).
+      const normal = hit?.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : null;
+      if (normal && normal.dot(axis) > 0) normal.negate();
       this.hit = hit?.face ? {
         point: hit.point.clone(),
-        normal: hit.face.normal.clone().transformDirection(hit.object.matrixWorld),
+        normal,
+        // Landing on the back of the closed curtain: the light stops there.
+        behindCurtain: Boolean(hit.object.userData.curtain) && normal.z < 0,
         distance: hit.distance,
         albedo: hit.object.material?.color?.clone?.() || new THREE.Color(0.2, 0.2, 0.2)
       } : null;
@@ -367,7 +377,14 @@ export class Fixture {
     }
 
     // What the stage-lighting pool needs to light the room for this fixture.
-    this.light = level > 0 ? {
+    // Behind a closed curtain a light only lights the stage behind it. Most
+    // stage lights don't cast shadows (they'd shine straight through the
+    // cloth), so such a light draws its pool clipped at the curtain line
+    // instead of being a real light.
+    const line = this.shared.curtainLine;
+    this.behindCurtain = line != null && lensWorld.z < line;
+    if (this.decalClip) this.decalClip.constant = this.behindCurtain ? line : 1e6;
+    this.light = level > 0 && !this.hit?.behindCurtain && !this.behindCurtain ? {
       position: lensWorld,
       target: lensWorld.clone().addScaledVector(axis, 10),
       angle: Math.min(1.5, spread * (state.prism ? 1.6 : 1) * (gaussian ? 1 : 1 + softness * 0.2)),

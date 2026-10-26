@@ -97,6 +97,12 @@
   #buildPanel .danger { color: #ff8b95; border-color: rgba(255, 92, 108, 0.4); }
   #buildPanel .bnote, #buildPanel .bhint { color: var(--muted); font-size: 11px; margin-top: 8px; line-height: 1.5; }
   #buildPanel .bhint { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 12px; }
+  #buildPanel .blive { margin-top: 8px; }
+  #buildPanel .bsources { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 300px; overflow-y: auto; }
+  #buildPanel .bsources button { height: auto; padding: 5px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; text-align: left; font-size: 11px; }
+  #buildPanel .bsources img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 4px; }
+  #buildPanel .bsources span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #buildPanel .bnothumb { display: grid; place-items: center; aspect-ratio: 16 / 9; background: #000; border-radius: 4px; font-size: 22px; }
   #buildMode.on { background: rgba(255, 194, 61, 0.16); border-color: rgba(255, 194, 61, 0.55); color: #ffd27a; }
   [hidden] { display: none !important; }
 </style>

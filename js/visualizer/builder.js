@@ -13,6 +13,7 @@ import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { KINDS, KIND_GROUPS, MATERIALS, PICTURE_KINDS, defaultVenue, itemMatrix, makeItem, newId, normaliseVenue } from "./venue.js";
 import { hangsOn, modelUnit, STAGE, STAGE_TOP } from "./theatre.js";
 import { hangLines } from "./venue.js";
+import { listSources, liveStatus, openScreenSettings, retryLive } from "./live-video.js";
 
 const MAX_MODEL_BYTES = 25 * 1024 * 1024;
 const MAX_PICTURE_BYTES = 12 * 1024 * 1024;
@@ -98,7 +99,8 @@ export function createBuilder(ctx) {
             <label class="bf"><span>Colour</span><input data-k="color" type="color" value="${selected.color}"></label>
             ${choice("material", "Finish", MATERIALS, selected.material)}
           </div>
-          ${PICTURE_KINDS.has(selected.kind) ? `<div class="brow">
+          ${selected.kind === "screen" ? liveHtml(selected) : ""}
+          ${PICTURE_KINDS.has(selected.kind) && !selected.live ? `<div class="brow">
             <button data-act="picture">🖼 ${selected.picture ? "Change picture…" : "Add a picture…"}</button>
             ${selected.picture ? `<button data-act="nopicture">Remove picture</button>` : ""}
           </div>${selected.picture ? `<div class="bnote">${escape(v.assets?.[selected.picture]?.name || "picture")} · stretched to fit${selected.kind === "flat" || selected.kind === "box" ? " (on the front)" : ""}</div>` : ""}` : ""}
@@ -174,6 +176,50 @@ export function createBuilder(ctx) {
         </div>
       </details>
       <div class="bhint">Click something to select it · drag the handles · lights still drag as normal · G move, R rotate, ⌘/Ctrl+D duplicate, Delete, ⌘/Ctrl+Z undo</div>`;
+  }
+
+  // --- Live video on a screen (live-video.js) -------------------------------------
+
+  let picker = null; // { sources, error } while choosing a source for the selected screen
+  const LIVE_TEXT = {
+    starting: "starting…",
+    live: "showing live",
+    missing: "isn't open right now (open it, then Try again)",
+    permission: "needs Screen Recording permission for Light Spark",
+    ended: "stopped (the window closed?)",
+    error: "couldn't be captured"
+  };
+  function liveHtml(screen) {
+    if (picker) {
+      return `<div class="blive">
+        <div class="blabel">Show live on this screen</div>
+        ${picker.loading ? `<div class="bnote">Looking for screens and windows…</div>` : ""}
+        ${picker.error ? `<div class="bnote">${escape(picker.error)}</div>` : ""}
+        ${picker.permission === "denied" || picker.permission === "restricted" ? `<div class="bnote">Light Spark needs Screen Recording permission. <button data-act="screensettings">Open the setting</button> then quit and reopen Light Spark.</div>` : ""}
+        <div class="bsources">${(picker.sources || []).map((s, i) => `<button data-source="${i}" title="${escape(s.name)}">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="bnothumb">${s.screen ? "🖥" : "▭"}</span>`}<span>${escape(s.name)}</span></button>`).join("")}</div>
+        <div class="bnote">Pick QLab's video output: its screen (a projector or second display) or its window. Whatever QLab plays there shows here, with any QLab licence.</div>
+        <div class="brow"><button data-act="livecancel">Cancel</button></div>
+      </div>`;
+    }
+    if (!screen.live) return `<div class="brow"><button data-act="live">📺 Show a live screen or window…</button></div><div class="bnote">e.g. QLab's video output, live</div>`;
+    const { status, error } = liveStatus(screen.live);
+    return `<div class="blive">
+      <div class="bnote"><b>📺 ${escape(screen.live.name)}</b> · ${LIVE_TEXT[status] || status}${status === "error" && error ? ` (${escape(error)})` : ""}</div>
+      <div class="brow">
+        <button data-act="live">Change…</button>
+        ${status !== "live" && status !== "starting" ? `<button data-act="liveretry">Try again</button>` : ""}
+        ${status === "permission" ? `<button data-act="screensettings">Open the setting</button>` : ""}
+        <button data-act="nolive">Stop live video</button>
+      </div></div>`;
+  }
+  async function openPicker() {
+    picker = { loading: true, sources: [] };
+    render();
+    const result = await listSources();
+    // Light Spark's own windows aren't worth showing on a screen.
+    const sources = (result.sources || []).filter(s => !/^Light ?Spark/i.test(s.name));
+    picker = { sources, error: result.error || (sources.length ? "" : "No screens or windows found."), permission: result.permission };
+    render();
   }
 
   // --- Changing the venue ------------------------------------------------------
@@ -341,6 +387,7 @@ export function createBuilder(ctx) {
   }
 
   function select(id) {
+    if (id !== selectedId) picker = null;
     selectedId = id;
     attach();
     render();
@@ -392,6 +439,12 @@ export function createBuilder(ctx) {
     if (!button) return;
     if (button.dataset.add) return addItem(button.dataset.add);
     if (button.dataset.pick) return select(button.dataset.pick);
+    if (button.dataset.source !== undefined && picker) {
+      const source = picker.sources[Number(button.dataset.source)];
+      picker = null;
+      if (source) change(next => { next.items.find(i => i.id === selectedId).live = { name: source.name, id: source.id, screen: source.screen }; return [selectedId]; });
+      return;
+    }
     if (button.dataset.hang) { hangPick = hangPick === button.dataset.hang ? null : button.dataset.hang; if (hangPick) select(null); render(); return; }
     if (button.dataset.mode) { transform.setMode(button.dataset.mode); render(); return; }
     if (button.dataset.template) {
@@ -413,6 +466,11 @@ export function createBuilder(ctx) {
     else if (act === "export") exportStage();
     else if (act === "import") { stageFileInput.value = ""; stageFileInput.click(); }
     else if (act === "picture") { pictureInput.value = ""; pictureInput.click(); }
+    else if (act === "live") openPicker();
+    else if (act === "livecancel") { picker = null; render(); }
+    else if (act === "nolive") change(next => { next.items.find(i => i.id === selectedId).live = null; return [selectedId]; });
+    else if (act === "liveretry") { retryLive(item(selectedId)?.live); change(() => [selectedId], null, { record: false }); }
+    else if (act === "screensettings") openScreenSettings();
     else if (act === "nopicture") change(next => { next.items.find(i => i.id === selectedId).picture = ""; return [selectedId]; });
   });
 
@@ -570,6 +628,8 @@ export function createBuilder(ctx) {
     keyDown,
     // The venue changed from outside (a show loaded): forget what was selected.
     refresh() { if (!item(selectedId)) selectedId = null; undo.length = redo.length = 0; attach(); render(); },
+    // A live feed started or stopped: show it on the selected screen's panel.
+    liveChanged() { if (item(selectedId)?.kind === "screen" && !picker) render(); },
     transform
   };
 }

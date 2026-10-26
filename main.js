@@ -79,6 +79,18 @@ ipcMain.handle('lx-screen-source', event => {
   if (process.platform === 'darwin') { try { permission = require('electron').systemPreferences.getMediaAccessStatus('screen'); } catch (_) {} }
   return { id: win ? win.getMediaSourceId() : null, permission };
 });
+// Every screen and window that could be shown live on a video screen in the
+// visualiser (e.g. QLab's video output), with a small picture of each.
+ipcMain.handle('lx-screen-sources', async () => {
+  let permission = 'granted';
+  if (process.platform === 'darwin') { try { permission = require('electron').systemPreferences.getMediaAccessStatus('screen'); } catch (_) {} }
+  try {
+    const sources = await require('electron').desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: false });
+    return { permission, sources: sources.map(s => ({ id: s.id, name: s.name, screen: s.id.startsWith('screen:'), thumb: s.thumbnail && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : '' })) };
+  } catch (error) {
+    return { permission, sources: [], error: String(error && error.message || error) };
+  }
+});
 ipcMain.handle('lx-open-screen-settings', () => { if (process.platform === 'darwin') require('electron').shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'); });
 ipcMain.handle('lx-ask-microphone', async () => {
   if (process.platform !== 'darwin') return true;

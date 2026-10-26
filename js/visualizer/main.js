@@ -25,6 +25,7 @@ import { buildTheatre, defaultHanging, hangsOn, snapToBar, ROOM, STAGE, STAGE_TO
 import { KINDS, defaultVenue, normaliseVenue, onPictureReady } from "./venue.js";
 import { createBuilder } from "./builder.js";
 import { drawPlot, outlineOf } from "./plot.js";
+import { liveActive, onLiveChange } from "./live-video.js";
 import { Fixture } from "./fixture-model.js";
 import { LightPool } from "./light-pool.js";
 import { hazeNoiseTexture } from "./beam.js";
@@ -130,6 +131,7 @@ shared.solids = theatre.solids;
 // The venue changed (Build mode, a show loading): beams re-find what they land on.
 theatre.onChange(() => { shared.solidsVersion++; shared.shadowsDirty = true; wake(); });
 onPictureReady(() => wake(600));
+onLiveChange(() => { wake(600); window.LXViz?.builder?.liveChanged(); });
 const atmosphere = new Atmosphere(shared);
 window.__atmosphere = atmosphere; // for tests: how much haze is in the room
 const lightPool = new LightPool(scene);
@@ -434,7 +436,7 @@ function update() {
 
 function animating() {
   for (const model of fixtures.values()) if (model.animating) return true;
-  return Boolean((ball && (ball.model.spots.count > 0 || ball.model.spinning)) || atmosphere.busy || drag || curtain.now !== curtain.target);
+  return Boolean((ball && (ball.model.spots.count > 0 || ball.model.spinning)) || atmosphere.busy || drag || curtain.now !== curtain.target || liveActive());
 }
 
 // Auto quality: step down after 3 slow seconds, up after 8 fast ones. Only

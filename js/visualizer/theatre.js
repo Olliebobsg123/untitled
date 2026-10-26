@@ -10,6 +10,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { bounds, buildItem, defaultVenue, hangLines, surface } from "./venue.js";
+import { pruneLive } from "./live-video.js";
 
 export const STAGE = { width: 12, depth: 9, height: 1, frontZ: 0 };
 export let STAGE_TOP = STAGE.height;
@@ -162,6 +163,8 @@ export function buildTheatre(scene) {
       for (const id of [...items.keys()]) removeOne(id);
       for (const item of venue.items) buildOne(item, venue);
     }
+    // Live video only while a screen shows it.
+    pruneLive(new Set(venue.items.filter(i => i.live && !i.hidden).map(i => i.live.name)));
     collectSolids();
   }
 

@@ -139,6 +139,13 @@
     if (message.type === "VISUALIZER_READY") {
       visualizer = event.source;
       send();
+    } else if (message.type === "VIZ_SCREEN_SOURCES" && event.source === visualizer) {
+      // Live video on a visualiser screen (js/visualizer/live-video.js): what can be shown.
+      const reply = result => event.source.postMessage({ type: "SCREEN_SOURCES", id: message.id, result }, "*");
+      if (!window.LXApp?.screenSources) reply({ sources: [], error: "Live video needs the Light Spark app (not a browser)." });
+      else window.LXApp.screenSources().then(reply, error => reply({ sources: [], error: String(error?.message || error) }));
+    } else if (message.type === "VIZ_SCREEN_SETTINGS" && event.source === visualizer) {
+      window.LXApp?.openScreenSettings?.();
     } else if (message.type === "VIZ_LAYOUT" && event.source === visualizer) {
       const layout = normalise(message.layout);
       if (!layout) return;

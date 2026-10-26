@@ -10,6 +10,7 @@
 // height of the pipe (or the truss's middle).
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { liveTexture } from "./live-video.js";
 
 // --- What can go in the venue ---------------------------------------------
 
@@ -106,6 +107,9 @@ export function normaliseVenue(venue) {
       else item[key] = num(item[key], spec.defaults[key], min, max);
     }
     item.picture = PICTURE_KINDS.has(item.kind) && typeof item.picture === "string" ? item.picture.slice(0, 40) : "";
+    // A video screen showing a live screen or window (live-video.js): { name, id, screen }.
+    item.live = item.kind === "screen" && item.live && typeof item.live.name === "string" && item.live.name
+      ? { name: item.live.name.slice(0, 200), id: String(item.live.id || "").slice(0, 120), screen: Boolean(item.live.screen) } : null;
     item.hidden = Boolean(item.hidden);
     item.locked = Boolean(item.locked);
     items.push(item);
@@ -414,8 +418,8 @@ export function buildItem(item, venue, loadModel) {
     }
     case "screen": {
       mesh(new THREE.BoxGeometry(item.w + 0.08, item.h + 0.08, 0.1).translate(0, item.h / 2, -0.05), surface("#111114", "satin"));
-      // Showing a picture: the screen glows with it.
-      const shown = item.picture ? pictureTexture(item.picture, venue?.assets?.[item.picture]) : null;
+      // Showing live video (QLab's output…) or a picture: the screen glows with it.
+      const shown = item.live ? liveTexture(item.live) : item.picture ? pictureTexture(item.picture, venue?.assets?.[item.picture]) : null;
       const glow = new THREE.MeshStandardMaterial({ color: 0x050505, emissive: shown ? 0xffffff : new THREE.Color(item.color), emissiveMap: shown, emissiveIntensity: item.glow, roughness: 0.3 });
       mesh(new THREE.PlaneGeometry(item.w, item.h).translate(0, item.h / 2, 0.001), glow);
       break;

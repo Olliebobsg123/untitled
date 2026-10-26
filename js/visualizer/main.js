@@ -21,7 +21,9 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { buildTheatre, defaultHanging, snapToBar, STAGE, STAGE_TOP } from "./theatre.js";
+import { buildTheatre, defaultHanging, snapToBar, ROOM, STAGE, STAGE_TOP } from "./theatre.js";
+import { defaultVenue, normaliseVenue } from "./venue.js";
+import { createBuilder } from "./builder.js";
 import { Fixture } from "./fixture-model.js";
 import { LightPool } from "./light-pool.js";
 import { hazeNoiseTexture } from "./beam.js";
@@ -124,6 +126,8 @@ const shared = {
 
 const theatre = buildTheatre(scene);
 shared.solids = theatre.solids;
+// The venue changed (Build mode, a show loading): beams re-find what they land on.
+theatre.onChange(() => { shared.solidsVersion++; shared.shadowsDirty = true; wake(); });
 const atmosphere = new Atmosphere(shared);
 window.__atmosphere = atmosphere; // for tests: how much haze is in the room
 const lightPool = new LightPool(scene);
@@ -229,7 +233,8 @@ controls.addEventListener("change", () => wake());
 let library = {};
 let patch = [];
 let patchSignature = "";
-let layout = { version: 2, positions: {}, aims: {}, settings: { ...DEFAULT_SETTINGS } };
+// venue: the stage design (venue.js), or null for the default theatre.
+let layout = { version: 2, positions: {}, aims: {}, settings: { ...DEFAULT_SETTINGS }, venue: null };
 let dmx = new Uint8Array(5120);
 const fixtures = new Map(); // id → Fixture
 let ball = null; // { model: MirrorBall, fixture }
@@ -679,6 +684,8 @@ renderer.domElement.addEventListener("pointerdown", event => {
     renderer.domElement.setPointerCapture(event.pointerId);
     return;
   }
+  // Build mode: scenery first (its handles, or picking a piece).
+  if (builder.active && builder.pointerDown(event, raycaster.ray)) return;
   const start = { x: event.clientX, y: event.clientY };
   if (handle.visible && raycaster.intersectObject(handle, false).length) {
     drag = { kind: "aim", id: selected, start, active: false };
@@ -723,8 +730,8 @@ renderer.domElement.addEventListener("pointermove", event => {
   if (drag.mode === "bar") position = { x: moved.x, y: origin.y, z: origin.z };
   else if (drag.mode === "height") position = { x: origin.x, y: moved.y, z: origin.z };
   else position = { x: moved.x, y: origin.y, z: moved.z };
-  position.x = Math.max(-10.5, Math.min(10.5, position.x));
-  position.y = Math.max(0, Math.min(10.5, position.y));
+  position.x = Math.max(ROOM.minX + 0.5, Math.min(ROOM.maxX - 0.5, position.x));
+  position.y = Math.max(0, Math.min(ROOM.maxY - 0.5, position.y));
   if (model.onFloor) {
     const onStage = Math.abs(position.x) < STAGE.width / 2 && position.z < STAGE.frontZ && position.z > STAGE.frontZ - STAGE.depth;
     position.y = onStage ? STAGE_TOP : 0;
@@ -751,7 +758,7 @@ for (const field of ["selX", "selY", "selZ"]) {
     const model = modelFor(selected);
     if (!model) return;
     const value = name => { const n = Number($(name).value); return Number.isFinite(n) ? n : 0; };
-    const position = { x: Math.max(-10.5, Math.min(10.5, value("selX"))), y: Math.max(0, Math.min(10.5, value("selY"))), z: Math.max(-9.5, Math.min(16.5, value("selZ"))) };
+    const position = { x: Math.max(ROOM.minX + 0.5, Math.min(ROOM.maxX - 0.5, value("selX"))), y: Math.max(0, Math.min(ROOM.maxY - 0.5, value("selY"))), z: Math.max(ROOM.minZ + 0.5, Math.min(ROOM.maxZ - 0.5, value("selZ"))) };
     if (model.onFloor) {
       const onStage = Math.abs(position.x) < STAGE.width / 2 && position.z < STAGE.frontZ && position.z > STAGE.frontZ - STAGE.depth;
       position.y = onStage ? STAGE_TOP : 0;
@@ -821,6 +828,7 @@ $("resetLayout").addEventListener("click", () => {
 });
 window.addEventListener("keydown", event => {
   if (event.target instanceof HTMLInputElement) return;
+  if (builder.keyDown(event)) return;
   if (event.key === "Escape") { select(null); setAimMode(false); }
   if (event.key === "p" || event.key === "P") setAimMode(!aimMode);
   const views = { 1: "foh", 2: "close", 3: "top", 4: "side" };
@@ -837,11 +845,39 @@ window.addEventListener("keydown", event => {
   }
 });
 
+// --- Build mode: the stage, the room and the set (builder.js) -----------------
+
+const builder = createBuilder({
+  scene, camera, renderer, controls, theatre,
+  fixtures,
+  venue: () => layout.venue || theatre.venue(),
+  commit(venue, changed) {
+    layout.venue = venue;
+    theatre.apply(venue, { changed });
+    saveLayout();
+  },
+  saveLayout,
+  wake,
+  // Where every light is, and putting them back (undo in Build mode).
+  positions: () => Object.fromEntries([...fixtures].map(([id, m]) => [id, { x: m.root.position.x, y: m.root.position.y, z: m.root.position.z }])),
+  restorePositions(saved) {
+    for (const [id, p] of Object.entries(saved || {})) fixtures.get(id)?.place(p);
+    saveLayout();
+  },
+  moved() { shared.solidsVersion++; shared.shadowsDirty = true; wake(); },
+  fixtureHitDistance: () => raycaster.intersectObjects(pickables(), false)[0]?.distance ?? null,
+  onToggle(on) {
+    $("buildMode").classList.toggle("on", on);
+    if (on) { select(null); setAimMode(false); }
+  }
+});
+$("buildMode").addEventListener("click", () => builder.toggle());
+
 // --- Messages from the console ---------------------------------------------
 
 function normaliseLayout(next) {
   const object = v => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
-  return { version: 2, positions: object(next?.positions), aims: object(next?.aims), settings: object(next?.settings) };
+  return { version: 2, positions: object(next?.positions), aims: object(next?.aims), settings: object(next?.settings), venue: normaliseVenue(next?.venue) };
 }
 
 window.addEventListener("message", event => {
@@ -873,6 +909,8 @@ window.addEventListener("message", event => {
     case "LOAD_LAYOUT": {
       const before = settings().quality;
       layout = normaliseLayout(message.layout);
+      theatre.apply(layout.venue || defaultVenue());
+      builder.refresh();
       applySettings();
       // The curtain goes where the show left it: at once on opening, else it travels.
       { const want = Math.max(0, Math.min(1, Number(settings().curtain ?? 1))); if (want !== curtain.target) moveCurtain(want, curtain.loaded ? CURTAIN_SECONDS : 0, false); curtain.loaded = true; }
@@ -903,4 +941,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { timing, curtain, moveCurtain, fixtures, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { timing, curtain, moveCurtain, fixtures, builder, theatre, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

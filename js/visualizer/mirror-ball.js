@@ -16,8 +16,9 @@ const FACETS = 420;
 const MAX_SPOTS = 1600;
 const MAX_RPM = 4;
 
-// Surfaces a reflection can land on: axis-aligned rectangles.
-const SURFACES = [
+// Surfaces a reflection can land on: axis-aligned rectangles (the room and
+// stage as they are now; the venue can be edited).
+const surfaces = () => [
   { axis: "y", value: 0, normal: 1, bounds: { x: [ROOM.minX, ROOM.maxX], z: [0, ROOM.maxZ] } },
   { axis: "y", value: STAGE_TOP, normal: 1, bounds: { x: [-STAGE.width / 2, STAGE.width / 2], z: [STAGE.frontZ - STAGE.depth, STAGE.frontZ] } },
   { axis: "y", value: 0, normal: 1, bounds: { x: [ROOM.minX, ROOM.maxX], z: [ROOM.minZ, STAGE.frontZ - STAGE.depth] } },
@@ -29,10 +30,14 @@ const SURFACES = [
   { axis: "z", value: ROOM.maxZ, normal: -1, bounds: { x: [ROOM.minX, ROOM.maxX], y: [0, ROOM.maxY] } },
   { axis: "z", value: ROOM.minZ, normal: 1, bounds: { x: [ROOM.minX, ROOM.maxX], y: [0, ROOM.maxY] } }
 ];
+let surfaceKey = "";
+let SURFACES = [];
 const AXES = ["x", "y", "z"];
 
 function hitRoom(origin, direction) {
   let best = null;
+  const key = `${ROOM.minX},${ROOM.maxX},${ROOM.maxY},${ROOM.minZ},${ROOM.maxZ},${STAGE.width},${STAGE.depth},${STAGE_TOP}`;
+  if (key !== surfaceKey) { surfaceKey = key; SURFACES = surfaces(); }
   for (const surface of SURFACES) {
     const d = direction[surface.axis];
     if (Math.abs(d) < 1e-6 || Math.sign(d) === surface.normal) continue; // must travel towards the surface's face

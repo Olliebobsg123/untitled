@@ -17,7 +17,8 @@
 
   function normalise(layout) {
     if (!layout || typeof layout !== "object" || layout.version !== 2) return null;
-    return { version: 2, positions: object(layout.positions), aims: object(layout.aims), settings: object(layout.settings) };
+    // venue: the stage design from Build mode (js/visualizer/venue.js), or null for the default theatre.
+    return { version: 2, positions: object(layout.positions), aims: object(layout.aims), settings: object(layout.settings), venue: layout.venue && typeof layout.venue === "object" && Array.isArray(layout.venue.items) ? layout.venue : null };
   }
 
   // Show files from the old visualiser stored positions in its own room: a

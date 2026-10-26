@@ -34,6 +34,8 @@ export const KINDS = {
   seating: { label: "Seating", group: "Audience", icon: "⑉", defaults: { y: 0, rows: 8, perRow: 14, rise: 0.26, aisle: 1, color: "#3c1216", material: "matte" }, fields: [["rows", "Rows", 1, 1, 40], ["perRow", "Seats a row", 1, 1, 60], ["rise", "Rake (per row)", 0.01, 0, 0.6], ["aisle", "Centre aisle", [["1", "Yes"], ["0", "No"]]]] },
   person: { label: "Person (for scale)", group: "Audience", icon: "♙", defaults: { y: 1, h: 1.75, color: "#bfae9c", material: "matte" }, fields: [["h", "Height", 0.05, 0.5, 2.4]] }
 };
+// Kinds that can show a picture (a painted cloth, a backdrop, a photo of the set).
+export const PICTURE_KINDS = new Set(["flat", "cyc", "drape", "gauze", "screen", "box"]);
 export const KIND_GROUPS = ["Rigging", "Drapes & surfaces", "Scenery", "Sound", "Audience"];
 export const MATERIALS = [["matte", "Matte"], ["satin", "Satin"], ["gloss", "Gloss"], ["metal", "Metal"], ["velvet", "Velvet"], ["mirror", "Mirror"]];
 
@@ -103,13 +105,17 @@ export function normaliseVenue(venue) {
       if (Array.isArray(step)) item[key] = step.some(([v]) => v === String(item[key])) ? String(item[key]) : String(spec.defaults[key]);
       else item[key] = num(item[key], spec.defaults[key], min, max);
     }
+    item.picture = PICTURE_KINDS.has(item.kind) && typeof item.picture === "string" ? item.picture.slice(0, 40) : "";
     item.hidden = Boolean(item.hidden);
     item.locked = Boolean(item.locked);
     items.push(item);
   }
   const assets = {};
   for (const [id, asset] of Object.entries(venue.assets || {})) {
-    if (asset && typeof asset.data === "string" && /^(glb|gltf|obj|stl)$/.test(asset.type)) assets[id] = { name: String(asset.name || "model").slice(0, 80), type: asset.type, data: asset.data };
+    if (!asset || typeof asset.data !== "string") continue;
+    // 3D models (with the unit they were drawn in) and pictures for scenery.
+    if (/^(glb|gltf|obj|stl)$/.test(asset.type)) assets[id] = { name: String(asset.name || "model").slice(0, 80), type: asset.type, data: asset.data, unit: [1, 0.01, 0.001].includes(Number(asset.unit)) ? Number(asset.unit) : 1 };
+    else if (asset.type === "image" && /^image\/(png|jpeg|webp|gif)$/.test(asset.mime)) assets[id] = { name: String(asset.name || "picture").slice(0, 80), type: "image", mime: asset.mime, data: asset.data };
   }
   return { version: 1, stage, room, proscenium, tabs, items, assets };
 }
@@ -168,6 +174,34 @@ export function surface(color, kind = "matte", extra = {}) {
   else material = new THREE.MeshStandardMaterial({ ...base, roughness: { matte: 0.92, satin: 0.55, gloss: 0.18 }[kind] ?? 0.9, metalness: 0 });
   materialCache.set(key, material);
   return material;
+}
+
+// --- Pictures ------------------------------------------------------------
+
+const textures = new Map(); // asset id → texture
+let pictureReady = () => {};
+// Called when a picture has loaded (the visualiser redraws).
+export function onPictureReady(fn) { pictureReady = fn; }
+function pictureTexture(id, asset) {
+  if (!asset || asset.type !== "image") return null;
+  if (!textures.has(id)) {
+    const image = new Image();
+    const texture = new THREE.Texture(image);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    image.onload = () => { texture.needsUpdate = true; pictureReady(); };
+    image.src = `data:${asset.mime};base64,${asset.data}`;
+    textures.set(id, texture);
+  }
+  return textures.get(id);
+}
+// The item's surface with its picture on it (white, so the picture's own colours show).
+function pictured(item, venue, extra = {}) {
+  const texture = item.picture ? pictureTexture(item.picture, venue?.assets?.[item.picture]) : null;
+  if (!texture) return null;
+  const base = { map: texture, color: 0xffffff, ...extra };
+  if (item.material === "velvet") return new THREE.MeshPhysicalMaterial({ ...base, roughness: 0.85, sheen: 0.6, sheenRoughness: 0.5, sheenColor: new THREE.Color(0x666666) });
+  return new THREE.MeshStandardMaterial({ ...base, roughness: { satin: 0.55, gloss: 0.18, metal: 0.38, mirror: 0.05 }[item.material] ?? 0.9, metalness: item.material === "metal" ? 0.6 : 0 });
 }
 
 // A fabric hanging in soft folds: a plane w x h, bottom edge at y = 0.
@@ -321,6 +355,12 @@ function seatingParts(item, add) {
   add(back);
 }
 
+// A box with its picture on the audience side (+z) only.
+function facePicture(item, venue, plain) {
+  const front = pictured(item, venue);
+  return front ? [plain, plain, plain, plain, front, plain] : plain;
+}
+
 // The 3D object for one item: a group placed at the item, holding meshes
 // tagged with userData.venueId. solid: meshes beams and pools land on.
 // Imported models fill in once loaded (loadModel).
@@ -360,24 +400,28 @@ export function buildItem(item, venue, loadModel) {
       break;
     }
     case "drape":
-      mesh(drapeGeometry(item.w, item.h, item.folds === "1"), surface(item.color, item.material, { side: THREE.DoubleSide }));
+      mesh(drapeGeometry(item.w, item.h, item.folds === "1"), pictured(item, venue, { side: THREE.DoubleSide }) || surface(item.color, item.material, { side: THREE.DoubleSide }));
       break;
     case "cyc":
-      mesh(new THREE.PlaneGeometry(item.w, item.h).translate(0, item.h / 2, 0), surface(item.color, item.material, { side: THREE.DoubleSide }));
+      mesh(new THREE.PlaneGeometry(item.w, item.h).translate(0, item.h / 2, 0), pictured(item, venue, { side: THREE.DoubleSide }) || surface(item.color, item.material, { side: THREE.DoubleSide }));
       break;
     case "gauze": {
-      const material = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.95, transparent: true, opacity: 1 - item.opacity, side: THREE.DoubleSide, depthWrite: false });
+      // (A painted gauze: the picture shows when lit from the front, see-through from behind.)
+      const material = pictured(item, venue, { side: THREE.DoubleSide, transparent: true, opacity: 1 - item.opacity, depthWrite: false }) ||
+        new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.95, transparent: true, opacity: 1 - item.opacity, side: THREE.DoubleSide, depthWrite: false });
       mesh(new THREE.PlaneGeometry(item.w, item.h).translate(0, item.h / 2, 0), material, { solid: false, cast: false });
       break;
     }
     case "screen": {
       mesh(new THREE.BoxGeometry(item.w + 0.08, item.h + 0.08, 0.1).translate(0, item.h / 2, -0.05), surface("#111114", "satin"));
-      const glow = new THREE.MeshStandardMaterial({ color: 0x050505, emissive: new THREE.Color(item.color), emissiveIntensity: item.glow, roughness: 0.3 });
+      // Showing a picture: the screen glows with it.
+      const shown = item.picture ? pictureTexture(item.picture, venue?.assets?.[item.picture]) : null;
+      const glow = new THREE.MeshStandardMaterial({ color: 0x050505, emissive: shown ? 0xffffff : new THREE.Color(item.color), emissiveMap: shown, emissiveIntensity: item.glow, roughness: 0.3 });
       mesh(new THREE.PlaneGeometry(item.w, item.h).translate(0, item.h / 2, 0.001), glow);
       break;
     }
     case "flat":
-      mesh(new THREE.BoxGeometry(item.w, item.h, item.d).translate(0, item.h / 2, 0));
+      mesh(new THREE.BoxGeometry(item.w, item.h, item.d).translate(0, item.h / 2, 0), facePicture(item, venue, mat));
       break;
     case "platform":
       mesh(new THREE.BoxGeometry(item.w, item.h, item.d).translate(0, item.h / 2, 0));
@@ -386,7 +430,7 @@ export function buildItem(item, venue, loadModel) {
       mesh(stepsGeometry(item.w, item.d, item.h, Math.round(item.count)));
       break;
     case "box":
-      mesh(new THREE.BoxGeometry(item.w, item.h, item.d).translate(0, item.h / 2, 0));
+      mesh(new THREE.BoxGeometry(item.w, item.h, item.d).translate(0, item.h / 2, 0), facePicture(item, venue, mat));
       break;
     case "pillar":
       mesh(new THREE.CylinderGeometry(item.w / 2, item.w / 2, item.h, 32).translate(0, item.h / 2, 0));

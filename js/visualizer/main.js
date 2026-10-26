@@ -21,9 +21,10 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { buildTheatre, defaultHanging, snapToBar, ROOM, STAGE, STAGE_TOP } from "./theatre.js";
-import { defaultVenue, normaliseVenue } from "./venue.js";
+import { buildTheatre, defaultHanging, hangsOn, snapToBar, ROOM, STAGE, STAGE_TOP } from "./theatre.js";
+import { KINDS, defaultVenue, normaliseVenue, onPictureReady } from "./venue.js";
 import { createBuilder } from "./builder.js";
+import { drawPlot, outlineOf } from "./plot.js";
 import { Fixture } from "./fixture-model.js";
 import { LightPool } from "./light-pool.js";
 import { hazeNoiseTexture } from "./beam.js";
@@ -128,6 +129,7 @@ const theatre = buildTheatre(scene);
 shared.solids = theatre.solids;
 // The venue changed (Build mode, a show loading): beams re-find what they land on.
 theatre.onChange(() => { shared.solidsVersion++; shared.shadowsDirty = true; wake(); });
+onPictureReady(() => wake(600));
 const atmosphere = new Atmosphere(shared);
 window.__atmosphere = atmosphere; // for tests: how much haze is in the room
 const lightPool = new LightPool(scene);
@@ -674,9 +676,87 @@ function aimAtPointer(phase) {
   send({ type: "VIZ_AIM", phase, point: { x: hit.point.x, y: hit.point.y, z: hit.point.z } });
 }
 
+// Measuring: click two points (on the stage, the set, a light) for the distance between them.
+let measuring = false;
+const measure = { points: [], group: new THREE.Group() };
+measure.group.renderOrder = 12;
+scene.add(measure.group);
+function clearMeasure() {
+  for (const child of [...measure.group.children]) {
+    measure.group.remove(child);
+    child.geometry?.dispose(); child.material?.map?.dispose(); child.material?.dispose();
+  }
+  measure.points = [];
+}
+function setMeasure(on) {
+  measuring = Boolean(on);
+  $("measureMode").classList.toggle("on", measuring);
+  $("measureHelp").hidden = !measuring;
+  document.body.classList.toggle("measuring", measuring);
+  if (!measuring) clearMeasure();
+  if (measuring) setAimMode(false);
+  wake();
+}
+function measureAt() {
+  const hit = raycaster.intersectObjects([...shared.solids, ...theatre.itemsGroup.children, ...pickables()], true).find(h => h.object.visible !== false);
+  if (!hit) return;
+  if (measure.points.length >= 2) clearMeasure();
+  const point = hit.point.clone();
+  measure.points.push(point);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 10), new THREE.MeshBasicMaterial({ color: 0xffc23d, depthTest: false, toneMapped: false }));
+  dot.position.copy(point);
+  dot.renderOrder = 12;
+  measure.group.add(dot);
+  if (measure.points.length === 2) {
+    const [a, b] = measure.points;
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color: 0xffc23d, depthTest: false, toneMapped: false }));
+    line.renderOrder = 12;
+    const d = a.distanceTo(b);
+    const label = targetLabel(`${d.toFixed(2)} m`, `across ${Math.abs(b.x - a.x).toFixed(2)} · up ${Math.abs(b.y - a.y).toFixed(2)} · deep ${Math.abs(b.z - a.z).toFixed(2)}`);
+    label.position.copy(a).add(b).multiplyScalar(0.5).add(new THREE.Vector3(0, 0.25, 0));
+    measure.group.add(line, label);
+    setStatus(`Measured ${d.toFixed(2)} m`);
+  }
+  wake();
+}
+$("measureMode").addEventListener("click", () => setMeasure(!measuring));
+
+// The lighting plot (plot.js), in a window of its own to print or save.
+function openPlot() {
+  const venue = layout.venue || theatre.venue();
+  const outlines = venue.items.filter(item => !item.hidden && theatre.items.get(item.id)).map(item => {
+    const group = theatre.items.get(item.id).group;
+    group.updateMatrixWorld(true);
+    return outlineOf(item, group);
+  });
+  const hangers = venue.items.filter(item => KINDS[item.kind]?.hang && !item.hidden);
+  const lights = [...fixtures.values()].map(model => {
+    const f = model.fixture, p = model.root.position;
+    const rgb = model.state?.rgb;
+    return {
+      number: f.fixtureNumber ?? "?",
+      name: f.name,
+      kind: archetype(model.def, f.name),
+      channels: model.def?.channels || "",
+      address: baseAddress(f) >= 0 ? `${f.uni ?? 1}/${f.addr}` : "–",
+      position: { x: p.x, z: p.z },
+      aim: model.onFloor ? null : { x: model.target.x, z: model.target.z },
+      colour: rgb && model.state.level > 0 ? `rgb(${rgb.map(v => Math.round(Math.pow(Math.min(1, v), 1 / 2.2) * 255)).join(",")})` : "",
+      on: hangers.find(item => hangsOn(item, p))?.id || null
+    };
+  }).sort((a, b) => Number(a.number) - Number(b.number));
+  const page = window.open("", "plot", "width=1300,height=900");
+  if (!page) return setStatus("Couldn't open the plot window");
+  page.document.open();
+  page.document.write(drawPlot({ venue, lights, outlines }));
+  page.document.close();
+}
+$("plotButton").addEventListener("click", openPlot);
+
 renderer.domElement.addEventListener("pointerdown", event => {
   if (event.button !== 0) return;
   setPointer(event);
+  if (measuring) { measureAt(); return; }
   if (aimMode) {
     drag = { kind: "point", start: { x: event.clientX, y: event.clientY }, active: true };
     aimAtPointer("start");
@@ -829,7 +909,8 @@ $("resetLayout").addEventListener("click", () => {
 window.addEventListener("keydown", event => {
   if (event.target instanceof HTMLInputElement) return;
   if (builder.keyDown(event)) return;
-  if (event.key === "Escape") { select(null); setAimMode(false); }
+  if (event.key === "Escape") { select(null); setAimMode(false); setMeasure(false); }
+  if (event.key === "m" || event.key === "M") setMeasure(!measuring);
   if (event.key === "p" || event.key === "P") setAimMode(!aimMode);
   const views = { 1: "foh", 2: "close", 3: "top", 4: "side" };
   if (views[event.key]) setView(views[event.key]);
@@ -866,6 +947,18 @@ const builder = createBuilder({
   },
   moved() { shared.solidsVersion++; shared.shadowsDirty = true; wake(); },
   fixtureHitDistance: () => raycaster.intersectObjects(pickables(), false)[0]?.distance ?? null,
+  // Hung lights (not floor units), in fixture number order.
+  fixtureList: () => [...fixtures].filter(([, m]) => !m.onFloor)
+    .map(([id, m]) => ({ id, n: Number(m.fixture.fixtureNumber) || 0, label: `${m.fixture.fixtureNumber ?? "?"} · ${m.fixture.name}` }))
+    .sort((a, b) => a.n - b.n),
+  placeFixture(id, position) {
+    const model = fixtures.get(id);
+    if (!model) return;
+    model.place(position);
+    saveLayout();
+    wake();
+  },
+  say: text => setStatus(text),
   onToggle(on) {
     $("buildMode").classList.toggle("on", on);
     if (on) { select(null); setAimMode(false); }
@@ -941,4 +1034,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { timing, curtain, moveCurtain, fixtures, builder, theatre, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

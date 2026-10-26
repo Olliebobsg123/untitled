@@ -41,7 +41,9 @@
   #blind { padding: 4px 9px; border-radius: 999px; background: rgba(92, 168, 255, 0.18); color: #9cc7ff; font-weight: 800; font-size: 11px; letter-spacing: 0.06em; }
 
   #aimHelp { position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%); padding: 7px 14px; border: 1px solid rgba(255, 173, 31, 0.5); border-radius: 6px; background: rgba(20, 14, 4, 0.88); color: #ffd27a; font-size: 12px; z-index: 5; }
-  body.aiming canvas { cursor: crosshair; }
+  body.aiming canvas, body.measuring canvas { cursor: crosshair; }
+  #measureHelp { position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%); padding: 7px 14px; border: 1px solid rgba(255, 194, 61, 0.5); border-radius: 6px; background: rgba(20, 14, 4, 0.88); color: #ffd27a; font-size: 12px; z-index: 5; }
+  #measureMode.on { background: rgba(255, 194, 61, 0.16); border-color: rgba(255, 194, 61, 0.55); color: #ffd27a; }
   #selection {
     position: fixed; left: 12px; bottom: 12px; z-index: 5; min-width: 260px;
     padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
@@ -142,6 +144,8 @@
     </select>
   </div>
   <button id="buildMode" title="Build the stage: bars, trusses, drapes, scenery, speakers, seating, 3D models">🏗 Build</button>
+  <button id="plotButton" title="A lighting plot of the rig to print or save">🖨 Plot</button>
+  <button id="measureMode" title="M — click two points to measure between them">📏 Measure</button>
   <button id="aimMode" title="P — click or drag on stage to aim the moving heads selected in the console">🎯 Point &amp; shoot</button>
   <button id="resetLayout">Reset layout</button>
   <div class="spacer"></div>
@@ -163,6 +167,7 @@
   <div class="hint"><span id="moveKeys">Drag = slide along its bar · Shift = up/down · Alt = anywhere (easiest in Plan view)</span><br>Fixed lights: drag the green handle to aim · metres from centre stage front</div>
 </div>
 
+<div id="measureHelp" hidden>📏 Click two points to measure between them (on the stage, the set or a light). M or Esc to stop.</div>
 <div id="aimHelp" hidden>🎯 Click or drag on the stage — the moving heads selected in the console aim there. P or Esc to stop.</div>
 <button id="showBar" hidden title="B — show the controls">☰ Controls</button>
 <div id="help"><span id="viewKeys">Drag a light to slide it along its bar · Drag empty space to look around · Right-drag to pan · Scroll to zoom</span><br>Positions save automatically with the show</div>

@@ -53,6 +53,7 @@
     ["recall from cue <cue>", "the selected lights take their look from a cue", "Programming"], ["recall from cue <cue> <part>", "…just their intensity, colour, position or beam", "Programming"],
     ["apply to cue <cue> thru <cue>", "your changes to the selected lights go into those cues", "Programming"], ["apply to cue <cue> <part>", "…just one part", "Programming"],
     ["copy <fixture> to <fixture> thru <fixture>", "one light's look onto others", "Programming"],
+    ["patch <fixture> thru <fixture> at <text>", "re-address lights one after another (e.g. at 2/1)", "Programming"],
     ["highlight", "selected lights full, open white (next / last step through them)", "Programming"], ["highlight off", "back as they were", "Programming"],
     ["clear", "deselect everything", "Select"], ["clear programmer", "drop hand changes, back to the live cue", "Select"], ["rem dim", "everything not selected to 0", "Levels"],
     ["undo", "undo a level change", "Levels"], ["redo", "redo it", "Levels"],

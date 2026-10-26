@@ -708,7 +708,11 @@ function recordPalette(name) {
     updatedAt: Date.now()
   };
 
+  const before = existing ? { ...(existing.values || {}) } : null;
+  const lights = existing ? [...new Set([...(existing.fixtures || []), ...selected])] : selected;
   if (existing) Object.assign(existing, palette);
+  // The cues that use it change with it (Preferences → Faster programming).
+  if (existing) window.LXFastProgramming?.retargetPalette(existing, before, lights);
   else State.palettes.push(palette);
   refreshPalettes();
   return log(`${existing ? 'Updated' : 'Recorded'} palette "${cleanName}"`,'ok');

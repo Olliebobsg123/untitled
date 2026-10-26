@@ -47,6 +47,9 @@
     askCueDetails: true,       // ask for name, fade and follow when saving a cue
     paletteFadeMs: 300,
     commandFadeMs: 300,        // fade for levels typed in the command line
+    paletteUpdatesCues: true,  // update palette also changes the cues that hold its old values
+    highlightRest: "leave",    // highlight: the other lights leave | dim (to 10%)
+    applyTrack: "range",       // apply to cue 3 thru 9: range (cue 10 keeps its look) | track (carries on)
     chaseBpm: 120,             // speed of new chases
     confirmUnpatch: true,
     clearMode: "cue",          // Clear programmer: cue (back to the live cue) | dark (everything to 0)
@@ -358,6 +361,11 @@
       row("Ask when saving a cue", "Ask for a name, fade and follow time when you press Save. Off: saves straight away with the default fade.", check("askCueDetails")) +
       row("Palette fade", "How long applying a palette takes.", number("paletteFadeMs", 0, 30, 0.1, "s", 1000)) +
       row("Command line fade", "How long a level typed in the command line takes, unless you add time (e.g. 1 thru 5 @ 50 time 3).", number("commandFadeMs", 0, 30, 0.1, "s", 1000))));
+
+    host.appendChild(panel("programming", "prefFast", "Faster programming", "PROGRAMMING",
+      row("Updating a palette", "Also changes the cues that use it: every cue whose lights still have the palette's old values gets the new ones. Off: only the palette changes.", check("paletteUpdatesCues")) +
+      row("Highlight", "While highlighting (highlight, next, last), the other lights stay as they are, or dim to 10% so the one you're focusing stands out.", seg("highlightRest", [["leave", "Leave them"], ["dim", "Dim to 10%"]])) +
+      row("apply to cue 3 thru 9", "Your change stops at the last cue in the range (cue 10 keeps its look), or carries on through the cues after it until one changes it, like tracking.", seg("applyTrack", [["range", "Stops at the range"], ["track", "Carries on"]]))));
 
     host.appendChild(panel("programming", "prefClear", "Clear Programmer", "PROGRAMMING",
       row("Clear goes to", "The live cue: everything you set by hand is dropped and the lights go back to what the cue says. Everything to 0: the old blank slate.", seg("clearMode", [["cue", "The live cue"], ["dark", "Everything to 0"]])) +

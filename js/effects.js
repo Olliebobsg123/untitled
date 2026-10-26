@@ -384,6 +384,8 @@ function fxSetPanTilt(state, pan, tilt) {
   state.tilt = Math.floor(t); state.tiltf = Math.round((t - Math.floor(t)) * 255);
 }
 const fxWave01 = x => (Math.sin(x * Math.PI * 2 - Math.PI / 2) + 1) / 2; // 0 → 1 → 0 over one cycle
+// Smooth random 0-1 that drifts with x (no jumps): for snow, ice and flames.
+function fxSmooth(seed, x) { const i = Math.floor(x), m = x - i, e = m * m * (3 - 2 * m); return fxRandom(seed, i) * (1 - e) + fxRandom(seed, i + 1) * e; }
 
 // name: [which fixtures, frame(state, fixture, ctx)]. ctx: t (seconds),
 // speed, phase (0-1 position x spread), index, count, o (options), base.
@@ -406,6 +408,13 @@ const FX_TYPES = {
   water: ["colour", (st, f, c) => { const w = fxWave01(c.t * c.speed + c.phase); fxSetColour(f, st, 185 + w * 50, 100, 45 + w * 15); st.intensity = fxApplyIntensity(55 + w * 45); }],
   police: ["colour", (st, f, c) => { const flash = Math.floor(c.t * c.speed * 6) % 6; const half = c.index < c.count / 2; const redTurn = Math.floor(c.t * c.speed) % 2 === 0; fxSetColour(f, st, half ? 0 : 230); st.intensity = fxApplyIntensity(half === redTurn && flash % 2 === 0 && flash < 4 ? 100 : 0); }],
   disco: ["colour", (st, f, c) => { const k = Math.floor(c.t * c.speed); fxSetColour(f, st, Math.floor(fxRandom(c.index + 1, k) * 12) * 30); st.intensity = fxGetLiveIntensity(); }],
+  // ---- Frozen: snow, ice and warmth (lights without colour just do the intensity)
+  snowfall: ["all", (st, f, c) => { const n = fxSmooth(c.index + 1, c.t * c.speed * 1.4 + c.index * 0.37); st.intensity = fxApplyIntensity(35 + n * 65); if (fxCanColour(f)) fxSetColour(f, st, 205, 22, 82); }],
+  iceshimmer: ["all", (st, f, c) => { const hue = 185 + fxSmooth(c.index + 4, c.t * c.speed * 0.35 + c.phase) * 40; const glint = fxRandom(c.index + 2, Math.floor(c.t * c.speed * 14)) < 0.08 ? 1 : 0; st.intensity = fxApplyIntensity(68 + fxSmooth(c.index + 9, c.t * c.speed * 2) * 22 + glint * 10); if (fxCanColour(f)) fxSetColour(f, st, hue, 45 + fxSmooth(c.index + 6, c.t * c.speed * 0.5) * 45 - glint * 40, 55 + glint * 25); }],
+  aurora: ["all", (st, f, c) => { const w = fxWave01(c.t * c.speed * 0.2 + c.phase); const hues = [150, 172, 200, 285]; const x = w * (hues.length - 1); const i = Math.min(hues.length - 2, Math.floor(x)); if (fxCanColour(f)) fxSetColour(f, st, hues[i] + (hues[i + 1] - hues[i]) * (x - i), 85); st.intensity = fxApplyIntensity(45 + fxWave01(c.t * c.speed * 0.31 + c.phase * 1.7) * 55); }],
+  fireplace: ["all", (st, f, c) => { const n = fxSmooth(c.index + 1, c.t * c.speed * 3) * 0.7 + fxSmooth(c.index + 5, c.t * c.speed * 7) * 0.3; st.intensity = fxApplyIntensity(45 + n * 40); if (fxCanColour(f)) fxSetColour(f, st, 18 + n * 18, 95, 50); }],
+  blizzard: ["all", (st, f, c) => { const gust = 0.35 + fxWave01(c.t * c.speed * 0.23) * 0.65; const flake = fxRandom(c.index + 1, Math.floor(c.t * c.speed * 18)); st.intensity = fxApplyIntensity((20 + flake * 80) * gust); if (fxCanColour(f)) fxSetColour(f, st, 212, 18, 85); }],
+  freeze: ["all", (st, f, c) => { const p = Math.min(1, Math.max(0, c.t * c.speed * 0.25 - c.phase * 0.5)); const e = p * p * (3 - 2 * p); st.intensity = fxApplyIntensity(30 + e * 70); if (fxCanColour(f)) fxSetColour(f, st, 225 - e * 25, 90 - e * 85, 50 + e * 35); }],
   // ---- movement (around where each head was when the effect started)
   circle: ["move", (st, f, c) => { const a = (c.t * c.speed + c.phase) * Math.PI * 2 * (c.o.direction === "reverse" ? -1 : 1); const r = c.o.size ?? 12; fxSetPanTilt(st, c.base.pan + Math.cos(a) * r, c.base.tilt + Math.sin(a) * r); fxKeepLit(st); }],
   figure8: ["move", (st, f, c) => { const a = (c.t * c.speed + c.phase) * Math.PI * 2; const r = c.o.size ?? 14; fxSetPanTilt(st, c.base.pan + Math.sin(a) * r, c.base.tilt + Math.sin(a * 2) * r * 0.5); fxKeepLit(st); }],

@@ -105,8 +105,12 @@
     if (!palette) return { ok: false, message: `Palette \"${clean(name)}\" not found.` };
     if (!selectedFixtures().length) return { ok: false, message: "Select at least one fixture before updating a palette." };
     palette.category = categoryKey(palette.category);
+    const before = { ...(palette.values || {}) };
+    const lights = [...new Set([...(palette.fixtures || []), ...State.selected])];
     palette.values = snapshot(palette.category);
     palette.fixtures = [...State.selected];
+    // The cues that use it change with it (Preferences → Faster programming).
+    window.LXFastProgramming?.retargetPalette(palette, before, lights);
     palette.updatedAt = new Date().toISOString();
     render();
     return { ok: true, palette };

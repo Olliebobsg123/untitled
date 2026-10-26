@@ -274,6 +274,15 @@
     add(C, "Police", "police", { speed: 1 }, colourful);
     add(C, "Disco", "disco", { speed: 3 }, colourful);
 
+    // Frozen: snow, ice and the warmth of a fire
+    const F = "Snow & ice";
+    add(F, "Snowfall", "snowfall", { speed: 0.5 }, lights);
+    add(F, "Ice Shimmer", "iceshimmer", { speed: 1, spread: 0.6 }, lights);
+    add(F, "Aurora", "aurora", { speed: 0.5, spread: 0.8 }, lights);
+    add(F, "Blizzard", "blizzard", { speed: 1 }, lights);
+    add(F, "Freeze", "freeze", { speed: 1, spread: 0.6 }, lights);
+    add(F, "Fireplace", "fireplace", { speed: 0.6 }, lights);
+
     // Movement (around wherever the heads are pointing)
     const M = "Movement";
     add(M, "Circle Small", "circle", { speed: 0.3, size: 8 }, movers);

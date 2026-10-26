@@ -13,6 +13,11 @@
  *   next / last                  while highlighting: one light at a time, stepping through
  *                                (otherwise "next" is still GO)
  *   highlight off                back to how they were (focus changes made meanwhile kept)
+ *   patch 1 thru 8 at 2/1        re-address lights one after another from universe 2, address 1
+ *   effect snowfall [speed 2]    run an effect type by name on the selected lights (or all)
+ *
+ * And: updating a palette also updates the cues that use it (retargetPalette).
+ * Preferences → Programming → Faster programming has the choices.
  *
  * The Command Line's suggestions list them (js/autocomplete.js).
  */
@@ -52,8 +57,10 @@
     return t.split(/\s*,\s*/).map(v => window.cueIndexOf?.(v)).filter(i => Number.isInteger(i) && i >= 0);
   }
 
+  const pref = (key, fallback) => window.LXPrefs?.get(key) ?? fallback;
+
   // Each light to its own values, in one fade.
-  function setEach(map, ms = 300) {
+  function setEach(map, ms = Number(pref("commandFadeMs", 300))) {
     window.finishFade?.();
     const targets = [];
     map.forEach((values, id) => {
@@ -127,7 +134,7 @@
     while (after < cues.length && !cues[after]) after++;
     const afterLook = cues[after] ? window.LXTracking?.look(after) : null;
     for (const index of indexes) values.forEach((v, id) => writeInto(cues[index], id, v));
-    if (afterLook && cues[after]?.mode === "track") {
+    if (afterLook && cues[after]?.mode === "track" && pref("applyTrack", "range") !== "track") {
       const now = window.LXTracking.look(after);
       values.forEach((v, id) => {
         const before = afterLook.fixtureMap.get(id) || {};
@@ -207,6 +214,7 @@
     if (highlight) putBack(highlight.ids);
     highlight = { saved: new Map(), ids, at: -1 };
     rememberOf(ids);
+    dimRest(ids);
     lit(ids);
     return say(`Highlight: ${ids.length} light${ids.length === 1 ? "" : "s"} full, open white · next / last to go one at a time · highlight off to finish`);
   }
@@ -223,12 +231,78 @@
     }, 220);
     return say(`Light ${numberOf(id)} (${highlight.at + 1} of ${ids.length}) · next / last · highlight off`);
   }
+  // Preferences: the other lights dim to 10% while highlighting (lowlight).
+  function dimRest(ids) {
+    if (pref("highlightRest", "leave") !== "dim") return;
+    const rest = fixtures().map(f => f.id).filter(id => !ids.includes(id) && Number(stateOf(id).intensity) > 10);
+    rememberOf(rest);
+    setEach(new Map(rest.map(id => [id, { intensity: 10 }])), 200);
+  }
   function highlightOff() {
     if (!highlight) return say("Highlight isn't on", "info");
-    putBack(highlight.ids);
+    putBack([...highlight.saved.keys()]);
     const n = highlight.ids.length;
     highlight = null;
     return say(`Highlight off — ${n} light${n === 1 ? "" : "s"} back as they were (position changes kept)`);
+  }
+
+  // --- palettes that update their cues -------------------------------------------------
+
+  // A palette was updated from `before` to its new values: every cue holding the old values
+  // on the palette's lights gets the new ones (only the values the palette has).
+  function retargetPalette(palette, before, lights = palette?.fixtures) {
+    if (!palette || !before || pref("paletteUpdatesCues", true) === false) return 0;
+    const after = palette.values || {};
+    const keys = Object.keys(before).filter(k => k in after && JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+    if (!keys.length) return 0;
+    const ids = new Set((lights || []).map(String));
+    const near = (a, b) => (typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 0.6 : JSON.stringify(a) === JSON.stringify(b));
+    let cues = 0;
+    for (const cue of S().cues || []) {
+      if (!cue) continue;
+      let touched = false;
+      for (const entry of cue.fixtureStates || []) {
+        if (!Array.isArray(entry) || !entry[1] || (ids.size && !ids.has(String(entry[0])))) continue;
+        const st = entry[1];
+        const has = keys.filter(k => k in st);
+        // It's the palette's look if every palette value it holds is the old one.
+        if (!has.length || !Object.keys(before).filter(k => k in st).every(k => near(st[k], before[k]))) continue;
+        for (const k of has) st[k] = clone(after[k]);
+        touched = true;
+      }
+      if (touched) cues++;
+    }
+    if (cues) {
+      window.rememberLooks?.();
+      window.renderCues?.();
+      say(`Palette “${palette.name}” updated — and in ${cues} cue${cues === 1 ? "" : "s"} that use it`);
+    }
+    return cues;
+  }
+
+  // --- patching ----------------------------------------------------------------------
+
+  function patchAt(listText, uni, addr) {
+    const ids = idsFrom(listText);
+    if (!ids.length) return say(`No lights match ${listText}`, "warn");
+    const lib = window.FixtureLibrary || {};
+    let at = addr;
+    const moved = [];
+    for (const id of ids.sort((a, b) => Number(numberOf(a)) - Number(numberOf(b)))) {
+      const f = fixtures().find(x => x.id === id);
+      const channels = Math.max(1, Number(lib[f.name]?.channels || 1));
+      if (at + channels - 1 > 512) return say(`Light ${f.fixtureNumber} wouldn't fit: universe ${uni} runs out at 512 (${moved.length} re-addressed)`, "warn");
+      f.uni = uni;
+      f.addr = at;
+      moved.push(`${f.fixtureNumber}→${uni}/${at}`);
+      at += channels;
+    }
+    window.renderFixtures?.();
+    window.updateDMX?.();
+    window.sendToVisualizer?.();
+    window.LXPatch?.refresh(true);
+    const clash = ids.some(id => window.LXPatch?.clashes().has(id));
+    return say(`Patched ${moved.length} light${moved.length === 1 ? "" : "s"}: ${moved.slice(0, 6).join(", ")}${moved.length > 6 ? "…" : ""}${clash ? " — some overlap other lights (see the Patch page)" : ""}`, clash ? "warn" : "ok");
   }
 
   // --- the commands -----------------------------------------------------------------
@@ -245,6 +319,20 @@
     if ((m = c.match(/^(?:(.+?) )?@ ?(\d{1,3}) ?(?:thru|through|>) ?(\d{1,3})$/))) {
       const a = Math.min(100, Number(m[2])), b = Math.min(100, Number(m[3]));
       return fan(m[1], a, b), true;
+    }
+    if ((m = c.match(/^patch ((?:\d+(?:\s*(?:thru|through|-|–)\s*\d+)?[\s,]*)+) at (\d+)\s*[/.:]\s*(\d+)$/))) return patchAt(m[1], Number(m[2]), Number(m[3])), true;
+    // An effect by its type ("effect snowfall", "run effect aurora speed 0.5"), when there's
+    // no saved effect of that name.
+    if ((m = c.match(/^(?:run )?effect ([a-z][a-z0-9 ]*?)(?: speed (\d*\.?\d+))?$/))) {
+      const type = m[1].replace(/\s+/g, "");
+      const types = ["rainbow", "strobe", "pulse", "chase", "wave", ...Object.keys(window.LXEffects?.FX_TYPES || window.FX_TYPES || {})];
+      const saved = Object.keys(S().savedEffects || {}).some(name => name.toLowerCase() === m[1]);
+      if (!saved && types.includes(type) && typeof window.startEffect === "function") {
+        const ids = selectedIds().length ? selectedIds() : fixtures().map(f => f.id);
+        const ok = window.startEffect(type, { speed: m[2] != null ? Number(m[2]) : 1, spread: 0.6, fixtureIds: ids.map(String) });
+        if (ok !== false) say(`Effect: ${m[1]} on ${ids.length} light${ids.length === 1 ? "" : "s"}${m[2] ? ` at speed ${m[2]}` : ""} · stop effect to stop it`);
+        return true;
+      }
     }
     if (/^(?:highlight|hl)$/.test(c)) return highlightOn(), true;
     if (/^(?:highlight|hl) off$|^(?:unhighlight|rem hl)$/.test(c)) return highlightOff(), true;
@@ -267,5 +355,5 @@
   // (js/command-line.js, in front of everything, asks handle() first too.)
   if (document.readyState === "complete") install(); else window.addEventListener("load", install, { once: true });
 
-  window.LXFastProgramming = Object.freeze({ handle, recallFrom, applyTo, copyLight, fan, highlightOn, highlightOff, step, get highlighting() { return Boolean(highlight); } });
+  window.LXFastProgramming = Object.freeze({ handle, recallFrom, applyTo, copyLight, fan, highlightOn, highlightOff, step, retargetPalette, patchAt, get highlighting() { return Boolean(highlight); } });
 })();

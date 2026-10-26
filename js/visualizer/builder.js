@@ -10,10 +10,12 @@
 // Up/Down raise/lower · Esc deselect.
 import * as THREE from "three";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
-import { KINDS, KIND_GROUPS, MATERIALS, defaultVenue, itemMatrix, makeItem, newId, normaliseVenue } from "./venue.js";
+import { KINDS, KIND_GROUPS, MATERIALS, PICTURE_KINDS, defaultVenue, itemMatrix, makeItem, newId, normaliseVenue } from "./venue.js";
 import { hangsOn, modelUnit, STAGE, STAGE_TOP } from "./theatre.js";
+import { hangLines } from "./venue.js";
 
 const MAX_MODEL_BYTES = 25 * 1024 * 1024;
+const MAX_PICTURE_BYTES = 12 * 1024 * 1024;
 const clone = value => JSON.parse(JSON.stringify(value));
 const escape = text => String(text ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const deg = THREE.MathUtils.radToDeg;
@@ -27,6 +29,7 @@ export function createBuilder(ctx) {
   const redo = [];
   let snap = 0.05;
   let designLit = true;
+  let hangPick = null; // the light to hang with the next click (Hang lights)
 
   const transform = new TransformControls(ctx.camera, ctx.renderer.domElement);
   transform.setTranslationSnap(snap);
@@ -54,7 +57,8 @@ export function createBuilder(ctx) {
   document.body.appendChild(panel);
   const fileInput = Object.assign(document.createElement("input"), { type: "file", accept: ".glb,.gltf,.obj,.stl", hidden: true });
   const stageFileInput = Object.assign(document.createElement("input"), { type: "file", accept: ".json,.lsstage", hidden: true });
-  document.body.append(fileInput, stageFileInput);
+  const pictureInput = Object.assign(document.createElement("input"), { type: "file", accept: "image/png,image/jpeg,image/webp,image/gif", hidden: true });
+  document.body.append(fileInput, stageFileInput, pictureInput);
   // Keys typed in the panel stay in the panel.
   panel.addEventListener("keydown", event => event.stopPropagation());
 
@@ -94,6 +98,10 @@ export function createBuilder(ctx) {
             <label class="bf"><span>Colour</span><input data-k="color" type="color" value="${selected.color}"></label>
             ${choice("material", "Finish", MATERIALS, selected.material)}
           </div>
+          ${PICTURE_KINDS.has(selected.kind) ? `<div class="brow">
+            <button data-act="picture">🖼 ${selected.picture ? "Change picture…" : "Add a picture…"}</button>
+            ${selected.picture ? `<button data-act="nopicture">Remove picture</button>` : ""}
+          </div>${selected.picture ? `<div class="bnote">${escape(v.assets?.[selected.picture]?.name || "picture")} · stretched to fit${selected.kind === "flat" || selected.kind === "box" ? " (on the front)" : ""}</div>` : ""}` : ""}
           <div class="brow bchecks">
             <label><input data-k="hidden" type="checkbox"${selected.hidden ? " checked" : ""}> Hidden</label>
             <label><input data-k="locked" type="checkbox"${selected.locked ? " checked" : ""}> Locked</label>
@@ -124,6 +132,10 @@ export function createBuilder(ctx) {
       </div>
       ${selectedHtml}
       <details class="bsection" ${selected ? "" : "open"}><summary>Add to the stage</summary>${add}</details>
+      <details class="bsection" ${hangPick ? "open" : ""} data-sec="hang"><summary>Hang lights</summary>
+        <div class="bnote">${hangPick ? `<b style="color:#ffd27a">Click a bar, truss or boom to hang ${escape(ctx.fixtureList().find(f => f.id === hangPick)?.label || "it")}</b> · the next light follows, so you can click along a bar · Esc to stop` : "Pick a light, then click where it hangs on a bar, truss or boom."}</div>
+        <div class="blist">${ctx.fixtureList().map(f => `<button data-hang="${escape(f.id)}" class="${f.id === hangPick ? "on" : ""}"><b>●</b>${escape(f.label)}</button>`).join("") || `<div class="bnote">No lights patched yet.</div>`}</div>
+      </details>
       <details class="bsection"><summary>Everything in the room (${v.items.length})</summary>
         <div class="blist">${v.items.map(i => `<button data-pick="${escape(i.id)}" class="${i.id === selectedId ? "on" : ""}${i.hidden ? " dim" : ""}"><b>${KINDS[i.kind].icon}</b>${escape(i.name)}${i.locked ? " 🔒" : ""}</button>`).join("")}</div>
       </details>
@@ -266,6 +278,30 @@ export function createBuilder(ctx) {
   }
   fileInput.addEventListener("change", () => importModel(fileInput.files[0]));
 
+  // A picture on the selected flat, cloth, cyc, gauze, screen or box.
+  async function addPicture(file) {
+    const selected = item(selectedId);
+    if (!file || !selected) return;
+    if (file.size > MAX_PICTURE_BYTES) { alert(`That picture is ${(file.size / 1048576).toFixed(0)} MB. Pictures up to 12 MB can go in a show (save it smaller, e.g. 4000 pixels wide).`); return; }
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const assetId = newId();
+    const id = selectedId;
+    change(next => {
+      next.assets = { ...next.assets, [assetId]: { name: file.name, type: "image", mime: file.type || "image/png", data } };
+      const target = next.items.find(i => i.id === id);
+      target.picture = assetId;
+      // White, so the picture's own colours show.
+      if (target.kind !== "screen") target.color = "#ffffff";
+      return [id];
+    });
+  }
+  pictureInput.addEventListener("change", () => addPicture(pictureInput.files[0]));
+
   function exportStage() {
     const blob = new Blob([JSON.stringify({ lightSparkStage: 1, venue: venue() })], { type: "application/json" });
     const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "stage.lsstage" });
@@ -356,6 +392,7 @@ export function createBuilder(ctx) {
     if (!button) return;
     if (button.dataset.add) return addItem(button.dataset.add);
     if (button.dataset.pick) return select(button.dataset.pick);
+    if (button.dataset.hang) { hangPick = hangPick === button.dataset.hang ? null : button.dataset.hang; if (hangPick) select(null); render(); return; }
     if (button.dataset.mode) { transform.setMode(button.dataset.mode); render(); return; }
     if (button.dataset.template) {
       if (!confirm("Start the stage again? Lights stay where they are: Reset layout (in the toolbar) hangs them on the new bars. Undo puts the stage back.")) return;
@@ -375,6 +412,8 @@ export function createBuilder(ctx) {
     else if (act === "focus") focus();
     else if (act === "export") exportStage();
     else if (act === "import") { stageFileInput.value = ""; stageFileInput.click(); }
+    else if (act === "picture") { pictureInput.value = ""; pictureInput.click(); }
+    else if (act === "nopicture") change(next => { next.items.find(i => i.id === selectedId).picture = ""; return [selectedId]; });
   });
 
   panel.addEventListener("change", event => {
@@ -447,9 +486,39 @@ export function createBuilder(ctx) {
   // --- Mouse and keys (main.js asks first in Build mode) -------------------------
 
   const raycaster = new THREE.Raycaster();
+  // The bar, truss or boom nearest the pointer's ray, and the point on it. → { point } or null
+  function barUnderPointer(ray) {
+    let best = null;
+    for (const line of hangLines(venue())) {
+      const u = line.b.clone().sub(line.a), v = ray.direction, w = line.a.clone().sub(ray.origin);
+      const a = u.dot(u), b = u.dot(v), c = v.dot(v), d = u.dot(w), e = v.dot(w), D = a * c - b * b;
+      let s = D > 1e-9 ? (b * e - c * d) / D : 0;
+      s = Math.max(0, Math.min(1, s));
+      const onLine = line.a.clone().addScaledVector(u, s);
+      const t = Math.max(0, onLine.clone().sub(ray.origin).dot(v));
+      const gap = ray.origin.clone().addScaledVector(v, t).distanceTo(onLine);
+      if (gap < Math.max(0.25, t * 0.025) && (!best || gap < best.gap)) best = { gap, point: line.kind === "upright" ? onLine.clone().add(new THREE.Vector3(0, 0, 0.12)) : onLine };
+    }
+    return best;
+  }
+
+  function hangHere(ray) {
+    const found = barUnderPointer(ray);
+    if (!found) { ctx.say?.("Click on a bar, truss or boom (the line it hangs from)"); return; }
+    const p = found.point;
+    const snapped = snap ? { x: Math.round(p.x / snap) * snap, y: p.y, z: p.z } : p;
+    ctx.placeFixture(hangPick, { x: round(snapped.x), y: round(p.y), z: round(snapped.z) });
+    // On to the next light, so a bar can be filled click by click.
+    const list = ctx.fixtureList();
+    const at = list.findIndex(f => f.id === hangPick);
+    hangPick = list[at + 1]?.id || null;
+    render();
+  }
+
   function pointerDown(event, pointerRay) {
     if (!active) return false;
     if (transform.dragging || transform.axis) return true; // on a handle
+    if (hangPick) { hangHere(pointerRay); return true; }
     raycaster.ray.copy(pointerRay);
     const hits = raycaster.intersectObjects(ctx.theatre.itemsGroup.children, true).filter(h => h.object.visible && h.object.userData.venueId);
     const fixtureHit = ctx.fixtureHitDistance();
@@ -471,7 +540,7 @@ export function createBuilder(ctx) {
     if (mod && key.toLowerCase() === "y") { event.preventDefault(); restore(redo, undo); return true; }
     if (mod && key.toLowerCase() === "d") { event.preventDefault(); duplicate(); return true; }
     if (mod) return false;
-    if (key === "Escape") { if (selectedId) select(null); else toggle(false); return true; }
+    if (key === "Escape") { if (hangPick) { hangPick = null; render(); } else if (selectedId) select(null); else toggle(false); return true; }
     if (!selectedId) return ["g", "r"].includes(key);
     if (key === "Delete" || key === "Backspace") { remove(); return true; }
     if (key === "g") { transform.setMode("translate"); render(); return true; }

@@ -49,7 +49,11 @@
     // Selection and levels (the rest is in the selection grammar below)
     ["group <group>", "select a group", "Select"], ["group <group> @ <level>", "a group to a level", "Select"],
     ["group = <text>", "make a group from the selection (or: name and fixture numbers)", "Select"], ["delete group <group>", "remove a group", "Select"],
-    ["list groups", "every group in the log", "Select"], ["@ <level>", "the selected fixtures to a level", "Levels"],
+    ["list groups", "every group in the log", "Select"], ["@ <level>", "the selected fixtures to a level", "Levels"], ["@ <level> thru <level>", "fan: levels spread across the selection", "Levels"],
+    ["recall from cue <cue>", "the selected lights take their look from a cue", "Programming"], ["recall from cue <cue> <part>", "…just their intensity, colour, position or beam", "Programming"],
+    ["apply to cue <cue> thru <cue>", "your changes to the selected lights go into those cues", "Programming"], ["apply to cue <cue> <part>", "…just one part", "Programming"],
+    ["copy <fixture> to <fixture> thru <fixture>", "one light's look onto others", "Programming"],
+    ["highlight", "selected lights full, open white (next / last step through them)", "Programming"], ["highlight off", "back as they were", "Programming"],
     ["clear", "deselect everything", "Select"], ["clear programmer", "drop hand changes, back to the live cue", "Select"], ["rem dim", "everything not selected to 0", "Levels"],
     ["undo", "undo a level change", "Levels"], ["redo", "redo it", "Levels"],
     // Palettes, chases, effects, targets
@@ -114,6 +118,7 @@
       case "colour": return colours().map(c => [c, "colour", "COLOUR"]);
       case "curve": return (window.CUE_CURVES || ["smooth", "linear", "in", "out", "snap"]).map(c => [c, { smooth: "S-curve", linear: "even", in: "slow start", out: "slow end", snap: "instant" }[c] || "", "CURVE"]);
       case "level": return LEVELS.map(([v, d]) => [v, d, "LEVEL"]);
+      case "part": return [["intensity", "levels only"], ["colour", "colour only"], ["position", "pan & tilt only"], ["beam", "gobo, zoom, focus…"]].map(([v, d]) => [v, d, "PART"]);
       case "sec": return [["1", "second"], ["2", "seconds"], ["3", "seconds"], ["5", "seconds"], ["0.5", "seconds"], ["10", "seconds"]].map(([v, d]) => [v, d, "SECONDS"]);
       case "pct": return [["150", "% — faster"], ["200", "% — twice as fast"], ["50", "% — half speed"], ["100", "% — normal"]].map(([v, d]) => [v, d, "RATE"]);
       case "count": return [["2", "times"], ["3", "times"], ["0", "forever"]].map(([v, d]) => [v, d, "LOOPS"]);

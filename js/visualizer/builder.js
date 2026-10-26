@@ -358,7 +358,7 @@ export function createBuilder(ctx) {
     if (button.dataset.pick) return select(button.dataset.pick);
     if (button.dataset.mode) { transform.setMode(button.dataset.mode); render(); return; }
     if (button.dataset.template) {
-      if (!confirm("Start the stage again? Lights stay where they are. (Undo puts the stage back.)")) return;
+      if (!confirm("Start the stage again? Lights stay where they are: Reset layout (in the toolbar) hangs them on the new bars. Undo puts the stage back.")) return;
       const template = button.dataset.template;
       const fresh = template === "empty" ? { ...defaultVenue("proscenium"), items: [] } : defaultVenue(template);
       selectedId = null;

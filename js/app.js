@@ -647,18 +647,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let dragging = false;
 
-    wheel.addEventListener("mousedown", e => {
+    // Pointer events so a finger on a touch screen drags the colour too.
+    wheel.style.touchAction = "none";
+    wheel.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return;
+      e.preventDefault();
       dragging = true;
+      try { wheel.setPointerCapture(e.pointerId); } catch {}
       colourAt(e);
     });
 
-    window.addEventListener("mousemove", e => {
+    wheel.addEventListener("pointermove", e => {
       if (dragging) colourAt(e);
     });
 
-    window.addEventListener("mouseup", () => {
+    const stop = e => {
       dragging = false;
-    });
+      try { wheel.releasePointerCapture(e.pointerId); } catch {}
+    };
+    wheel.addEventListener("pointerup", stop);
+    wheel.addEventListener("pointercancel", stop);
   }
 
   /* ==========================================================

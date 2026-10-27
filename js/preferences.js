@@ -17,6 +17,7 @@
   const DEFAULTS = {
     // Appearance
     density: "compact",        // compact | comfortable
+    touchMode: "auto",         // touch screen: auto (when the screen reports touch) | on | off
     zoom: 1,                   // interface size
     accent: "teal",            // a name from ACCENTS, or "custom"
     accentCustom: "#19d6a3",
@@ -313,6 +314,7 @@
     // ---- Appearance
     host.appendChild(panel("interface", "prefLook", "Look", "APPEARANCE",
       row("Density", "Compact fits more on screen, like Eos. Comfortable is roomier.", seg("density", [["compact", "Compact"], ["comfortable", "Comfortable"]])) +
+      row("Touch screen", "Bigger buttons, rows and faders, press and hold for menus, and an on-screen keypad (⌨ in the command line). Automatic turns it on when the screen reports touch — many touch monitors on a Mac don't, so pick On.", seg("touchMode", [["auto", "Automatic"], ["on", "On"], ["off", "Off"]])) +
       row("Interface size", "Makes everything bigger or smaller.", select("zoom", [[0.75, "75%"], [0.8, "80%"], [0.9, "90%"], [1, "100%"], [1.1, "110%"], [1.25, "125%"], [1.4, "140%"], [1.5, "150%"]])) +
       row("Background", "Black is darkest, for a dark auditorium. Slate is lighter, for daylight.", seg("theme", [["black", "Black"], ["dark", "Dark"], ["slate", "Slate"]])) +
       row("Accent colour", "Used for selections, buttons and highlights. The last swatch picks any colour.", `<div class="lx-swatches" data-pref="accent">${Object.entries(ACCENTS).map(([name, [c]]) => `<button type="button" data-value="${name}" title="${name}" style="--c:${c}"></button>`).join("")}<button type="button" data-value="custom" title="Your own colour" class="lx-swatch-custom" style="--c:${esc(prefs.accentCustom)}"></button></div><input type="color" class="lx-color" data-pref="accentCustom" title="Pick your own accent colour">`) +

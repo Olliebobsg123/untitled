@@ -176,7 +176,7 @@
     if (rows.dataset.key !== key && !rows.querySelector("input")) {
       let scene = null;
       rows.innerHTML = cues.map((c, i) => c ? `${c.scene && c.scene !== scene && (scene = c.scene) ? `<div class="cl-scene">${esc(c.scene)}</div>` : ""}
-        <div class="cl-row${c.disabled ? " cl-disabled" : ""}" data-i="${i}" draggable="true" style="--tag:${c.colourTag || "transparent"}"${c.note ? ` title="${esc(c.note)}"` : ""}>
+        <div class="cl-row${c.disabled ? " cl-disabled" : ""}" data-i="${i}" draggable="${window.LXTouch?.on ? "false" : "true"}" style="--tag:${c.colourTag || "transparent"}"${c.note ? ` title="${esc(c.note)}"` : ""}>
           <span class="cl-dot"></span><span class="cl-num" data-edit="num" title="Double-click to renumber (e.g. 2.5 puts it between 2 and 3)">${window.cueLabel(i)}</span><span class="cl-tags">${modeTag(c, i)}</span>
           <span data-edit="name">${esc(c.name || `Cue ${window.cueLabel(i)}`)}</span>
           <span data-edit="fade">${secs(c.fade ?? 800)} s</span>
@@ -252,6 +252,18 @@
 
   // ---------------------------------------------------------------- drag
 
+  // Cue `from` takes the place of cue `to`: just before it (moving up) or
+  // just after it (moving down), numbered between its new neighbours.
+  function moveCue(from, to) {
+    const cues = S().cues || [];
+    if (to === from || to < 0 || to >= cues.length) return;
+    const number = i => (i >= 0 && cues[i] ? window.cueNumberOf(i) : null);
+    const [a, b] = to < from ? [to > 0 ? number(to - 1) : 0, number(to)] : [number(to), number(to + 1)];
+    const n = window.cueNumberBetween(a, b);
+    if (n == null) window.log?.("No room for a cue number there — renumber a cue first", "warn");
+    else window.parseCommand?.(`move cue ${window.cueLabel(from)} to ${window.formatCueNumber(n)}`);
+  }
+
   function wireDrag(rows) {
     let from = null;
     rows.addEventListener("dragstart", e => { const row = e.target.closest(".cl-row"); if (!row) return; from = Number(row.dataset.i); e.dataTransfer.effectAllowed = "move"; row.classList.add("dragging"); });
@@ -261,16 +273,7 @@
       e.preventDefault();
       const row = e.target.closest(".cl-row");
       if (from == null || !row) return;
-      const to = Number(row.dataset.i);
-      if (to !== from) {
-        // Dropped on a cue: it goes just before it (moving up) or just
-        // after it (moving down), numbered between its new neighbours.
-        const cues = S().cues, number = i => (i >= 0 && cues[i] ? window.cueNumberOf(i) : null);
-        const [a, b] = to < from ? [to > 0 ? number(to - 1) : 0, number(to)] : [number(to), number(to + 1)];
-        const n = window.cueNumberBetween(a, b);
-        if (n == null) window.log?.("No room for a cue number there — renumber a cue first", "warn");
-        else window.parseCommand?.(`move cue ${window.cueLabel(from)} to ${window.formatCueNumber(n)}`);
-      }
+      moveCue(from, Number(row.dataset.i));
       from = null;
     });
   }
@@ -284,12 +287,13 @@
     const menu = document.createElement("div");
     menu.className = "lxw-menu cl-menu";
     const tracked = cue.mode === "track";
-    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["insert", "Insert into Control Deck"], ["tcnow", "Set its time to the timecode now"], ["rename", "Rename…"], ["copy", "Copy to the end"], "-",
+    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["insert", "Insert into Control Deck"], ["tcnow", "Set its time to the timecode now"], ["rename", "Rename…"], ["copy", "Copy to the end"], ["up", "Move up"], ["down", "Move down"], ["moveto", "Move to…"], "-",
       ["block", "Block cue (stores its whole look)", !tracked], ["mib", "Move in black before this cue", !cue.noMib], "-", ["delete", "Delete…"]];
     menu.innerHTML = `<div class="lxw-menu-label">CUE ${window.cueLabel(i)} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick">${it[2] ? "✓" : ""}</span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
     document.body.appendChild(menu);
-    menu.style.left = `${Math.min(x, innerWidth - 250)}px`;
-    menu.style.top = `${Math.min(y, innerHeight - 260)}px`;
+    menu.style.left = `${Math.max(0, Math.min(x, innerWidth - menu.offsetWidth - 4))}px`;
+    menu.style.top = `${Math.max(0, Math.min(y, innerHeight - menu.offsetHeight - 4))}px`;
+    if (menu.offsetHeight > innerHeight) Object.assign(menu.style, { maxHeight: `${innerHeight}px`, overflowY: "auto" });
     const close = e => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener("pointerdown", close, true); } };
     setTimeout(() => document.addEventListener("pointerdown", close, true), 0);
     menu.addEventListener("click", async e => {
@@ -305,6 +309,13 @@
         const r = await window.LXAsk?.(`Rename cue ${n}`, [{ key: "name", label: "Name", value: cue.name || "" }], { ok: "Rename" });
         if (r) window.parseCommand?.(`rename cue ${n} ${r.name.trim() || `Cue ${n}`}`);
       } else if (a === "copy") window.parseCommand?.(`copy cue ${n} to ${window.nextCueNumber()}`);
+      else if (a === "up") moveCue(i, i - 1);
+      else if (a === "down") moveCue(i, i + 1);
+      else if (a === "moveto") {
+        const r = await window.LXAsk?.(`Move cue ${n}`, [{ key: "to", label: "New cue number", value: "" }], { ok: "Move" });
+        const to = r && Number(String(r.to).trim());
+        if (to > 0) window.parseCommand?.(`move cue ${n} to ${window.formatCueNumber(to)}`);
+      }
       else if (a === "insert") window.LXDeck?.insertCue(i);
       else if (a === "tcnow") { const t = window.LXTimecode?.now(); if (t == null) window.log?.("No timecode yet — start the source first", "warn"); else { window.LXTimecode.setCue(i, t); window.log?.(`Cue ${n} fires at ${window.LXTimecode.format(Math.max(0, t))}`, "ok"); } }
       else if (a === "block") window.parseCommand?.(`${tracked ? "block" : "track"} cue ${n}`);

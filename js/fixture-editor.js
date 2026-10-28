@@ -7,7 +7,7 @@
  */
 (function installFixtureEditorModule() {
   const STORE = "lx-custom-fixtures";
-  const ATTRS = ["dimmer","intensity","strobe","r","g","b","w","uv","a","l","c","pan","panf","tilt","tiltf","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","iris","frost","colour","colourr","speed","effect","preset","cct","cyan","magenta","yellow","amber","lime","warmWhite","coolWhite","naturalWhite","fog","haze","fana","fluid","control","shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate","shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate","shutter1AngleA","shutter1AngleB","shutter2AngleA","shutter2AngleB","shutter3AngleA","shutter3AngleB","shutter4AngleA","shutter4AngleB"];
+  const ATTRS = ["blueMix","amberMix","magentaMix","colmacro","dimmer","intensity","strobe","r","g","b","w","uv","a","l","c","pan","panf","tilt","tiltf","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","iris","frost","colour","colourr","speed","effect","preset","cct","cyan","magenta","yellow","amber","lime","warmWhite","coolWhite","naturalWhite","fog","haze","fana","fluid","control","shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate","shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate","shutter1AngleA","shutter1AngleB","shutter2AngleA","shutter2AngleB","shutter3AngleA","shutter3AngleB","shutter4AngleA","shutter4AngleB"];
   const TYPES = ["dimmer","rgb","rgbw","moving","strobe","rgbal","rgbalc","tungsten"];
   let editingName = null;
 
@@ -86,6 +86,16 @@
       #lxFixtureEditorModal .lx-library-list .lx-custom-meta{padding:8px 4px}
       #lxFixtureEditorModal .lx-custom-item>div:last-child{display:flex;gap:6px;flex-shrink:0}
       #lxFixtureEditorModal .lx-custom-item button{min-height:32px;padding:8px 10px;font-size:9px;border-radius:7px}
+      #lxFixtureEditorModal .lx-fx-from{margin-top:14px}
+      #lxFixtureEditorModal .lx-fx-from select{width:100%;height:40px;background:#080d0f;border:1px solid #29373a;border-radius:9px;color:#eef4f2;padding:0 11px}
+      #lxFixtureEditorModal .lx-fx-hint{margin:6px 0 8px;font-size:11px}
+      #lxFixtureEditorModal .lx-wheel-list{border:1px solid rgba(112,142,138,.16);border-radius:14px;overflow:hidden;background:#080d0f}
+      #lxFixtureEditorModal .lx-wheel-head,#lxFixtureEditorModal .lx-wheel-row{display:grid;grid-template-columns:minmax(0,1.6fr) 64px 64px 64px 52px 62px 38px;gap:8px;align-items:center;padding:7px 12px}
+      #lxFixtureEditorModal .lx-wheel-head{background:#10181a;border-bottom:1px solid #202c2f;color:#60716e;font:900 9px var(--mono,monospace);letter-spacing:.1em}
+      #lxFixtureEditorModal .lx-wheel-row{border-bottom:1px solid rgba(42,55,58,.55)}
+      #lxFixtureEditorModal .lx-wheel-row input{width:100%;height:36px;box-sizing:border-box;background:#0b1113;border:1px solid #283639;border-radius:8px;color:#eef4f2;padding:0 8px}
+      #lxFixtureEditorModal .lx-wheel-row input[type=color]{padding:2px}
+      #lxFixtureEditorModal .lx-wheel-row button{min-height:36px;padding:0 8px}
       @keyframes lxFxFadeIn{from{opacity:0}to{opacity:1}}
       @media(max-width:650px){
         #lxFixtureEditorModal{padding:12px}
@@ -141,7 +151,7 @@
     if (modal) return modal;
     modal = document.createElement("div");
     modal.id = "lxFixtureEditorModal";
-    modal.innerHTML = `<div class="lx-fixture-box" role="dialog" aria-modal="true"><div class="lx-fixture-kicker">FIXTURE EDITOR</div><h3>Create your own fixture</h3><p>Build a DMX personality just like a patch wizard: define the fixture, channel count and what each DMX channel controls.</p><div class="lx-fixture-grid"><div><label>Fixture Name</label><input id="lxFxName" placeholder="My Moving Head"></div><div><label>Type</label><select id="lxFxType">${TYPES.map(type => `<option value="${type}">${type.toUpperCase()}</option>`).join("")}</select></div><div><label>Manufacturer</label><input id="lxFxManufacturer" placeholder="Manufacturer"></div><div><label>Model</label><input id="lxFxModel" placeholder="Model / personality"></div><div><label>DMX Channels</label><input id="lxFxChannels" type="number" min="1" max="512" value="8"></div><div><label>Beam Angle ° (optional)</label><input id="lxFxBeam" type="number" min="0" max="360" placeholder=""></div></div><div class="section-divider" style="margin-top:16px"><span>DMX CHANNEL MAP</span></div><div id="lxFxChannelList" class="lx-channel-list"></div><div class="lx-fixture-actions"><button type="button" id="lxFxAddChannel">＋ Add Channel</button><button type="button" id="lxFxCancel">Cancel</button><button type="button" id="lxFxExport">Export JSON</button><button type="button" id="lxFxSave" class="lx-fixture-save">Save Fixture</button></div><div id="lxFxStatus" class="lx-fixture-status"></div><div class="section-divider" style="margin-top:16px"><span>CUSTOM FIXTURES</span></div><div id="lxFxLibrary" class="lx-library-list"></div></div>`;
+    modal.innerHTML = `<div class="lx-fixture-box" role="dialog" aria-modal="true"><div class="lx-fixture-kicker">FIXTURE EDITOR</div><h3>Create your own fixture</h3><p>Build a DMX personality just like a patch wizard: define the fixture, channel count and what each DMX channel controls.</p><div class="lx-fixture-grid"><div><label>Fixture Name</label><input id="lxFxName" placeholder="My Moving Head"></div><div><label>Type</label><select id="lxFxType">${TYPES.map(type => `<option value="${type}">${type.toUpperCase()}</option>`).join("")}</select></div><div><label>Manufacturer</label><input id="lxFxManufacturer" placeholder="Manufacturer"></div><div><label>Model</label><input id="lxFxModel" placeholder="Model / personality"></div><div><label>DMX Channels</label><input id="lxFxChannels" type="number" min="1" max="512" value="8"></div><div><label>Beam Angle ° (optional)</label><input id="lxFxBeam" type="number" min="0" max="360" placeholder=""></div></div><div class="lx-fx-from"><label for="lxFxFrom">Start from a fixture in the library (optional)</label><select id="lxFxFrom"><option value="">— Blank —</option></select></div><div class="section-divider" style="margin-top:16px"><span>DMX CHANNEL MAP</span></div><div id="lxFxChannelList" class="lx-channel-list"></div><div class="section-divider" style="margin-top:16px"><span>COLOUR WHEEL</span></div><p class="lx-fx-hint">For a channel set to <b>colour</b>: each slot on the wheel, the DMX range it covers, the value that puts it full in the beam, and its colour. <b>Test</b> sends that value to the patched lights of this fixture (save first) so you can see what's really fitted.</p><div id="lxFxWheel" class="lx-wheel-list"></div><div class="lx-fixture-actions" style="justify-content:flex-start;margin-top:8px"><button type="button" id="lxFxAddSlot">＋ Add slot</button><button type="button" id="lxFxEvenSlots">Even slots…</button></div><div class="lx-fixture-actions"><button type="button" id="lxFxAddChannel">＋ Add Channel</button><button type="button" id="lxFxCancel">Cancel</button><button type="button" id="lxFxExport">Export JSON</button><button type="button" id="lxFxSave" class="lx-fixture-save">Save Fixture</button></div><div id="lxFxStatus" class="lx-fixture-status"></div><div class="section-divider" style="margin-top:16px"><span>CUSTOM FIXTURES</span></div><div id="lxFxLibrary" class="lx-library-list"></div></div>`;
     document.body.appendChild(modal);
     const close = () => modal.classList.remove("is-open");
     document.getElementById("lxFxCancel")?.addEventListener("click", close);
@@ -150,6 +160,9 @@
     document.getElementById("lxFxAddChannel")?.addEventListener("click", () => addChannelRow());
     document.getElementById("lxFxSave")?.addEventListener("click", saveFixture);
     document.getElementById("lxFxExport")?.addEventListener("click", exportFixture);
+    document.getElementById("lxFxAddSlot")?.addEventListener("click", () => addSlotRow());
+    document.getElementById("lxFxEvenSlots")?.addEventListener("click", evenSlots);
+    document.getElementById("lxFxFrom")?.addEventListener("change", e => startFrom(e.target.value));
     return modal;
   }
 
@@ -168,11 +181,111 @@
     const indexValue = index == null ? rows.length : index;
     const row = document.createElement("div");
     row.className = "lx-channel-row";
-    row.innerHTML = `<input value="${indexValue + 1}" disabled><select><option value="" ${attribute ? "" : "selected"}>— Unassigned —</option>${ATTRS.map(item => `<option value="${item}" ${item === attribute ? "selected" : ""}>${item}</option>`).join("")}</select><button type="button" title="Remove">×</button>`;
+    row.innerHTML = `<input value="${indexValue + 1}" disabled><select><option value="" ${attribute ? "" : "selected"}>— Unassigned —</option>${[...ATTRS, ...(attribute && !ATTRS.includes(attribute) ? [attribute] : [])].map(item => `<option value="${item}" ${item === attribute ? "selected" : ""}>${item}</option>`).join("")}</select><button type="button" title="Remove">×</button>`;
     row.querySelector("button")?.addEventListener("click", () => { row.remove(); renumberRows(); });
     box.appendChild(row);
     if (!silent) renumberRows();
   }
+
+  // ------------------------------------------------------- colour wheel
+
+  const rgbHex = rgb => "#" + (Array.isArray(rgb) ? rgb : [1, 1, 1]).map(v => Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 255).toString(16).padStart(2, "0")).join("");
+  const hexRgb = hex => { const n = parseInt(String(hex || "#ffffff").slice(1), 16) || 0; return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map(v => Math.round(v * 100) / 100); };
+  function hueOf([r, g, b]) {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d < 0.08) return null;
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return Math.round((h * 60 + 360) % 360);
+  }
+
+  function buildWheelRows(slots) {
+    const box = document.getElementById("lxFxWheel");
+    if (!box) return;
+    box.innerHTML = `<div class="lx-wheel-head"><span>NAME</span><span>FROM</span><span>TO</span><span>SEND</span><span>COLOUR</span><span></span><span></span></div>`;
+    (slots || []).forEach(slot => addSlotRow(slot));
+  }
+
+  function addSlotRow(slot = {}) {
+    const box = document.getElementById("lxFxWheel");
+    if (!box) return;
+    if (!box.querySelector(".lx-wheel-head")) buildWheelRows([]);
+    const rows = box.querySelectorAll(".lx-wheel-row");
+    const last = rows[rows.length - 1];
+    const from = slot.min ?? (last ? Number(last.querySelector("[data-k=max]").value) + 1 : 0);
+    const to = slot.max ?? Math.min(255, from + 15);
+    const row = document.createElement("div");
+    row.className = "lx-wheel-row";
+    row.innerHTML = `<input data-k="name" value="${escapeHtml(slot.name || (rows.length ? "" : "Open"))}" placeholder="Colour name"><input data-k="min" type="number" min="0" max="255" value="${from}"><input data-k="max" type="number" min="0" max="255" value="${to}"><input data-k="dmx" type="number" min="0" max="255" value="${slot.dmx ?? Math.round((from + to) / 2)}" title="The value that puts this slot full in the beam"><input data-k="rgb" type="color" value="${rgbHex(slot.rgb)}"><button type="button" data-test title="Send this slot to the patched lights of this fixture">Test</button><button type="button" data-del title="Remove">×</button>`;
+    row.querySelector("[data-del]").addEventListener("click", () => row.remove());
+    row.querySelector("[data-test]").addEventListener("click", () => testSlot(readSlot(row)));
+    box.appendChild(row);
+  }
+
+  function readSlot(row) {
+    const val = k => row.querySelector(`[data-k=${k}]`).value;
+    const rgb = hexRgb(val("rgb"));
+    const min = Math.max(0, Math.min(255, Math.round(Number(val("min")) || 0)));
+    const max = Math.max(min, Math.min(255, Math.round(Number(val("max")) || 0)));
+    const slot = { name: String(val("name")).trim(), min, max, dmx: Math.max(0, Math.min(255, Math.round(Number(val("dmx")) || 0))), rgb };
+    const hue = hueOf(rgb);
+    if (hue != null) slot.hue = hue;
+    return slot;
+  }
+  const readWheel = () => [...document.querySelectorAll("#lxFxWheel .lx-wheel-row")].map(readSlot).sort((a, b) => a.min - b.min);
+
+  // Put the patched lights of this fixture on a slot, to see it for real.
+  function testSlot(slot) {
+    const name = editingName || String(document.getElementById("lxFxName")?.value || "").trim();
+    const def = typeof FixtureLibrary !== "undefined" ? FixtureLibrary[name] : null;
+    const lights = (window.State?.fixtures || []).filter(f => f?.name === name);
+    if (!def || typeof def.map?.colour !== "number") { setFxStatus("Save the fixture with a colour channel first, then Test.", true); return; }
+    if (!lights.length) { setFxStatus(`No ${name} is patched — patch one to test on it.`, true); return; }
+    const cmy = ["cyan", "magenta", "yellow"].every(k => typeof def.map[k] === "number");
+    for (const f of lights) {
+      const st = typeof window.ensureFixtureState === "function" ? window.ensureFixtureState(f.id) : window.State.fixtureStates.get(f.id);
+      if (!st) continue;
+      st.colourSlot = slot.dmx;
+      if (cmy) delete st.colourSlotFor;
+      else { st.hue = slot.hue ?? 0; st.sat = slot.hue == null ? 0 : 100; st.colourSlotFor = `${st.hue}|${st.sat}`; }
+    }
+    window.updateDMX?.();
+    window.sendToVisualizer?.();
+    setFxStatus(`${lights.length} × ${name}: colour wheel to ${slot.dmx}${slot.name ? ` (${slot.name})` : ""}.`, false);
+  }
+
+  // A starting point: Open plus evenly spaced slots, to adjust with Test.
+  async function evenSlots() {
+    const r = await window.LXAsk?.("Even slots", [{ key: "count", label: "Slots including Open", value: 8, type: "number" }, { key: "top", label: "Last value before the wheel spins", value: 255, type: "number" }], { ok: "Make slots" });
+    if (!r) return;
+    const count = Math.max(2, Math.min(32, Math.round(Number(r.count) || 8)));
+    const top = Math.max(count, Math.min(255, Math.round(Number(r.top) || 255)));
+    const step = (top + 1) / count;
+    const slots = Array.from({ length: count }, (_, i) => {
+      const min = Math.round(i * step), max = Math.round((i + 1) * step) - 1;
+      return { name: i ? `Colour ${i}` : "Open", min, max, dmx: i ? Math.round(min + step / 2) : 0, rgb: [1, 1, 1] };
+    });
+    buildWheelRows(slots);
+    setFxStatus("Slots made: Test each one, then name it and set its colour.", false);
+  }
+
+  // Copy a library fixture (built-in or downloaded) as the starting point.
+  function startFrom(key) {
+    const def = key && typeof FixtureLibrary !== "undefined" ? FixtureLibrary[key] : null;
+    if (!def) return;
+    document.getElementById("lxFxName").value = editingName ? document.getElementById("lxFxName").value : `${key} (edited)`;
+    document.getElementById("lxFxType").value = def.type || "dimmer";
+    document.getElementById("lxFxManufacturer").value = def.manufacturer || def.photometrics?.manufacturer || "";
+    document.getElementById("lxFxModel").value = def.model || def.photometrics?.model || "";
+    document.getElementById("lxFxChannels").value = def.channels || 1;
+    document.getElementById("lxFxBeam").value = def.photometrics?.beamAngle ?? "";
+    const rows = Array.from({ length: Number(def.channels) || 1 }, () => ({ attribute: "" }));
+    for (const [attr, ch] of Object.entries(def.map || {})) if (rows[ch] && (!rows[ch].attribute || attr !== "intensity")) rows[ch] = { attribute: rows[ch].attribute === "dimmer" ? "dimmer" : attr };
+    buildChannelRows(rows);
+    buildWheelRows(def.colourWheel || []);
+    startedFrom = def;
+    setFxStatus(`Copied from ${key}. Change what's different, give it a new name and save.`, false);
+  }
+  let startedFrom = null;
 
   function renumberRows() {
     document.querySelectorAll("#lxFxChannelList .lx-channel-row").forEach((row, index) => {
@@ -200,7 +313,16 @@
     document.getElementById("lxFxModel").value = definition?.model || "";
     document.getElementById("lxFxChannels").value = definition?.channels || 8;
     document.getElementById("lxFxBeam").value = definition?.photometrics?.beamAngle ?? "";
-    buildChannelRows(definition ? Object.entries(definition.map || {}).sort((a, b) => a[1] - b[1]).map(([attribute]) => ({ attribute })) : null);
+    // One row per channel, in channel order (dimmer and intensity share one).
+    if (definition) {
+      const rows = Array.from({ length: Number(definition.channels) || 1 }, () => ({ attribute: "" }));
+      for (const [attr, ch] of Object.entries(definition.map || {})) if (rows[ch] && !(attr === "intensity" && rows[ch].attribute)) rows[ch] = { attribute: rows[ch].attribute === "dimmer" ? "dimmer" : attr };
+      buildChannelRows(rows);
+    } else buildChannelRows(null);
+    buildWheelRows(definition?.colourWheel || []);
+    startedFrom = null;
+    const from = document.getElementById("lxFxFrom");
+    if (from) from.innerHTML = `<option value="">— Blank —</option>` + Object.keys(typeof FixtureLibrary !== "undefined" ? FixtureLibrary : {}).sort().map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
     renderEditorLibrary();
     setTimeout(() => document.getElementById("lxFxName")?.focus(), 0);
   }
@@ -232,6 +354,15 @@
       custom: true
     };
     const custom = loadCustom();
+    // Keep what this editor doesn't show (shutter values, pan range, a
+    // downloaded fixture's details), from the fixture being edited or copied.
+    const before = (editingName && custom[editingName]) || startedFrom || {};
+    for (const key of ["strobeOpen", "strobeRange", "panRange", "tiltRange", "ofl"]) if (before[key] != null) definition[key] = before[key];
+    if (before.photometrics) definition.photometrics = { ...before.photometrics, ...definition.photometrics, verified: false };
+    // dimmer and intensity are one channel.
+    if (typeof map.dimmer === "number" && typeof map.intensity !== "number") map.intensity = map.dimmer;
+    const wheel = readWheel();
+    if (wheel.length) definition.colourWheel = wheel;
     if (editingName && editingName !== name) delete custom[editingName];
     custom[name] = definition;
     if (!saveCustom(custom)) { setFxStatus("Could not save custom fixture to local storage.", true); return; }

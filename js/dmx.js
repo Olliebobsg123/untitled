@@ -367,7 +367,10 @@ if(typeof map.cto==="number")write(base,map.cto,blackout?0:clamp255(saved.cto??0
 // Fixtures whose shutter and strobe share a channel (e.g. Robe) treat low
 // values as SHUTTER CLOSED. The console's strobe 0 means "open, no strobe", so
 // translate: 0 → open (32), 1-255 → strobe slow→fast (64-95).
-if(typeof map.shutter==="number"&&map.shutter===map.strobe){const strobe=Math.max(0,Math.min(255,Number(saved.strobe)||0));write(base,map.strobe,blackout?0:strobe===0?32:64+Math.round((strobe/255)*31));}
+// A profile that says where its shutter is open and where it strobes
+// (fixtures from Open Fixture Library): 0 → open, 1-255 → that range.
+if(typeof map.strobe==="number"&&Number.isFinite(Number(def.strobeOpen))){const strobe=Math.max(0,Math.min(255,Number(saved.strobe)||0));const[lo,hi]=Array.isArray(def.strobeRange)?def.strobeRange:[def.strobeOpen,def.strobeOpen];write(base,map.strobe,blackout?0:strobe===0?Number(def.strobeOpen):lo+Math.round((strobe/255)*(hi-lo)));}
+else if(typeof map.shutter==="number"&&map.shutter===map.strobe){const strobe=Math.max(0,Math.min(255,Number(saved.strobe)||0));write(base,map.strobe,blackout?0:strobe===0?32:64+Math.round((strobe/255)*31));}
 
 if(typeof map.pan==="number"){write(base,map.pan,saved.pan??128);if(typeof map.panf==="number")write(base,map.panf,saved.panf??0);}
 if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof map.tiltf==="number")write(base,map.tiltf,saved.tiltf??0);}

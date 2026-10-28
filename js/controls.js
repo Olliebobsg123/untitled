@@ -1058,9 +1058,11 @@
       const seen = new Set();
       def.colourWheel.forEach((slot, i) => {
         const value = slotValue(slot);
-        // The second Open (all the way round) is the same colour as the first.
-        if (isWhiteSlot(slot) && seen.has("white")) return;
-        if (isWhiteSlot(slot)) seen.add("white");
+        // A colour listed again further round (the second Open, or a wheel
+        // that repeats its colours) gets one button: the first.
+        const seenKey = isWhiteSlot(slot) ? "white" : String(slot.name || `#${(slot.rgb || []).join(",")}`).toLowerCase();
+        if (seen.has(seenKey)) return;
+        seen.add(seenKey);
         const rgb = (Array.isArray(slot.rgb) ? slot.rgb : [1, 1, 1]).map(v => Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 255));
         const button = document.createElement("button");
         button.type = "button";

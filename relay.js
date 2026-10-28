@@ -295,7 +295,13 @@ wss.on('connection', (ws, request) => {
   ws.on('error', err => console.error(`❌ WebSocket client ERROR (${remote}):`, err.message));
   ws.on('close', () => console.log(`🔌 WebSocket client disconnected ← ${remote}`));
 });
-const statsTimer = setInterval(() => console.log(`📊 RELAY STATUS — ${output.enabled && output.mode === 'LIVE' ? 'ON' : 'OFF'} ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe} mode=${output.mode}, clients=${wss.clients.size}, rx=${packetsReceived}, tx=${packetsSent}, rejected=${packetsRejected}`), 10000);
+// This relay is the old output path and is normally off: DMX goes out through
+// the DMX outputs (multi-output.js, its "DMX OUTPUT" lines). Only log it when
+// it's actually on, so an "OFF" here isn't mistaken for Art-Net being off.
+const statsTimer = setInterval(() => {
+  if (!(output.enabled && output.mode === 'LIVE')) return;
+  console.log(`📊 RELAY STATUS — ON ${output.protocol.toUpperCase()} target=${output.target} universe=${output.universe} mode=${output.mode}, clients=${wss.clients.size}, rx=${packetsReceived}, tx=${packetsSent}, rejected=${packetsRejected}`);
+}, 10000);
 const keepaliveTimer = setInterval(sendKeepaliveFrame, 800);
 const wsHeartbeatTimer = setInterval(() => {
   wss.clients.forEach(ws => {

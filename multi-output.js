@@ -255,11 +255,19 @@ function sendNetwork(output) {
   }
   const target = output.target || DEFAULT_NETWORK_TARGET;
   const packet = buildArtDMX(frame, output.universe);
-  artnetSocket.send(packet, 6454, target, err => noteSend(output, err));
+  const here = localAddresses();
+  // 255.255.255.255 only leaves by the Mac's main network; send it to each
+  // network's own broadcast address so every network the computer is on hears.
+  const targets = target === '255.255.255.255' && here.broadcasts.length ? here.broadcasts : [target];
+  targets.forEach((t, i) => artnetSocket.send(packet, 6454, t, i ? () => {} : err => noteSend(output, err)));
   // A visualiser on this computer (Capture…) only hears Art-Net sent to this
   // computer: a node's address goes out of the network port and never comes
   // back. sACN multicast does come back, which is why sACN reached it.
-  if (output.local && !/^127\./.test(target)) artnetSocket.send(packet, 6454, '127.0.0.1', () => {});
+  // Capture listens on the computer's network address (Options →
+  // Connectivity), others on 127.0.0.1, so the copy goes to both.
+  if (output.local && !/^127\./.test(target)) {
+    for (const address of ['127.0.0.1', ...here.addresses]) if (address !== target) artnetSocket.send(packet, 6454, address, () => {});
+  }
 }
 
 function statusFor(output) {
@@ -287,6 +295,17 @@ function networkInterfaces() {
     }
   }
   return list;
+}
+
+// This computer's addresses, looked up every few seconds (Wi-Fi joins, cables
+// go in) rather than 40 times a second.
+let addressCache = { at: 0, addresses: [], broadcasts: [] };
+function localAddresses() {
+  if (Date.now() - addressCache.at > 5000) {
+    const list = networkInterfaces();
+    addressCache = { at: Date.now(), addresses: [...new Set(list.map(i => i.address))], broadcasts: [...new Set(list.map(i => i.broadcast))] };
+  }
+  return addressCache;
 }
 
 function buildArtPoll() {
@@ -327,7 +346,7 @@ function discover(seconds = 2) {
       if (node) nodes.set(`${node.ip}|${node.name}|${node.universes.join(',')}`, node);
     };
     const poll = socket => {
-      const targets = new Set(['255.255.255.255', '2.255.255.255', '10.255.255.255', ...networkInterfaces().map(i => i.broadcast)]);
+      const targets = new Set(['255.255.255.255', '2.255.255.255', '10.255.255.255', '127.0.0.1', ...networkInterfaces().flatMap(i => [i.broadcast, i.address])]);
       for (const target of targets) socket.send(buildArtPoll(), 6454, target, () => {});
     };
     const listener = dgram.createSocket({ type: 'udp4', reuseAddr: true });
@@ -377,6 +396,32 @@ wss.on('connection', ws => {
   });
 });
 
+// One line per output in the log: what is going where, how fast, and why
+// not. Written when it changes, and every 30 s while anything is on.
+let lastLog = '', lastLogAt = 0, lastTx = new Map();
+function logOutputs() {
+  const now = Date.now(), seconds = Math.max(1, (now - (lastLogAt || now - 10000)) / 1000);
+  const lines = [...outputs.values()].map((o, i) => {
+    const name = o.protocol === 'sacn' ? 'sACN' : o.protocol === 'usb' ? 'USB DMX' : 'Art-Net';
+    const head = `DMX OUTPUT ${i + 1}: ${name} patch universe ${sourceUniverseFor(o)}`;
+    if (!o.enabled) return `${head} — OFF (tick Enabled in Settings → Outputs)`;
+    if (outputMode === 'BLIND') return `${head} — HELD (Blind, or the Free licence / a backup console)`;
+    const rate = Math.round(((o.tx || 0) - (lastTx.get(o.id) || 0)) / seconds);
+    lastTx.set(o.id, o.tx || 0);
+    const where = o.protocol === 'usb' ? `${o.usbDevice || 'no device'}${o.connected ? '' : ' (not connected)'}`
+      : `universe ${o.universe} → ${o.protocol === 'sacn' && o.multicast ? 'multicast' : o.target}${o.local && !/^127\./.test(o.target) ? ` + this computer (127.0.0.1${localAddresses().addresses.map(a => `, ${a}`).join('')})` : ''}`;
+    const lit = frameFor(sourceUniverseFor(o)).some(v => v > 0) ? '' : ', all levels 0';
+    return `${head} as ${where} — ${o.error ? `ERROR ${o.error}` : `ON, ~${rate} packets/s${lit}`}`;
+  });
+  const text = lines.length ? lines.join('\n') : 'DMX OUTPUT: none set up (Settings → Outputs → Add Output)';
+  const key = text.replace(/~\d+ packets/g, '');
+  if (key === lastLog && now - lastLogAt < 30000) return;
+  if (key === lastLog && ![...outputs.values()].some(o => o.enabled)) return;
+  lastLog = key; lastLogAt = now;
+  console.log(text);
+}
+const logTimer = setInterval(logOutputs, 2000);
+
 // Packet counts and "lights up" change all the time; the cards show them.
 const statusTimer = setInterval(() => { if ([...outputs.values()].some(o => o.enabled)) broadcastStatus(); }, 1000);
 
@@ -388,6 +433,7 @@ const keepAliveTimer = setInterval(() => {
 async function shutdown() {
   clearInterval(keepAliveTimer);
   clearInterval(statusTimer);
+  clearInterval(logTimer);
   for (const output of outputs.values()) stopOutput(output);
   try { artnetSocket.close(); } catch (_) {}
   try { sacnSocket.close(); } catch (_) {}

@@ -50,6 +50,7 @@ let servicesStarted = false;
 let relayService = null;
 let qlabBridgeService = null;
 let multiOutputService = null;
+let citpService = null;
 let usbDmxService = null;
 let shuttingDown = false;
 let qlabLicenseTimer = null;
@@ -267,6 +268,7 @@ function startServices() {
   // QLab is deliberately NOT started here. It is a Pro-only service and is
   // started below only after the renderer confirms the active licence tier.
   step('./multi-output.js'); try { multiOutputService = require('./multi-output.js'); console.log('✅ Multi-universe output service started'); } catch (err) { console.error('❌ Multi-universe output failed:', err); }
+  step('./citp.js'); try { citpService = require('./citp.js'); console.log('✅ CITP service started'); } catch (err) { console.error('❌ CITP service failed:', err); }
   step('./usb-dmx.js'); try { usbDmxService = require('./usb-dmx.js'); console.log('✅ USB-DMX service started'); } catch (err) { console.error('❌ USB-DMX service failed:', err); }
   step('desk link'); try { getDeskLink(); } catch (err) { console.error('❌ QLab Connect link failed:', err); }
 }
@@ -299,7 +301,7 @@ function stopServices() {
   if (shuttingDown) return;
   shuttingDown = true;
   if (qlabLicenseTimer) { clearTimeout(qlabLicenseTimer); qlabLicenseTimer = null; }
-  for (const [name, service] of [['Art-Net relay', relayService], ['QLab bridge', qlabBridgeService], ['Multi-universe output', multiOutputService], ['USB-DMX', usbDmxService]]) {
+  for (const [name, service] of [['Art-Net relay', relayService], ['QLab bridge', qlabBridgeService], ['Multi-universe output', multiOutputService], ['CITP', citpService], ['USB-DMX', usbDmxService]]) {
     try { if (service && typeof service.shutdown === 'function') service.shutdown(); } catch (err) { console.error(`❌ ${name} shutdown failed:`, err); }
   }
 }

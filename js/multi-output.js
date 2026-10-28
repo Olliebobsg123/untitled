@@ -252,6 +252,9 @@
     console.log(`✅ Multi Output restored from show: ${outputs.length} universes`);
   });
 
-  function install(){try{window.ArtNet?.stop?.();}catch(_){}installUI();connect();setInterval(sendDMX,40);setInterval(renderStatuses,1000);window.addEventListener("beforeunload",()=>{try{socket?.close();}catch(_){}});}
+  function install(){try{window.ArtNet?.stop?.();}catch(_){}installUI();connect();setInterval(sendDMX,40);setInterval(()=>{renderStatuses();
+    // The "(nothing patched)" labels follow the patch, unless you're typing in a card.
+    const sig=(window.State?.fixtures||[]).map(f=>f?.uni??f?.universe).join(",");
+    if(sig!==window.__lxOutputPatchSig){window.__lxOutputPatchSig=sig;if(!document.activeElement?.closest?.("#multiOutputHost"))render();}},1000);window.addEventListener("beforeunload",()=>{try{socket?.close();}catch(_){}});}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",install,{once:true});else install();
 })();

@@ -64,14 +64,14 @@
 // the half-frame borders (15, 48, 77, 109, 140, 171, 201); dmx is where a
 // full frame sits, which is what gets sent.
 const VL3000_COLOUR_WHEEL = [
-    { min: 0,   max: 15,  dmx: 0,   rgb: [1, 1, 1] },                  // Open
-    { min: 16,  max: 48,  dmx: 31,  rgb: [0, 0.2, 1],   hue: 225 },    // Congo Blue
-    { min: 49,  max: 77,  dmx: 62,  rgb: [1, 0.5, 0],   hue: 30 },     // Orange
-    { min: 78,  max: 109, dmx: 93,  rgb: [0, 1, 0.2],   hue: 130 },    // Kelly Green
-    { min: 110, max: 140, dmx: 124, rgb: [0.7, 0, 0.5], hue: 320 },    // Dark Fuchsia
-    { min: 141, max: 171, dmx: 155, rgb: [1, 0, 1],     hue: 300 },    // Magenta
-    { min: 172, max: 201, dmx: 186, rgb: [0.6, 0, 0],   hue: 0 },      // Deep Red
-    { min: 202, max: 216, dmx: 216, rgb: [1, 1, 1] }                   // Open (round again)
+    { name: "Open", min: 0,   max: 15,  dmx: 0,   rgb: [1, 1, 1] },
+    { name: "Congo Blue", min: 16,  max: 48,  dmx: 31,  rgb: [0, 0.2, 1],   hue: 225 },
+    { name: "Orange", min: 49,  max: 77,  dmx: 62,  rgb: [1, 0.5, 0],   hue: 30 },
+    { name: "Kelly Green", min: 78,  max: 109, dmx: 93,  rgb: [0, 1, 0.2],   hue: 130 },
+    { name: "Dark Fuchsia", min: 110, max: 140, dmx: 124, rgb: [0.7, 0, 0.5], hue: 320 },
+    { name: "Magenta", min: 141, max: 171, dmx: 155, rgb: [1, 0, 1],     hue: 300 },
+    { name: "Deep Red", min: 172, max: 201, dmx: 186, rgb: [0.6, 0, 0],   hue: 0 },
+    { name: "Open", min: 202, max: 216, dmx: 216, rgb: [1, 1, 1] }
 ];
 
 const FixtureLibrary = {
@@ -2911,6 +2911,9 @@ const FixtureLibrary = {
             focus: 5,
             zoom: 6,
             cto: 7,
+            blueMix: 8,     // Blue Mixer
+            amberMix: 9,    // Amber Mixer
+            magentaMix: 10, // Magenta Mixer
             colour: 11,
             gobo: 12,
             gobor: 13,
@@ -3027,6 +3030,9 @@ const FixtureLibrary = {
             tiltf: 4,
             focus: 5,       // Edge
             cto: 6,
+            blueMix: 7,
+            amberMix: 8,
+            magentaMix: 9,
             colour: 10,
             strobe: 11,
             control: 15

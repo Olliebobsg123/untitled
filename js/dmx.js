@@ -335,8 +335,15 @@ if(typeof map.w==="number")write(base,map.w,blackout?0:(saved.w??saved.white??0)
 // State.dmx.fill(0) at the top of this function) rather than driven
 // by this generic wheel logic at all.
 const hasCMYPrimary=typeof map.cyan==="number"&&typeof map.magenta==="number"&&typeof map.yellow==="number";
+// A slot picked from the Colour wheel buttons: exactly that slot. On a
+// wheel-only light it holds while the colour is still the one it set
+// (picking another colour hands the wheel back to the picker); on a CMY
+// light it holds until Open is picked.
+const slot=Number(saved.colourSlot);
+const slotHeld=Number.isFinite(slot)&&(hasCMYPrimary||saved.colourSlotFor===`${saved.hue}|${saved.sat}`);
+if(hasCMYPrimary&&slotHeld)write(base,map.colour,blackout?0:clamp255(slot));
 if(!hasCMYPrimary){
-const wVal=blackout?0:colourWheelDMX(def,hue,sat);
+const wVal=blackout?0:(slotHeld?clamp255(slot):colourWheelDMX(def,hue,sat));
 write(base,map.colour,wVal);
 if(typeof map.colourr==="number")write(base,map.colourr,blackout?0:clamp255(saved.colourr??0));
 }
@@ -355,7 +362,7 @@ if(typeof map.magenta==="number")write(base,map.magenta,blackout?0:clamp255(save
 if(typeof map.yellow==="number")write(base,map.yellow,blackout?0:clamp255(saved.yellow??0));
 if(typeof map.cto==="number")write(base,map.cto,blackout?0:clamp255(saved.cto??0));
 
-["strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro","shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate","shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate","shutter1AngleA","shutter1AngleB","shutter2AngleA","shutter2AngleB","shutter3AngleA","shutter3AngleB","shutter4AngleA","shutter4AngleB"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
+["blueMix","amberMix","magentaMix","strobe","gobo","gobo2","gobor","gobo2r","prism","prismr","focus","zoom","frost","iris","rot","effect","speed","macro","preset","shake","mode","zone","fog","fana","haze","fluid","colmacro","shutter1Insert","shutter1Rotate","shutter2Insert","shutter2Rotate","shutter3Insert","shutter3Rotate","shutter4Insert","shutter4Rotate","shutter1AngleA","shutter1AngleB","shutter2AngleA","shutter2AngleB","shutter3AngleA","shutter3AngleB","shutter4AngleA","shutter4AngleB"].forEach(k=>{if(typeof map[k]==="number")write(base,map[k],saved[k]??0);});
 
 // Fixtures whose shutter and strobe share a channel (e.g. Robe) treat low
 // values as SHUTTER CLOSED. The console's strobe 0 means "open, no strobe", so

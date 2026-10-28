@@ -23,7 +23,7 @@
 
   const POSITION = new Set(["pan", "panf", "tilt", "tiltf"]);
   const BEAM = /^(gobo|gobo2|gobor|gobo2r|prism|prismr|focus|zoom|frost|iris|rot|fresnel|shutter\d\w*)$/;
-  const COLOUR = /^(hue|sat|light|cyan|magenta|yellow|cto|colmacro|r|g|b|w|a|uv|lime|red|green|blue|white|amber)$|col|wheel/i;
+  const COLOUR = /^(hue|sat|light|cyan|magenta|yellow|cto|colmacro|r|g|b|w|a|uv|lime|red|green|blue|white|amber)$|col|wheel|Mix$/i;
   // Never preset: intensity, strobe and anything that makes light, smoke or
   // runs a built-in programme.
   const NEVER = /^(intensity|master|strobe|shutter|effect|speed|macro|preset|shake|mode|zone|fog|fana|haze|fluid|blackout)$|^__/;

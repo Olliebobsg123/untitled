@@ -497,7 +497,7 @@ function applyLightingState(globalState, fixtureMap) {
  */
 const TIME_PARTS = ["up", "down", "focus", "colour", "beam"];
 const FOCUS_KEYS = new Set(["pan", "tilt", "panf", "tiltf", "panFine", "tiltFine"]);
-const COLOUR_KEYS = new Set(["hue", "sat", "light", "r", "g", "b", "w", "amber", "a", "lime", "uv", "cyan", "magenta", "yellow", "colour", "colourr", "colmacro", "cto", "cct", "warmWhite", "naturalWhite", "coolWhite", "preset"]);
+const COLOUR_KEYS = new Set(["hue", "sat", "light", "r", "g", "b", "w", "amber", "a", "lime", "uv", "cyan", "magenta", "yellow", "colour", "colourr", "colourSlot", "colourSlotFor", "blueMix", "amberMix", "magentaMix", "colmacro", "cto", "cct", "warmWhite", "naturalWhite", "coolWhite", "preset"]);
 const BEAM_KEYS = new Set(["gobo", "gobo2", "gobor", "gobo2r", "prism", "prismr", "focus", "zoom", "frost", "iris", "rot", "shake", "effect", "speed"]);
 const INTENSITY_KEYS = new Set(["intensity", "master", "dimmer"]);
 const CURVES = {

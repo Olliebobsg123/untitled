@@ -138,7 +138,12 @@
         { type: "single", key: "cyan", label: "Cyan" },
         { type: "single", key: "magenta", label: "Magenta" },
         { type: "single", key: "yellow", label: "Yellow" },
-        { type: "single", key: "cto", label: "CTO" }
+        { type: "single", key: "cto", label: "CTO" },
+        // Vari-Lite's own mixing flags (VL3000: Blue, Amber, Magenta):
+        // faders of their own, so the colour picker keeps driving the wheel.
+        { type: "single", key: "blueMix", label: "Blue mix" },
+        { type: "single", key: "amberMix", label: "Amber mix" },
+        { type: "single", key: "magentaMix", label: "Magenta mix" }
       ]
     },
     {
@@ -1015,11 +1020,84 @@
       renderBeamAngle(containers.beam, lights);
       renderManualBarnDoors(containers.beam, lights);
     }
+    renderWheelSlots(containers.colour, fixtures);
 
     for (const key of activeKeys) {
       const fixture = fixtures.find(f => typeof getDefinition(f)?.map?.[key] === "number");
       const state = fixture ? getState(fixture) : null;
       setDynamicValue(key, state?.[key] ?? window.State.current?.[key] ?? 0);
+    }
+  }
+
+  // A fixed colour wheel's real colours as buttons (VL3000: Open, Congo
+  // Blue, Orange…): press one and the wheel goes to exactly that slot. For
+  // a wheel-only light the colour picker follows (so the visualiser and
+  // other lights match); picking another colour there hands the wheel back
+  // to the picker. For a CMY light (Cyberlight) the wheel is otherwise left
+  // open, so this is the only way to use it, and it stays until Open.
+  const slotValue = slot => Number.isFinite(Number(slot?.dmx)) ? Number(slot.dmx) : Math.round((Number(slot.min) + Number(slot.max)) / 2);
+  const isWhiteSlot = slot => Array.isArray(slot?.rgb) && Math.min(...slot.rgb) >= 0.95;
+  function renderWheelSlots(container, fixtures) {
+    const byDef = new Map();
+    for (const f of fixtures) {
+      const def = getDefinition(f);
+      if (typeof def?.map?.colour !== "number" || !Array.isArray(def.colourWheel) || !def.colourWheel.length) continue;
+      const key = f.name || "";
+      if (!byDef.has(key)) byDef.set(key, { def, fixtures: [] });
+      byDef.get(key).fixtures.push(f);
+    }
+    if (!byDef.size) return;
+    for (const [name, { def, fixtures: group }] of byDef) {
+      const card = document.createElement("div");
+      card.className = "control-group parameter-card wheel-slot-card";
+      const label = String(def.photometrics?.model || name).replace(/\s*\([^)]*\)\s*$/, "");
+      card.innerHTML = `<div class="dynamic-group-heading">Colour wheel${byDef.size > 1 ? ` · ${label}` : ""}</div><div class="wheel-slots"></div>`;
+      const box = card.querySelector(".wheel-slots");
+      const current = getState(group[0]) || {};
+      const cmy = hasTrueCMYOne(group[0]);
+      const seen = new Set();
+      def.colourWheel.forEach((slot, i) => {
+        const value = slotValue(slot);
+        // The second Open (all the way round) is the same colour as the first.
+        if (isWhiteSlot(slot) && seen.has("white")) return;
+        if (isWhiteSlot(slot)) seen.add("white");
+        const rgb = (Array.isArray(slot.rgb) ? slot.rgb : [1, 1, 1]).map(v => Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 255));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "wheel-slot";
+        const on = Number(current.colourSlot) === value && (cmy || current.colourSlotFor === `${current.hue}|${current.sat}`);
+        button.classList.toggle("on", on || (isWhiteSlot(slot) && current.colourSlot == null && cmy));
+        button.style.setProperty("--slot", `rgb(${rgb.join(",")})`);
+        button.title = `${slot.name || (isWhiteSlot(slot) ? "Open" : `Slot ${i}`)} · DMX ${value}`;
+        button.innerHTML = `<span class="wheel-slot-chip"></span><span>${slot.name || (isWhiteSlot(slot) ? "Open" : `Slot ${i}`)}</span>`;
+        button.addEventListener("click", () => {
+          for (const f of group) {
+            const state = getState(f);
+            if (!state) continue;
+            if (hasTrueCMYOne(f)) {
+              if (isWhiteSlot(slot)) delete state.colourSlot; else state.colourSlot = value;
+              delete state.colourSlotFor;
+            } else {
+              state.hue = Number(slot.hue ?? 0);
+              state.sat = isWhiteSlot(slot) ? 0 : 100;
+              state.colourSlot = value;
+              state.colourSlotFor = `${state.hue}|${state.sat}`;
+            }
+          }
+          window.updateDMX?.();
+          window.sendToVisualizer?.();
+          window.log?.(`${group.length > 1 ? `${group.length} × ` : ""}${label}: wheel to ${button.title}`, "ok");
+          renderDynamicControls();
+        });
+        box.appendChild(button);
+      });
+      container.prepend(card);
+    }
+    if (!document.getElementById("wheelSlotStyles")) {
+      const st = document.createElement("style");
+      st.id = "wheelSlotStyles";
+      st.textContent = `.wheel-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;margin-top:8px}.wheel-slot{display:flex;align-items:center;gap:7px;min-height:34px;padding:5px 8px;border:1px solid #26343a;border-radius:7px;background:#10171b;color:#c6d0ce;font-size:11px;font-weight:700;cursor:pointer;text-align:left}.wheel-slot-chip{flex:0 0 auto;width:16px;height:16px;border-radius:50%;background:var(--slot);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}.wheel-slot.on{border-color:var(--accent,#19d6a3);color:#edf4f2;background:#152026}`;
+      document.head.appendChild(st);
     }
   }
 

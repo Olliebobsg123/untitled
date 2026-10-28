@@ -170,7 +170,8 @@ async function startUsb(output) {
   output.error = null;
   output.tx = 0;
   const interval = Math.max(25, Math.round(1000 / output.refreshRate));
-  output.timer = setInterval(() => { if (output.enabled) sendOpenDMX(output); }, interval);
+  // Each settings change makes a new output object; send the current one.
+  output.timer = setInterval(() => { const current = outputs.get(output.id) || output; if (current.enabled) sendOpenDMX(current); }, interval);
   console.log(`MULTI USB CONNECTED → ${path} @ ${output.refreshRate}Hz universe ${output.universe}`);
 }
 
@@ -178,7 +179,13 @@ function startNetwork(output) {
   stopNetwork(output);
   if (!output.enabled || output.protocol === 'usb') return;
   sendNetwork(output);
-  output.networkTimer = setInterval(() => { if (output.enabled && output.protocol !== 'usb') sendNetwork(output); }, NETWORK_INTERVAL);
+  // Each settings change makes a new output object: send the current one, or
+  // a new target or universe would never be used until the output was
+  // switched off and on again.
+  output.networkTimer = setInterval(() => {
+    const current = outputs.get(output.id);
+    if (current?.enabled && current.protocol !== 'usb') sendNetwork(current);
+  }, NETWORK_INTERVAL);
 }
 
 async function configureOutput(config) {
@@ -194,6 +201,7 @@ async function configureOutput(config) {
     enabled: Boolean(config.enabled),
     target: String(config.target || DEFAULT_NETWORK_TARGET).trim(),
     multicast: protocol === 'sacn' ? Boolean(config.multicast) : false,
+    local: protocol === 'artnet' && config.local !== false,
     priority: clamp(config.priority, 0, 200, 100),
     connected: previous?.connected || false, error: null,
     port: previous?.port || null, timer: previous?.timer || null, networkTimer: previous?.networkTimer || null,
@@ -246,11 +254,16 @@ function sendNetwork(output) {
     return;
   }
   const target = output.target || DEFAULT_NETWORK_TARGET;
-  artnetSocket.send(buildArtDMX(frame, output.universe), 6454, target, err => noteSend(output, err));
+  const packet = buildArtDMX(frame, output.universe);
+  artnetSocket.send(packet, 6454, target, err => noteSend(output, err));
+  // A visualiser on this computer (Capture…) only hears Art-Net sent to this
+  // computer: a node's address goes out of the network port and never comes
+  // back. sACN multicast does come back, which is why sACN reached it.
+  if (output.local && !/^127\./.test(target)) artnetSocket.send(packet, 6454, '127.0.0.1', () => {});
 }
 
 function statusFor(output) {
-  return { id: output.id, protocol: output.protocol, universe: output.universe, source: sourceUniverseFor(output), lit: frameFor(sourceUniverseFor(output)).some(v => v > 0), target: output.target || '', usbDevice: output.usbDevice || '', enabled: output.enabled, connected: output.protocol === 'usb' ? Boolean(output.connected) : Boolean(output.enabled && udpReady), error: output.error || null, refreshRate: output.refreshRate, networkRefreshRate: output.protocol === 'usb' ? null : NETWORK_REFRESH_RATE, tx: output.tx || 0 };
+  return { id: output.id, protocol: output.protocol, universe: output.universe, source: sourceUniverseFor(output), lit: frameFor(sourceUniverseFor(output)).some(v => v > 0), target: output.target || '', local: Boolean(output.local), usbDevice: output.usbDevice || '', enabled: output.enabled, connected: output.protocol === 'usb' ? Boolean(output.connected) : Boolean(output.enabled && udpReady), error: output.error || null, refreshRate: output.refreshRate, networkRefreshRate: output.protocol === 'usb' ? null : NETWORK_REFRESH_RATE, tx: output.tx || 0 };
 }
 
 function broadcastStatus() {

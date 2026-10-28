@@ -190,7 +190,12 @@ function onPeerPatch(peer, msg, type) {
     let offset = 36, make, name;
     [make, offset] = readUcs1(msg, offset);
     [name] = readUcs1(msg, offset);
-    const fixture = { id: msg.readUInt16LE(28), universe: msg[30] + 1, channel: msg.readUInt16LE(32) + 1, count: msg.readUInt16LE(34), make, name };
+    // Capture can count addresses straight on through its universes (its
+    // "Patch base"): universe 2 channel 1 arrives as universe 1 channel 513.
+    // Fold those back into universe and address, or every light lands in
+    // universe 1.
+    const raw = msg.readUInt16LE(32);
+    const fixture = { id: msg.readUInt16LE(28), universe: msg[30] + 1 + Math.floor(raw / 512), channel: (raw % 512) + 1, count: msg.readUInt16LE(34), make, name };
     peer.patch.set(fixture.id, fixture);
     if (peer.requesting) {
       clearTimeout(peer.patchTimer);

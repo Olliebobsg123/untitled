@@ -286,14 +286,14 @@
     const kinds = new Map();
     for (const i of all) {
       const k = pickKey(i.make, i.name, i.count);
-      if (!kinds.has(k)) kinds.set(k, { ...i, ids: [], adds: 0, changes: 0 });
+      if (!kinds.has(k)) kinds.set(k, { ...i, ids: [], unis: new Set(), adds: 0, changes: 0 });
       const g = kinds.get(k);
-      g.ids.push(i.id); if (i.what === "add") g.adds++; if (i.what === "change") g.changes++;
+      g.ids.push(i.id); g.unis.add(i.universe); if (i.what === "add") g.adds++; if (i.what === "change") g.changes++;
     }
     const rows = [...kinds.values()].map(g => {
       const [cls, text] = KIND[g.profile.kind] || KIND.none;
       const ids = g.ids.sort((a, b) => a - b);
-      return `<li class="citp-kind ${cls}"><div><b>${esc(capName(g))}</b> <span>· Capture says ${g.count} channels · #${ids.length > 6 ? `${ids.slice(0, 5).join(", ")}… (${ids.length})` : ids.join(", ")}${g.adds ? ` · ${g.adds} to add` : ""}${g.changes ? ` · ${g.changes} to change` : ""}</span></div><div class="citp-pick">Light Spark profile ${pickerHtml(g, g.profile)}</div><div class="citp-kind-note">${text}</div></li>`;
+      return `<li class="citp-kind ${cls}"><div><b>${esc(capName(g))}</b> <span>· Capture says ${g.count} channels · universe ${[...g.unis].sort((a, b) => a - b).join(", ")} · #${ids.length > 6 ? `${ids.slice(0, 5).join(", ")}… (${ids.length})` : ids.join(", ")}${g.adds ? ` · ${g.adds} to add` : ""}${g.changes ? ` · ${g.changes} to change` : ""}</span></div><div class="citp-pick">Light Spark profile ${pickerHtml(g, g.profile)}</div><div class="citp-kind-note">${text}</div></li>`;
     });
     const bad = [...kinds.values()].filter(g => g.profile.kind === "none" || g.profile.kind === "close").length;
     const todo = d.add.length + d.change.length;

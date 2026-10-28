@@ -6,10 +6,15 @@
 //                        called Light Spark" on the CITP multicast address
 //                        (PINF/PLoc). A visualiser that says the same about
 //                        itself gets a TCP connection.
-//   Patch (FPTC)         the visualiser is told which lights are patched where:
-//                        number, universe, address, channel count, make and
-//                        name. Patching, moving or unpatching a light in Light
-//                        Spark changes it in the visualiser too.
+//   Patch (FPTC)         which way the patch goes (config.patchMode):
+//                        "send"    Light Spark's patch goes to the visualiser
+//                                  (number, universe, address, channel count,
+//                                  make and name) and follows every change;
+//                        "receive" the visualiser's patch comes here: asked for
+//                                  when it links, and its changes followed;
+//                        "off"     neither.
+//                        "Get Capture's patch" asks for it once (SPtc) and the
+//                        console page shows what would change before using it.
 //   Selection (FSEL)     selecting lights in Light Spark selects them in the
 //                        visualiser, and clicking lights there selects them here.
 //   Levels (SDMX)        optional: the DMX itself over the same connection.
@@ -30,10 +35,13 @@ const CITP_PORT = 4809;
 const GROUPS = ['239.224.0.180', '224.0.0.180'];
 const NAME = 'Light Spark';
 
-let config = { enabled: false, patch: true, selection: true, levels: false };
+let config = { enabled: false, patchMode: 'send', selection: true, levels: false };
+const sending = () => config.patchMode === 'send';
+const receiving = () => config.patchMode === 'receive';
 let patch = new Map();          // fixture number -> { id, universe, channel, count, make, name }
 let selection = [];             // fixture numbers
 let universes = {};             // universe (1-based) -> 512 levels
+let sentLevels = {};            // what each universe last went out as
 const peers = new Map();        // ip -> { ip, name, type, state, port, seen, socket, buffer, connected, sentPatch }
 let udp = null, server = null, tcpPort = 0, wss = null;
 let locTimer = null, levelTimer = null, sweepTimer = null;
@@ -90,6 +98,7 @@ function chbk(universe, levels) {
   body.writeUInt16LE(512, 4);
   return citp('SDMX', Buffer.concat([cookie('ChBk'), body, Buffer.from(levels)]));
 }
+const sptc = () => fptc('SPtc', 0, idList([])); // "send me your whole patch"
 const sdmxCapa = () => citp('SDMX', Buffer.concat([cookie('Capa'), u16(1), u16(1)])); // channel lists
 
 // Split a TCP stream into whole messages; returns what's left over.
@@ -142,7 +151,8 @@ const toAll = packet => { for (const peer of peers.values()) send(peer, packet);
 // Everything a newly connected visualiser needs to know.
 function welcome(peer) {
   send(peer, pinfName());
-  if (config.patch) sendPatch(peer);
+  if (sending()) sendPatch(peer);
+  if (receiving()) requestPatch(peer, false);
   if (config.selection && selection.length) send(peer, sele(selection));
   if (config.levels) send(peer, sdmxCapa());
 }
@@ -152,13 +162,56 @@ function sendPatch(peer, only = null) {
   list.forEach((f, i) => send(peer, ptch(f, list.length === 1 ? 0 : i === list.length - 1 ? 2 : 1)));
 }
 
+// ------------------------------------------------- the visualiser's patch
+
+// Ask for the whole patch. Replies come as a run of Ptch messages; the run is
+// over when one says it's the last, or nothing more comes for a moment.
+function requestPatch(peer, preview = true) {
+  peer.patch = new Map();
+  peer.requesting = preview ? 'preview' : 'follow';
+  send(peer, sptc());
+  clearTimeout(peer.patchTimer);
+  peer.patchTimer = setTimeout(() => finishPatch(peer), 2500);
+}
+
+function finishPatch(peer) {
+  clearTimeout(peer.patchTimer);
+  const fixtures = [...(peer.patch || new Map()).values()].sort((a, b) => a.id - b.id);
+  const why = peer.requesting;
+  peer.requesting = null;
+  if (why === 'preview') tell({ type: 'CITP_PEER_PATCH_FULL', from: peer.name || peer.ip, fixtures });
+  else if (why === 'follow') tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, fixtures, removed: [], complete: true });
+}
+
+function onPeerPatch(peer, msg, type) {
+  peer.patch ||= new Map();
+  const hint = msg.readUInt32LE(24);
+  if (type === 'Ptch') {
+    let offset = 36, make, name;
+    [make, offset] = readUcs1(msg, offset);
+    [name] = readUcs1(msg, offset);
+    const fixture = { id: msg.readUInt16LE(28), universe: msg[30] + 1, channel: msg.readUInt16LE(32) + 1, count: msg.readUInt16LE(34), make, name };
+    peer.patch.set(fixture.id, fixture);
+    if (peer.requesting) {
+      clearTimeout(peer.patchTimer);
+      peer.patchTimer = setTimeout(() => finishPatch(peer), hint === 2 ? 50 : 600);
+    } else if (receiving()) tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, fixtures: [fixture], removed: [] });
+    return;
+  }
+  // UPtc: these lights (or, with none listed, all of them) were unpatched there.
+  const ids = readIds(msg, 28);
+  const removed = ids.length ? ids : [...peer.patch.keys()];
+  removed.forEach(id => peer.patch.delete(id));
+  if (receiving() && !peer.requesting) tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, fixtures: [], removed });
+}
+
 function handle(peer, msg) {
   const layer = msg.toString('latin1', 16, 20);
   const type = msg.toString('latin1', 20, 24);
   if (layer === 'PINF' && type === 'PNam') { peer.name = readUcs1(msg, 24)[0] || peer.name; tellStatus(); return; }
   if (layer === 'FPTC') {
-    if (type === 'SPtc') { const ids = readIds(msg, 28); sendPatch(peer, ids.length ? ids : null); return; }
-    if (type === 'Ptch' || type === 'UPtc') { tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, message: type }); return; }
+    if (type === 'SPtc') { if (sending()) { const ids = readIds(msg, 28); sendPatch(peer, ids.length ? ids : null); } return; }
+    if (type === 'Ptch' || type === 'UPtc') { onPeerPatch(peer, msg, type); return; }
   }
   if (layer === 'FSEL' && config.selection) {
     if (type === 'Sele') {
@@ -257,7 +310,7 @@ function start() {
     });
     locTimer = setInterval(announce, 1000);
     sweepTimer = setInterval(sweep, 2000);
-    levelTimer = setInterval(sendLevels, 50);
+    levelTimer = setInterval(() => sendLevels(true), 1000);
   });
 }
 
@@ -289,9 +342,17 @@ function sweep() {
   if (changed) tellStatus();
 }
 
-function sendLevels() {
+// Levels go out the moment they change (and every second anyway, so a
+// visualiser that joins late or missed one catches up). Waiting for a
+// timer is what made CITP levels lag behind sACN.
+function sendLevels(all = false) {
   if (!config.levels || ![...peers.values()].some(p => p.connected)) return;
-  for (const [u, levels] of Object.entries(universes)) toAll(chbk(Number(u), levels));
+  for (const [u, levels] of Object.entries(universes)) {
+    const key = levels.join(',');
+    if (!all && sentLevels[u] === key) continue;
+    sentLevels[u] = key;
+    toAll(chbk(Number(u), levels));
+  }
 }
 
 // --------------------------------------------------------- from the console
@@ -306,7 +367,7 @@ function setPatch(list) {
   const removed = [...patch.keys()].filter(id => !next.has(id));
   const changed = [...next.values()].filter(f => JSON.stringify(f) !== JSON.stringify(patch.get(f.id)));
   patch = next;
-  if (!config.patch) return;
+  if (!sending()) return;
   if (removed.length) toAll(uptc(removed));
   changed.forEach((f, i) => toAll(ptch(f, changed.length === 1 ? 0 : i === changed.length - 1 ? 2 : 1)));
   if (removed.length || changed.length) tellStatus();
@@ -320,8 +381,16 @@ function setSelection(ids) {
 }
 
 function configure(next) {
-  const was = config.enabled;
+  const was = config.enabled, wasMode = config.patchMode;
+  // Older settings had patch: true/false.
+  if (next && next.patchMode == null && typeof next.patch === 'boolean') next = { ...next, patchMode: next.patch ? 'send' : 'off' };
   config = { ...config, ...next, enabled: Boolean(next?.enabled ?? config.enabled) };
+  if (!['send', 'receive', 'off'].includes(config.patchMode)) config.patchMode = 'send';
+  if (config.enabled && was && wasMode !== config.patchMode) {
+    for (const peer of peers.values()) if (peer.connected) { if (sending()) sendPatch(peer); if (receiving()) requestPatch(peer, false); }
+    tellStatus();
+    return;
+  }
   if (config.enabled && !was) start();
   else if (!config.enabled && was) stop();
   else if (config.enabled) { for (const peer of peers.values()) if (peer.connected) welcome(peer); tellStatus(); }
@@ -338,7 +407,12 @@ wss.on('connection', ws => {
       if (m.type === 'CITP_CONFIG') configure(m.config || {});
       else if (m.type === 'CITP_PATCH') setPatch(m.fixtures);
       else if (m.type === 'CITP_SELECTION') setSelection(m.ids);
-      else if (m.type === 'CITP_LEVELS') universes = m.universes && typeof m.universes === 'object' ? m.universes : {};
+      else if (m.type === 'CITP_LEVELS') { universes = m.universes && typeof m.universes === 'object' ? m.universes : {}; sendLevels(); }
+      else if (m.type === 'CITP_REQUEST_PATCH') {
+        const peer = [...peers.values()].find(p => p.connected);
+        if (peer) requestPatch(peer, true);
+        else tell({ type: 'CITP_PEER_PATCH_FULL', from: '', fixtures: [], error: 'No visualiser is linked yet' });
+      }
     } catch (err) { console.warn('CITP message error:', err.message); }
   });
 });

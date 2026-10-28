@@ -87,7 +87,6 @@ function ptch(f, hint = 0) {
   return fptc('Ptch', hint, Buffer.concat([body, ucs1(f.make), ucs1(f.name)]));
 }
 const idList = ids => Buffer.concat([u16(ids.length), ...ids.map(u16)]);
-const uptc = ids => fptc('UPtc', 0, idList(ids));
 const sele = ids => citp('FSEL', Buffer.concat([cookie('Sele'), Buffer.from([1, 0]), idList(ids)]));
 const dese = ids => citp('FSEL', Buffer.concat([cookie('DeSe'), idList(ids)]));
 function chbk(universe, levels) {
@@ -151,8 +150,9 @@ const toAll = packet => { for (const peer of peers.values()) send(peer, packet);
 // Everything a newly connected visualiser needs to know.
 function welcome(peer) {
   send(peer, pinfName());
-  if (sending()) sendPatch(peer);
-  if (receiving()) requestPatch(peer, false);
+  // Not while asking for the visualiser's patch: it would be overwritten first.
+  if (sending() && !request) sendPatch(peer);
+  if (receiving() && !request) requestPatch(peer, false);
   if (config.selection && selection.length) send(peer, sele(selection));
   if (config.levels) send(peer, sdmxCapa());
 }
@@ -166,21 +166,49 @@ function sendPatch(peer, only = null) {
 
 // Ask for the whole patch. Replies come as a run of Ptch messages; the run is
 // over when one says it's the last, or nothing more comes for a moment.
+// peer.patch keeps everything the visualiser has said since it linked, so if
+// it doesn't answer the question (or answers on another link), what it sent
+// when it linked is still there. Every link is asked: Capture with two
+// network addresses can have two.
+let request = null; // { why, links, got: Map, timer, relinked }
+
 function requestPatch(peer, preview = true) {
-  peer.patch = new Map();
-  peer.requesting = preview ? 'preview' : 'follow';
-  send(peer, sptc());
-  clearTimeout(peer.patchTimer);
-  peer.patchTimer = setTimeout(() => finishPatch(peer), 2500);
+  const links = peer ? [peer] : [...peers.values()].filter(p => p.connected);
+  clearTimeout(request?.timer);
+  request = { why: preview ? 'preview' : 'follow', links, got: new Map(), relinked: request?.relinked || false };
+  for (const p of links) send(p, sptc());
+  console.log(`CITP: asked ${links.map(p => `${p.name || 'peer'} (${p.ip})`).join(', ') || 'nobody'} for the patch`);
+  request.timer = setTimeout(finishPatch, 2500);
 }
 
-function finishPatch(peer) {
-  clearTimeout(peer.patchTimer);
-  const fixtures = [...(peer.patch || new Map()).values()].sort((a, b) => a.id - b.id);
-  const why = peer.requesting;
-  peer.requesting = null;
-  if (why === 'preview') tell({ type: 'CITP_PEER_PATCH_FULL', from: peer.name || peer.ip, fixtures });
-  else if (why === 'follow') tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, fixtures, removed: [], complete: true });
+function finishPatch() {
+  if (!request) return;
+  clearTimeout(request.timer);
+  const r = request;
+  let fixtures = [...r.got.values()];
+  let note = '';
+  if (!fixtures.length) {
+    // Nothing came back: use what the visualiser sent when it linked.
+    const known = new Map();
+    for (const p of r.links) for (const [id, f] of p.patch || []) known.set(id, f);
+    fixtures = [...known.values()];
+    if (fixtures.length) note = 'Capture didn\'t answer the request, so this is the patch it sent when it linked.';
+    else if (!r.relinked && r.why === 'preview' && r.links.length) {
+      // Some visualisers only send their patch when a console links: link again.
+      console.log('CITP: no patch came back — linking again to ask');
+      request = { ...r, relinked: true, got: new Map() };
+      for (const p of r.links) { try { p.socket?.destroy(); } catch (_) {} p.patch = new Map(); }
+      setTimeout(() => { for (const p of r.links) connect(p); }, 300);
+      request.timer = setTimeout(finishPatch, 5000);
+      return;
+    } else note = r.links.length ? 'Capture didn\'t send any lights. Check its patch has lights in it, and that Light Spark is chosen in Capture\'s Universes tab → Console links.' : '';
+  }
+  request = null;
+  fixtures.sort((a, b) => a.id - b.id);
+  const from = r.links.map(p => p.name || p.ip).filter(Boolean)[0] || 'Capture';
+  console.log(`CITP: ${fixtures.length} light${fixtures.length === 1 ? '' : 's'} from ${from}${note ? ` (${note})` : ''}`);
+  if (r.why === 'preview') tell({ type: 'CITP_PEER_PATCH_FULL', from, fixtures, note });
+  else tell({ type: 'CITP_PEER_PATCH', from, fixtures, removed: [], complete: fixtures.length > 0 });
 }
 
 function onPeerPatch(peer, msg, type) {
@@ -197,9 +225,11 @@ function onPeerPatch(peer, msg, type) {
     const raw = msg.readUInt16LE(32);
     const fixture = { id: msg.readUInt16LE(28), universe: msg[30] + 1 + Math.floor(raw / 512), channel: (raw % 512) + 1, count: msg.readUInt16LE(34), make, name };
     peer.patch.set(fixture.id, fixture);
-    if (peer.requesting) {
-      clearTimeout(peer.patchTimer);
-      peer.patchTimer = setTimeout(() => finishPatch(peer), hint === 2 ? 50 : 600);
+    if (request && (request.links.includes(peer) || !request.links.length)) {
+      if (!request.links.includes(peer)) request.links.push(peer);
+      request.got.set(fixture.id, fixture);
+      clearTimeout(request.timer);
+      request.timer = setTimeout(finishPatch, hint === 2 ? 50 : 600);
     } else if (receiving()) tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, fixtures: [fixture], removed: [] });
     return;
   }
@@ -207,7 +237,7 @@ function onPeerPatch(peer, msg, type) {
   const ids = readIds(msg, 28);
   const removed = ids.length ? ids : [...peer.patch.keys()];
   removed.forEach(id => peer.patch.delete(id));
-  if (receiving() && !peer.requesting) tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, fixtures: [], removed });
+  if (receiving() && !request) tell({ type: 'CITP_PEER_PATCH', from: peer.name || peer.ip, fixtures: [], removed });
 }
 
 function handle(peer, msg) {
@@ -373,7 +403,10 @@ function setPatch(list) {
   const changed = [...next.values()].filter(f => JSON.stringify(f) !== JSON.stringify(patch.get(f.id)));
   patch = next;
   if (!sending()) return;
-  if (removed.length) toAll(uptc(removed));
+  // Never unpatch lights in the visualiser from here: a light removed by
+  // mistake (or a show not loaded yet) would take the visualiser's patch
+  // with it. Unpatch there yourself.
+  if (removed.length) console.log(`CITP: ${removed.length} light${removed.length === 1 ? '' : 's'} unpatched here — left patched in the visualiser`);
   changed.forEach((f, i) => toAll(ptch(f, changed.length === 1 ? 0 : i === changed.length - 1 ? 2 : 1)));
   if (removed.length || changed.length) tellStatus();
 }
@@ -392,7 +425,8 @@ function configure(next) {
   config = { ...config, ...next, enabled: Boolean(next?.enabled ?? config.enabled) };
   if (!['send', 'receive', 'off'].includes(config.patchMode)) config.patchMode = 'send';
   if (config.enabled && was && wasMode !== config.patchMode) {
-    for (const peer of peers.values()) if (peer.connected) { if (sending()) sendPatch(peer); if (receiving()) requestPatch(peer, false); }
+    for (const peer of peers.values()) if (peer.connected && sending()) sendPatch(peer);
+    if (receiving()) requestPatch(null, false);
     tellStatus();
     return;
   }
@@ -414,8 +448,7 @@ wss.on('connection', ws => {
       else if (m.type === 'CITP_SELECTION') setSelection(m.ids);
       else if (m.type === 'CITP_LEVELS') { universes = m.universes && typeof m.universes === 'object' ? m.universes : {}; sendLevels(); }
       else if (m.type === 'CITP_REQUEST_PATCH') {
-        const peer = [...peers.values()].find(p => p.connected);
-        if (peer) requestPatch(peer, true);
+        if ([...peers.values()].some(p => p.connected)) { if (request) request.relinked = false; requestPatch(null, true); }
         else tell({ type: 'CITP_PEER_PATCH_FULL', from: '', fixtures: [], error: 'No visualiser is linked yet' });
       }
     } catch (err) { console.warn('CITP message error:', err.message); }

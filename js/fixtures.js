@@ -59,6 +59,21 @@
  */
 
 
+// Vari-Lite VL3000 Spot and Wash fixed colour wheel: Table 3-5 (filters)
+// and Table 3-6 (DMX map) of the VL3000 Series User's Manual. min/max are
+// the half-frame borders (15, 48, 77, 109, 140, 171, 201); dmx is where a
+// full frame sits, which is what gets sent.
+const VL3000_COLOUR_WHEEL = [
+    { min: 0,   max: 15,  dmx: 0,   rgb: [1, 1, 1] },                  // Open
+    { min: 16,  max: 48,  dmx: 31,  rgb: [0, 0.2, 1],   hue: 225 },    // Congo Blue
+    { min: 49,  max: 77,  dmx: 62,  rgb: [1, 0.5, 0],   hue: 30 },     // Orange
+    { min: 78,  max: 109, dmx: 93,  rgb: [0, 1, 0.2],   hue: 130 },    // Kelly Green
+    { min: 110, max: 140, dmx: 124, rgb: [0.7, 0, 0.5], hue: 320 },    // Dark Fuchsia
+    { min: 141, max: 171, dmx: 155, rgb: [1, 0, 1],     hue: 300 },    // Magenta
+    { min: 172, max: 201, dmx: 186, rgb: [0.6, 0, 0],   hue: 0 },      // Deep Red
+    { min: 202, max: 216, dmx: 216, rgb: [1, 1, 1] }                   // Open (round again)
+];
+
 const FixtureLibrary = {
 
 
@@ -2919,16 +2934,12 @@ const FixtureLibrary = {
         // would tie with Deep Red's real hue:0 and — since ties keep
         // whichever the search saw first — a picked red would resolve
         // to white instead.
-        colourWheel: [
-            { min: 0,   max: 15,  rgb: [1, 1, 1] },
-            { min: 16,  max: 48,  rgb: [0, 0.2, 1],     hue: 225 },
-            { min: 49,  max: 77,  rgb: [1, 0.5, 0],      hue: 30 },
-            { min: 78,  max: 109, rgb: [0, 1, 0.2],     hue: 130 },
-            { min: 110, max: 140, rgb: [0.7, 0, 0.5],   hue: 320 },
-            { min: 141, max: 171, rgb: [1, 0, 1],       hue: 300 },
-            { min: 172, max: 201, rgb: [0.6, 0, 0],       hue: 0 },
-            { min: 202, max: 216, rgb: [1, 1, 1] }
-        ],
+        // `dmx` is the slot's centre from Table 3-6 (Open 0, then a full
+        // frame every ~31: 31, 62, 93, 124, 155, 186, and Open again at
+        // 216). The middle of each min/max range is a step or more off
+        // centre, and for Open it was 8 — half way to the Open/Congo Blue
+        // half frame at 15, so "white" showed half blue.
+        colourWheel: VL3000_COLOUR_WHEEL,
 
         photometrics: {
             verified: true,
@@ -3004,6 +3015,48 @@ const FixtureLibrary = {
      * `effect` — the manual doesn't call it a prism, so it isn't mapped
      * as one.
      */
+    "Vari-Lite VL3000 Wash (16ch)": {
+        type: "moving",
+        channels: 16,
+        map: {
+            dimmer: 0,
+            intensity: 0,
+            pan: 1,
+            panf: 2,
+            tilt: 3,
+            tiltf: 4,
+            focus: 5,       // Edge
+            cto: 6,
+            colour: 10,
+            strobe: 11,
+            control: 15
+        },
+
+        // Same fixed colour wheel as the VL3000 Spot (Tables 3-5 and 3-6).
+        colourWheel: VL3000_COLOUR_WHEEL,
+
+        photometrics: {
+            verified: false,
+            sourceType: "DISCHARGE",
+            // Not given in the manual's DMX chapter; left null rather
+            // than guessed (see this file's photometrics policy).
+            ratedLumens: null,
+            beamAngle: null,
+            outputScale: 1.00,
+            colourTemperature: 6000,
+            manufacturer: "Vari-Lite",
+            model: "VL3000 Wash",
+            sourceNote:
+                "Channel map from Table 3-2 (\"VL3000 Wash Luminaire " +
+                "Enhanced 16-Bit Mode\"), Vari-Lite VL3000 Series " +
+                "Luminaire User's Manual (20-Aug-03, P/N 02.9678.0001 A): " +
+                "1 Intensity, 2-3 Pan, 4-5 Tilt, 6 Edge, 7 CTO, 8 Blue, " +
+                "9 Amber, 10 Magenta, 11 Color Wheel, 12 Strobe, 13-15 " +
+                "Focus/Color/Beam Time, 16 Control. Colour wheel from " +
+                "Tables 3-5 and 3-6."
+        }
+    },
+
     "High End Systems Cyberlight (20ch Mode 1)": {
         type: "moving",
         channels: 20,

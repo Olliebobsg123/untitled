@@ -256,7 +256,7 @@ function colourWheelDMX(def,hue,sat){
     if(!wheel.length) return clamp255((normaliseHue(hue)/360)*255);
     if(Number(sat)<5){
         const white=wheel.find(s=>Array.isArray(s.rgb)&&s.rgb[0]===1&&s.rgb[1]===1&&s.rgb[2]===1);
-        if(white) return clamp255((white.min+white.max)/2);
+        if(white) return slotDMX(white);
     }
     const target=normaliseHue(hue);
     let best=wheel[0], bestDist=Infinity;
@@ -271,7 +271,14 @@ function colourWheelDMX(def,hue,sat){
         d=Math.min(d,360-d);
         if(d<bestDist){bestDist=d; best=s;}
     });
-    return clamp255((best.min+best.max)/2);
+    return slotDMX(best);
+}
+
+// Where to send for a slot: its own DMX value when the profile gives one
+// (the manual's full-frame position), else the middle of its range.
+function slotDMX(slot){
+    if(Number.isFinite(Number(slot?.dmx)))return clamp255(Number(slot.dmx));
+    return clamp255((slot.min+slot.max)/2);
 }
 
 function write(base,ch,v){if(!Number.isInteger(ch))return;const a=base+ch;if(a>=0&&a<State.dmx.length)State.dmx[a]=clamp255(v);}

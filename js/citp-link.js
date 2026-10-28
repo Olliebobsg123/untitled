@@ -271,7 +271,7 @@
     const host = $("citpPreview");
     if (!host) return;
     if (m.error) { preview = null; host.innerHTML = `<div class="citp-note warn">${esc(m.error)} — tick “Link with a visualiser” and open Capture first.</div>`; return; }
-    preview = { from: m.from, fixtures: m.fixtures || [], overrides: preview?.from === m.from ? preview.overrides || {} : {} };
+    preview = { from: m.from, note: m.note || "", fixtures: m.fixtures || [], overrides: preview?.from === m.from ? preview.overrides || {} : {} };
     renderPreview();
   }
 
@@ -297,11 +297,11 @@
     });
     const bad = [...kinds.values()].filter(g => g.profile.kind === "none" || g.profile.kind === "close").length;
     const todo = d.add.length + d.change.length;
-    host.innerHTML = !preview.fixtures.length ? `<div class="citp-note">${esc(preview.from)} has no lights patched.</div>`
+    host.innerHTML = (preview.note ? `<div class="citp-note warn">${esc(preview.note)}</div>` : "") + (!preview.fixtures.length ? `<div class="citp-note">No lights came from ${esc(preview.from)}.</div>`
       : `<div class="citp-note"><b>${esc(preview.from)}</b> has ${sayCount(preview.fixtures.length, "light")}: ${d.add.length} to add, ${d.change.length} to change, ${d.same.length} already the same${d.missing.length ? `, and Light Spark has ${sayCount(d.missing.length, "light")} Capture doesn't` : ""}.${bad ? ` <span class="warn">Check the ${sayCount(bad, "kind")} of light marked ⚠ — the wrong profile drives the wrong channels.</span>` : ""}</div>`
         + `<ul class="citp-diff">${rows.join("")}</ul>`
         + (d.missing.length ? `<label class="citp-row"><input type="checkbox" id="citpUnpatchMissing"${keep ? " checked" : ""}> Also unpatch the ${sayCount(d.missing.length, "light")} Capture doesn't have (${d.missing.slice(0, 8).map(f => "#" + numberOf(f)).join(", ")}${d.missing.length > 8 ? "…" : ""})</label>` : "")
-        + `<div class="action-row"><button type="button" class="btn-primary" data-citp="apply"${todo || d.missing.length ? "" : " disabled"}>Use Capture's patch</button><button type="button" class="btn-secondary" data-citp="cancel">Cancel</button></div>`;
+        + `<div class="action-row"><button type="button" class="btn-primary" data-citp="apply"${todo || d.missing.length ? "" : " disabled"}>Use Capture's patch</button><button type="button" class="btn-secondary" data-citp="cancel">Cancel</button></div>`);
   }
 
   function pick(select) {
@@ -393,7 +393,7 @@
       <label class="citp-row"><input type="checkbox" data-c="selection"> Selection — select together</label>
       <label class="citp-row"><input type="checkbox" data-c="levels"> Levels too — send the DMX over CITP as well (only if the visualiser takes it)</label>
       <div id="citpPeers" class="citp-peers"></div><div id="citpLast" class="citp-note"></div>
-      <p class="citp-note">Made the patch in Capture? Pick “Capture → Light Spark” before linking, or Light Spark's patch is sent first and Capture's will match it. Levels lag more over CITP than sACN, so leave “Levels too” off when sACN is on.</p></div>`;
+      <p class="citp-note">Made the patch in Capture? Pick “Capture → Light Spark” before linking, or Light Spark's patch is sent first and Capture's will match it. Light Spark never unpatches lights in Capture — unpatch there yourself. Levels lag more over CITP than sACN, so leave “Levels too” off when sACN is on.</p></div>`;
     outputs.after(panel);
     if (!$("citpStyles")) {
       const st = document.createElement("style");
@@ -403,7 +403,7 @@
     }
     panel.addEventListener("click", e => {
       const a = e.target.closest("[data-citp]")?.dataset.citp;
-      if (a === "get") { $("citpPreview").innerHTML = `<div class="citp-note">Asking Capture for its patch…</div>`; send({ type: "CITP_REQUEST_PATCH" }); }
+      if (a === "get") { $("citpPreview").innerHTML = `<div class="citp-note">Asking Capture for its patch… (up to 10 seconds if it has to link again)</div>`; send({ type: "CITP_REQUEST_PATCH" }); }
       if (a === "apply") usePreview();
       if (a === "cancel") { preview = null; $("citpPreview").innerHTML = ""; }
     });

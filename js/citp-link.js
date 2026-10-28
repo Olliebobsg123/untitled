@@ -20,7 +20,7 @@
   const $ = id => document.getElementById(id);
   const S = () => window.State || {};
   const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  let config = { enabled: false, patchMode: "send", selection: true, levels: false };
+  let config = { enabled: false, patchMode: "send", selection: true, levels: false, addressing: "auto" };
   try { config = { ...config, ...(JSON.parse(localStorage.getItem(STORE) || "{}") || {}) }; } catch (_) {}
   if (typeof config.patch === "boolean") { config.patchMode = config.patch ? "send" : "off"; delete config.patch; }
   let socket = null, retry = null, status = null, lastPatch = "", lastSelection = "", fromPeer = false, lastLevels = "", lastLevelsAt = 0;
@@ -300,8 +300,13 @@
     host.innerHTML = (preview.note ? `<div class="citp-note warn">${esc(preview.note)}</div>` : "") + (!preview.fixtures.length ? `<div class="citp-note">No lights came from ${esc(preview.from)}.</div>`
       : `<div class="citp-note"><b>${esc(preview.from)}</b> has ${sayCount(preview.fixtures.length, "light")}: ${d.add.length} to add, ${d.change.length} to change, ${d.same.length} already the same${d.missing.length ? `, and Light Spark has ${sayCount(d.missing.length, "light")} Capture doesn't` : ""}.${bad ? ` <span class="warn">Check the ${sayCount(bad, "kind")} of light marked ⚠ — the wrong profile drives the wrong channels.</span>` : ""}</div>`
         + `<ul class="citp-diff">${rows.join("")}</ul>`
+        + `<details class="citp-raw"><summary>What Capture sent (universes ${[...new Set(preview.fixtures.map(f => f.universe))].sort((a, b) => a - b).join(", ")})</summary><div class="citp-note">If lights land in the wrong universe, try the other “Addresses” setting above, or copy this and send it.</div><button type="button" class="btn-secondary" data-citp="copyraw">Copy</button><pre>${esc(rawText())}</pre></details>`
         + (d.missing.length ? `<label class="citp-row"><input type="checkbox" id="citpUnpatchMissing"${keep ? " checked" : ""}> Also unpatch the ${sayCount(d.missing.length, "light")} Capture doesn't have (${d.missing.slice(0, 8).map(f => "#" + numberOf(f)).join(", ")}${d.missing.length > 8 ? "…" : ""})</label>` : "")
         + `<div class="action-row"><button type="button" class="btn-primary" data-citp="apply"${todo || d.missing.length ? "" : " disabled"}>Use Capture's patch</button><button type="button" class="btn-secondary" data-citp="cancel">Cancel</button></div>`);
+  }
+
+  function rawText() {
+    return (preview?.fixtures || []).map(f => `#${f.id} ${capName(f)} ${f.count}ch → ${f.universe}/${f.channel}` + (f.sent ? `   [sent: universe byte ${f.sent.universe}, channel ${f.sent.channel}, spare ${f.sent.spare}, ${f.sent.hex}]` : "")).join("\n");
   }
 
   function pick(select) {
@@ -366,6 +371,7 @@
     host.querySelector("[data-c=enabled]").checked = on;
     ["selection", "levels"].forEach(k => { host.querySelector(`[data-c=${k}]`).checked = Boolean(config[k]); });
     host.querySelector("[data-c=patchMode]").value = config.patchMode;
+    host.querySelector("[data-c=addressing]").value = config.addressing || "auto";
     const linked = peers.some(p => p.connected);
     host.querySelector("[data-citp=get]").disabled = !on || !linked;
     const list = $("citpPeers");
@@ -388,6 +394,7 @@
       <p class="citp-note">CITP lets Light Spark and a visualiser such as Capture share what they know: the lights you patch here appear in Capture at the right addresses, and selecting lights in one selects them in the other. The light levels still go by Art-Net or sACN (the outputs above) unless you tick “Levels too”.</p>
       <label class="citp-row"><input type="checkbox" data-c="enabled"> <b>Link with a visualiser</b></label>
       <label class="citp-row">Patch <select data-c="patchMode"><option value="send">Light Spark → Capture (Light Spark's patch counts)</option><option value="receive">Capture → Light Spark (Capture's patch counts)</option><option value="off">Don't share the patch</option></select></label>
+      <label class="citp-row">Addresses <select data-c="addressing"><option value="auto">Automatic</option><option value="split">Universe + address (2/1)</option><option value="through">Counted straight on (universe 2 starts at 513)</option></select></label>
       <div class="action-row" style="margin:0 0 8px"><button type="button" class="btn-secondary" data-citp="get">⇩ Get Capture's patch…</button></div>
       <div id="citpPreview"></div>
       <label class="citp-row"><input type="checkbox" data-c="selection"> Selection — select together</label>
@@ -398,7 +405,7 @@
     if (!$("citpStyles")) {
       const st = document.createElement("style");
       st.id = "citpStyles";
-      st.textContent = `.citp-kind{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;overflow-wrap:anywhere;padding:8px 6px!important;border-left:3px solid #3a4549}.citp-kind.ok{border-left-color:#19d6a3}.citp-kind.warn{border-left-color:#f2b84b}.citp-kind.bad{border-left-color:#ff6b6b}.citp-kind-note{font-size:11px;color:#7d8987}.citp-kind.warn .citp-kind-note{color:#f2b84b}.citp-kind.bad .citp-kind-note{color:#ff8a8a}.citp-pick{display:flex;align-items:center;gap:6px;font-size:11px;color:#7d8987}.citp-pick{flex-wrap:wrap}.citp-pick select{flex:1 1 180px;min-width:0;max-width:100%}.citp-note .warn{color:#f2b84b}.citp-diff{max-height:340px;overflow:auto;margin:0 0 10px;padding:0 0 0 2px;list-style:none;font-size:11.5px;color:#c6d0ce}.citp-diff li{padding:3px 0;border-bottom:1px solid #1c262b}.citp-diff b{display:inline-block;min-width:34px;color:#54f2c8}.citp-diff span{color:#7d8987}.citp-row select{margin-left:6px;min-width:0;flex:1}.citp-note{font-size:11px;line-height:1.55;color:#7d8987;margin:0 0 10px}.citp-note.warn{color:#f2b84b}.citp-row{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:12px;color:#c6d0ce;cursor:pointer}.citp-peers{display:grid;gap:6px;margin:6px 0 8px}.citp-peer{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #26343a;border-radius:8px;background:#0d1418}.citp-peer b{display:block;font-size:12px;color:#edf4f2}.citp-peer span{font-size:11px;color:#7d8987}.citp-peer .dot{width:9px;height:9px;border-radius:50%;background:#3a4549;flex:0 0 auto}.citp-peer .dot.on{background:#54f2c8;box-shadow:0 0 8px rgba(84,242,200,.6)}`;
+      st.textContent = `.citp-kind{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;overflow-wrap:anywhere;padding:8px 6px!important;border-left:3px solid #3a4549}.citp-kind.ok{border-left-color:#19d6a3}.citp-kind.warn{border-left-color:#f2b84b}.citp-kind.bad{border-left-color:#ff6b6b}.citp-kind-note{font-size:11px;color:#7d8987}.citp-kind.warn .citp-kind-note{color:#f2b84b}.citp-kind.bad .citp-kind-note{color:#ff8a8a}.citp-pick{display:flex;align-items:center;gap:6px;font-size:11px;color:#7d8987}.citp-pick{flex-wrap:wrap}.citp-pick select{flex:1 1 180px;min-width:0;max-width:100%}.citp-note .warn{color:#f2b84b}.citp-raw{margin:0 0 10px;font-size:11px;color:#9fb0ac}.citp-raw summary{cursor:pointer;padding:4px 0}.citp-raw pre{max-height:200px;overflow:auto;padding:8px;background:#0a0f12;border:1px solid #1c262b;border-radius:6px;font-size:10.5px;white-space:pre-wrap;user-select:text;-webkit-user-select:text}.citp-diff{max-height:340px;overflow:auto;margin:0 0 10px;padding:0 0 0 2px;list-style:none;font-size:11.5px;color:#c6d0ce}.citp-diff li{padding:3px 0;border-bottom:1px solid #1c262b}.citp-diff b{display:inline-block;min-width:34px;color:#54f2c8}.citp-diff span{color:#7d8987}.citp-row select{margin-left:6px;min-width:0;flex:1}.citp-note{font-size:11px;line-height:1.55;color:#7d8987;margin:0 0 10px}.citp-note.warn{color:#f2b84b}.citp-row{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:12px;color:#c6d0ce;cursor:pointer}.citp-peers{display:grid;gap:6px;margin:6px 0 8px}.citp-peer{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #26343a;border-radius:8px;background:#0d1418}.citp-peer b{display:block;font-size:12px;color:#edf4f2}.citp-peer span{font-size:11px;color:#7d8987}.citp-peer .dot{width:9px;height:9px;border-radius:50%;background:#3a4549;flex:0 0 auto}.citp-peer .dot.on{background:#54f2c8;box-shadow:0 0 8px rgba(84,242,200,.6)}`;
       document.head.appendChild(st);
     }
     panel.addEventListener("click", e => {
@@ -406,12 +413,14 @@
       if (a === "get") { $("citpPreview").innerHTML = `<div class="citp-note">Asking Capture for its patch… (up to 10 seconds if it has to link again)</div>`; send({ type: "CITP_REQUEST_PATCH" }); }
       if (a === "apply") usePreview();
       if (a === "cancel") { preview = null; $("citpPreview").innerHTML = ""; }
+      if (a === "copyraw") { try { navigator.clipboard.writeText(rawText()); window.log?.("Copied what Capture sent", "ok"); } catch (_) {} }
     });
     panel.addEventListener("change", e => {
       if (e.target.dataset.pick != null) return pick(e.target);
       const key = e.target.dataset.c;
       if (!key) return;
       config[key] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+      if (key === "addressing" && preview) setTimeout(() => { $("citpPreview").innerHTML = `<div class="citp-note">Asking Capture again with the new address setting…</div>`; send({ type: "CITP_REQUEST_PATCH" }); }, 50);
       save();
       lastPatch = lastSelection = "";
       send({ type: "CITP_CONFIG", config });

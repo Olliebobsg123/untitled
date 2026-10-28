@@ -35,7 +35,13 @@ const CITP_PORT = 4809;
 const GROUPS = ['239.224.0.180', '224.0.0.180'];
 const NAME = 'Light Spark';
 
-let config = { enabled: false, patchMode: 'send', selection: true, levels: false };
+// addressing: how the visualiser numbers addresses on CITP.
+//   "split"   universe + address in that universe (universe 2, address 1)
+//   "through" one count straight on through the universes (address 513),
+//             as Capture does with a consecutive Patch base
+//   "auto"    read either (an address past 512 runs on into the next
+//             universe); send universe + address
+let config = { enabled: false, patchMode: 'send', selection: true, levels: false, addressing: 'auto' };
 const sending = () => config.patchMode === 'send';
 const receiving = () => config.patchMode === 'receive';
 let patch = new Map();          // fixture number -> { id, universe, channel, count, make, name }
@@ -79,10 +85,11 @@ const pinfName = () => citp('PINF', Buffer.concat([cookie('PNam'), ucs1(NAME)]))
 const fptc = (type, hint, body) => citp('FPTC', Buffer.concat([cookie(type), u32(hint), body]));
 function ptch(f, hint = 0) {
   const body = Buffer.alloc(8);
+  const through = config.addressing === 'through';
   body.writeUInt16LE(f.id, 0);
-  body[2] = Math.max(0, f.universe - 1);    // 0-based universe
+  body[2] = through ? 0 : Math.max(0, f.universe - 1); // 0-based universe
   body[3] = 0;
-  body.writeUInt16LE(Math.max(0, f.channel - 1), 4); // 0-based channel
+  body.writeUInt16LE(through ? (Math.max(1, f.universe) - 1) * 512 + Math.max(0, f.channel - 1) : Math.max(0, f.channel - 1), 4); // 0-based
   body.writeUInt16LE(f.count, 6);
   return fptc('Ptch', hint, Buffer.concat([body, ucs1(f.make), ucs1(f.name)]));
 }
@@ -222,8 +229,15 @@ function onPeerPatch(peer, msg, type) {
     // "Patch base"): universe 2 channel 1 arrives as universe 1 channel 513.
     // Fold those back into universe and address, or every light lands in
     // universe 1.
-    const raw = msg.readUInt16LE(32);
-    const fixture = { id: msg.readUInt16LE(28), universe: msg[30] + 1 + Math.floor(raw / 512), channel: (raw % 512) + 1, count: msg.readUInt16LE(34), make, name };
+    const raw = msg.readUInt16LE(32), uByte = msg[30];
+    const fixture = config.addressing === 'split'
+      ? { universe: uByte + 1, channel: raw + 1 }
+      : config.addressing === 'through'
+        ? { universe: Math.floor(raw / 512) + 1, channel: (raw % 512) + 1 }
+        : { universe: uByte + 1 + Math.floor(raw / 512), channel: (raw % 512) + 1 };
+    Object.assign(fixture, { id: msg.readUInt16LE(28), count: msg.readUInt16LE(34), make, name });
+    // Exactly what came, for "What Capture sent" in the preview.
+    fixture.sent = { universe: uByte, channel: raw, spare: msg[31], hex: msg.subarray(24, Math.min(msg.length, 44)).toString('hex') };
     peer.patch.set(fixture.id, fixture);
     if (request && (request.links.includes(peer) || !request.links.length)) {
       if (!request.links.includes(peer)) request.links.push(peer);

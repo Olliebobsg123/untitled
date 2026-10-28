@@ -293,7 +293,10 @@ const saved=fixtureState(fixture.id)||State.current||{};
 // left in a show, e.g. 0 after Clear, must not hold a light dark).
 const master=1;
 const intensity=clamp100(saved.intensity??100)/100;
-const level=blackout?0:master*intensity;
+// Faders page: a group fader brings its lights up to its level when
+// that's brighter (submaster), and the grand master scales everything.
+const faders=window.LXFaders;
+const level=blackout?0:master*Math.max(intensity,faders?faders.levelFor(fixture.id):0)*(faders?faders.grand():1);
 
 const hue=normaliseHue(saved.hue??0),sat=clamp100(saved.sat??100),light=clamp100(saved.light??50);
 

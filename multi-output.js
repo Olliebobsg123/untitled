@@ -334,6 +334,78 @@ function parsePollReply(packet, from) {
   return { ip: ip === '0.0.0.0' ? from : ip, from, name: cstr(packet, 26, 18), longName: cstr(packet, 44, 64), universes };
 }
 
+// ------------------------------------------------------- saying who we are
+
+// Art-Net receivers like Capture find consoles by asking "who's there?"
+// (ArtPoll) and listing the ones that answer (ArtPollReply): a console that
+// never answers never shows up under Capture's External Universes, however
+// much DMX it sends. sACN needs no answer, which is why it worked. Capture
+// on this computer already has port 6454, so rather than listen for the
+// question Light Spark says hello every couple of seconds, which Art-Net
+// allows, to the same places its DMX goes.
+const VERSION = 14;
+function buildPollReply(ip, universes, bindIndex) {
+  const packet = Buffer.alloc(239);
+  Buffer.from('Art-Net\0', 'ascii').copy(packet, 0);
+  packet.writeUInt16LE(0x2100, 8);
+  String(ip).split('.').forEach((b, i) => { packet[10 + i] = Number(b) & 255; });
+  packet.writeUInt16LE(6454, 14);
+  packet.writeUInt16BE(1, 16);              // firmware version
+  const first = universes[0] ?? 0;
+  packet[18] = (first >> 8) & 0x7f;         // Net
+  packet[19] = (first >> 4) & 0x0f;         // Sub-Net
+  packet.writeUInt16BE(0x00ff, 20);         // OEM unknown
+  packet[23] = 0xd0;                        // indicators normal, addresses set here
+  Buffer.from('Light Spark', 'ascii').copy(packet, 26, 0, 17);
+  Buffer.from('Light Spark lighting console', 'ascii').copy(packet, 44, 0, 63);
+  Buffer.from(`#0001 [${String(universes.length).padStart(4, '0')}] Light Spark sending`, 'ascii').copy(packet, 108, 0, 63);
+  packet.writeUInt16BE(universes.length, 172);
+  universes.forEach((u, i) => {
+    packet[174 + i] = 0x40;                 // DMX512, goes onto the network from here
+    packet[178 + i] = 0x80;                 // data is coming in
+    packet[186 + i] = u & 0x0f;             // SwIn: the universe it sends
+  });
+  packet[200] = 0x01;                       // StController: a lighting console
+  String(ip).split('.').forEach((b, i) => { packet[207 + i] = Number(b) & 255; });
+  packet[211] = bindIndex;
+  packet[212] = 0x08;                       // 15-bit Port-Addresses (Art-Net 3/4)
+  return packet;
+}
+
+// One reply per group of up to 4 universes sharing a Net and Sub-Net.
+function pollReplyGroups() {
+  const universes = [...new Set([...outputs.values()].filter(o => o.enabled && o.protocol === 'artnet').map(o => o.universe))].sort((a, b) => a - b);
+  const groups = [];
+  for (const u of universes) {
+    const last = groups[groups.length - 1];
+    if (last && last.length < 4 && (last[0] >> 4) === (u >> 4)) last.push(u);
+    else groups.push([u]);
+  }
+  return groups;
+}
+
+function announce() {
+  if (!udpReady || outputMode === 'BLIND') return;
+  const groups = pollReplyGroups();
+  if (!groups.length) return;
+  const here = networkInterfaces();
+  const artnet = [...outputs.values()].filter(o => o.enabled && o.protocol === 'artnet');
+  // Each network hears the reply with this computer's address on that network.
+  const sends = here.length ? here.map(i => ({ ip: i.address, to: [i.broadcast, i.address] })) : [{ ip: '127.0.0.1', to: [] }];
+  sends[0].to.push('127.0.0.1');
+  for (const o of artnet) if (o.target && o.target !== '255.255.255.255' && !/^127\./.test(o.target)) {
+    const net = here.find(i => i.broadcast === o.target || i.address === o.target) || here[0];
+    if (net) (sends.find(s => s.ip === net.address) || sends[0]).to.push(o.target);
+  }
+  for (const { ip, to } of sends) {
+    groups.forEach((g, n) => {
+      const packet = buildPollReply(ip, g, n + 1);
+      for (const t of new Set(to)) artnetSocket.send(packet, 6454, t, () => {});
+    });
+  }
+}
+const announceTimer = setInterval(announce, 2500);
+
 // Ask every Art-Net node on the network to say hello (ArtPoll) and collect
 // the replies for a couple of seconds. Replies go to port 6454, so listen
 // there if nothing else on this computer already is.
@@ -343,6 +415,7 @@ function discover(seconds = 2) {
     const sockets = [];
     const onMessage = (packet, rinfo) => {
       const node = parsePollReply(packet, rinfo.address);
+      if (node && node.name === 'Light Spark' && networkInterfaces().some(i => i.address === node.ip)) return;
       if (node) nodes.set(`${node.ip}|${node.name}|${node.universes.join(',')}`, node);
     };
     const poll = socket => {
@@ -434,10 +507,11 @@ async function shutdown() {
   clearInterval(keepAliveTimer);
   clearInterval(statusTimer);
   clearInterval(logTimer);
+  clearInterval(announceTimer);
   for (const output of outputs.values()) stopOutput(output);
   try { artnetSocket.close(); } catch (_) {}
   try { sacnSocket.close(); } catch (_) {}
   try { wss?.close(); } catch (_) {}
 }
 
-module.exports = { shutdown, outputs, parsePollReply, networkInterfaces };
+module.exports = { shutdown, outputs, parsePollReply, networkInterfaces, buildPollReply };

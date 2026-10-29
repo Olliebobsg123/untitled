@@ -381,6 +381,8 @@ if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof ma
 // Faders page DMX-channel faders: that channel goes at least to the
 // fader's level (brighter wins), blackout aside.
 if(!blackout&&window.LXFaders?.dmxLevels){for(const [key,v] of window.LXFaders.dmxLevels()){const[u,a]=key.split(":").map(Number);const i=(u-1)*DMX_CHANNELS+(a-1);if(i>=0&&i<State.dmx.length)State.dmx[i]=Math.max(State.dmx[i],clamp255(v));}}
+// Haze & fog safety: a smoke machine that has run too long is cut (js/atmos-safety.js).
+try{window.LXAtmos?.limit?.(State.dmx);}catch(error){console.warn("[ATMOS]",error);}
 ArtNet.send();
 }
 

@@ -297,7 +297,7 @@
       if (["pan", "tilt"].some(diff)) chips.push(`<b class="ci-chip m">move</b>`);
       if (["gobo", "gobo2", "prism", "zoom", "focus", "iris", "frost"].some(diff)) chips.push(`<b class="ci-chip b">beam</b>`);
       if (diff("strobe")) chips.push(`<b class="ci-chip s">strobe</b>`);
-      if (chips.length) rows.push(`<div class="ci-fx"><span class="ci-fn">${esc(f.fixtureNumber)}</span><span class="ci-fname">${esc(f.name)}</span>${chips.join("")}</div>`);
+      if (chips.length) rows.push(`<div class="ci-fx"><span class="ci-fn">${esc(f.fixtureNumber)}</span><span class="ci-fname" title="${esc(f.name)}">${esc(window.fixtureLabel ? window.fixtureLabel(f) : f.name)}</span>${chips.join("")}</div>`);
     }
     if (!rows.length) return `<p class="ci-muted">${before ? "Nothing changes from the cue before." : "No lights on in this cue."}</p>`;
     return `<p class="ci-muted">${rows.length} light${rows.length === 1 ? "" : "s"} change${before ? " from the cue before" : ""}</p><div class="ci-fxs">${rows.slice(0, 80).join("")}${rows.length > 80 ? `<p class="ci-muted">…and ${rows.length - 80} more</p>` : ""}</div>`;

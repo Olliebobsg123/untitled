@@ -45,6 +45,7 @@ html body.lx-shell {
 }
 /* The Cue Inspector has its own cue list; a popped-out cue list leaves too. */
 html body.lx-shell[data-page="inspector"],
+html body.lx-shell[data-page="patch"],
 html body.lx-shell.lxw-out-cues {
   grid-template-columns: var(--rail) minmax(0, 1fr) 0 !important;
   grid-template-areas:
@@ -53,7 +54,8 @@ html body.lx-shell.lxw-out-cues {
     "sidebar log log"
     "sidebar cmd-line cmd-line" !important;
 }
-html body.lx-shell[data-page="inspector"] .shell-cues { display: none; }
+html body.lx-shell[data-page="inspector"] .shell-cues,
+html body.lx-shell[data-page="patch"] .shell-cues { display: none; }
 html body.lx-shell.lxw-out-log { grid-template-rows: 56px minmax(0, 1fr) 0 44px !important; }
 html body.lx-shell.lxw-out-log .bottom-row { display: none; }
 
@@ -212,3 +214,55 @@ body.lx-shell:not(.shell-wide) .sidebar-footer .mini-status { justify-content: c
 html[data-touch="on"] .shell-gobtn,
 html[data-touch="on"] .shell-back { height: 48px; }
 html[data-touch="on"] .shell-gobtn { min-width: 110px; }
+
+/* ---------- Lists: whole names, more room ---------- */
+
+/* Program page: the lists get more of the width. */
+body.lx-shell .live-grid { grid-template-columns: minmax(300px, .8fr) minmax(420px, 1.2fr) !important; }
+
+/* Groups: one per line, the whole name, and how many lights. */
+body.lx-shell #groupList { display: flex !important; flex-direction: column; gap: 3px; grid-template-columns: none !important; }
+body.lx-shell #groupList .group-item {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 34px; height: auto; padding: 6px 10px;
+  white-space: normal; overflow: visible; text-overflow: clip; text-align: left;
+  font-size: var(--fs-body); line-height: 1.3;
+}
+body.lx-shell #groupList .g-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+body.lx-shell #groupList .g-count { flex: 0 0 auto; min-width: 24px; padding: 1px 6px; border-radius: 9px; background: rgba(255,255,255,.06); color: #a9b5b2; font: 600 11px var(--mono); text-align: center; }
+
+/* Fixtures: number, short name, level — then where it's patched. */
+body.lx-shell #fixtureList .fixture-item { flex-shrink: 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; height: auto; min-height: 40px; padding: 6px 10px; }
+body.lx-shell .fixture-item .fx-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+body.lx-shell .fixture-item .fx-num { flex: 0 0 auto; min-width: 26px; color: var(--live); font: 700 13px var(--mono); }
+body.lx-shell .fixture-item .fx-name { flex: 1; min-width: 0; color: var(--text); font-size: var(--fs-body); font-weight: 600; overflow-wrap: anywhere; }
+body.lx-shell .fixture-item .fx-level { flex: 0 0 auto; color: #a9b5b2; font: 12px var(--mono); }
+body.lx-shell .fixture-item .fx-meta { display: block; padding-left: 34px; color: #95a29f; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.lx-shell .fixture-item.sel .fx-name { color: var(--live); }
+
+/* ---------- Patch: your patch is the page; the library is beside it ---------- */
+
+body.lx-shell #page-patch.active { height: 100%; }
+body.lx-shell #page-patch .patch-layout {
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr) 400px !important;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "table form" "table library" "rdm library";
+  align-items: stretch !important;
+}
+body.lx-shell #patchTablePanel { grid-area: table !important; grid-column: auto !important; min-height: 0; display: flex; flex-direction: column; }
+body.lx-shell #patchTablePanel > .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.lx-shell #patchTable { flex: 1; min-height: 0; overflow: auto; max-height: none !important; }
+body.lx-shell #rdmPanel { grid-area: rdm !important; grid-column: auto !important; }
+body.lx-shell #patchFormPanel { grid-area: form; }
+body.lx-shell #patchLibraryPanel { grid-area: library; min-height: 0; display: flex; flex-direction: column; }
+body.lx-shell #patchLibraryPanel > .panel-body { flex: 1; min-height: 0; }
+body.lx-shell #patchLibraryPanel .library-list { flex: 1; height: auto !important; min-height: 160px; }
+@media (max-width: 1180px) {
+  body.lx-shell #page-patch .patch-layout { grid-template-columns: 1fr !important; grid-template-rows: auto; grid-template-areas: "table" "form" "library" "rdm"; height: auto; }
+}
+body.lx-shell .shell-lib-toggle { margin-left: auto; height: 30px; padding: 0 12px; }
+body.lx-shell.patch-lib-hidden #page-patch .patch-layout { grid-template-columns: minmax(0, 1fr) !important; grid-template-areas: "table" "table" "rdm"; }
+body.lx-shell.patch-lib-hidden #patchFormPanel,
+body.lx-shell.patch-lib-hidden #patchLibraryPanel { display: none; }

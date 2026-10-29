@@ -60,7 +60,7 @@
     const { cues, rows } = compute();
     const unused = rows.filter(r => r.max === 0);
     const list = unusedOnly ? unused : rows;
-    const label = f => esc(f.label || f.customName || f.name || "");
+    const label = f => esc(window.fixtureLabel ? window.fixtureLabel(f) : f.label || f.name || "");
     const live = s.currentCue;
     host.innerHTML = `
       <div class="ts">

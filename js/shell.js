@@ -187,8 +187,26 @@
     }
   }
 
+  // Patch page: the library and patch form are a side panel you can hide.
+  function patchToggle(tries = 0) {
+    const head = document.querySelector("#patchTablePanel .panel-header");
+    if (!head) { if (tries < 50) setTimeout(() => patchToggle(tries + 1), 200); return; }
+    if ($("shellLibToggle")) return;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.id = "shellLibToggle";
+    b.className = "btn-secondary shell-lib-toggle";
+    const show = hidden => { document.body.classList.toggle("patch-lib-hidden", hidden); b.textContent = hidden ? "＋ Add fixtures (library)" : "Hide library ▸"; };
+    let hidden = false;
+    try { hidden = localStorage.getItem("lx-patch-lib-hidden") === "1"; } catch (_) {}
+    show(hidden);
+    b.addEventListener("click", () => { hidden = !document.body.classList.contains("patch-lib-hidden"); show(hidden); try { localStorage.setItem("lx-patch-lib-hidden", hidden ? "1" : "0"); } catch (_) {} });
+    head.appendChild(b);
+  }
+
   function install() {
     document.body.classList.add("lx-shell");
+    patchToggle();
     buildZones();
     buildTopbar();
     watchNav();

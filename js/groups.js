@@ -133,7 +133,15 @@
       const name = String(group.name || `Group ${groupIndex + 1}`);
       const el = document.createElement("div");
       el.className = "group-item";
-      el.textContent = name;
+      // The whole name (it wraps), and how many lights.
+      const nameEl = document.createElement("span");
+      nameEl.className = "g-name";
+      nameEl.textContent = name;
+      const count = document.createElement("span");
+      count.className = "g-count";
+      count.textContent = String(members.length);
+      el.append(nameEl, count);
+      el.title = `${name} — ${members.length} light${members.length === 1 ? "" : "s"}`;
       el.addEventListener("click", () => {
         if (!(State.selected instanceof Set)) State.selected = new Set();
         State.selected.clear();

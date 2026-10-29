@@ -365,7 +365,7 @@
     const k = name => main.querySelector(`[data-k="${name}"]`);
 
     // Header.
-    setHTML(main.querySelector(".fi-title"), `<b>${esc(f.fixtureNumber)}</b> ${esc(f.name)}`);
+    setHTML(main.querySelector(".fi-title"), `<b>${esc(f.fixtureNumber)}</b> ${esc(window.fixtureLabel ? window.fixtureLabel(f) : f.name)}`);
     setText(main.querySelector(".fi-sub"), `${String(f.name).toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")} · Univ ${f.uni} · Addr ${f.addr}`);
 
     // The value.

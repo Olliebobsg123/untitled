@@ -389,6 +389,8 @@
       if (window.LXBarGroups?.command?.(c)) return true;
       if (window.LXTrackingSheet?.command?.(c)) return true;
       if (window.LXSong?.command?.(c)) return true;
+      // "label 1 thru 4 Fresnel" (js/fixture-names.js): keeps the name's capitals.
+      if (window.LXFixtureNames?.command?.(c, raw)) return true;
       if (c === "cue list" || c === "cuelist") { window.LXWindows?.open("cuelist"); return; }
       if (c === "focus" || c === "point and shoot" || c === "point & shoot") { window.LXWindows?.open("focus"); return; }
       if ((m = c.match(/^focus\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/))) { window.LXFocus?.aimAt({ x: Number(m[1]), z: -Number(m[2]) }); return; }

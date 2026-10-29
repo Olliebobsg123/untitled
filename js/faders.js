@@ -140,7 +140,7 @@
       const f = fixtureNumbered(fd.number);
       if (!f) return `${fd.number} (not patched)`;
       const model = String(defOf(f).photometrics?.model || "");
-      return `${fd.number} ${(model && !/^unknown$/i.test(model) ? model : f.name).replace(/\s*\([^)]*\)\s*$/, "")}`;
+      return `${fd.number} ${f.label || (model && !/^unknown$/i.test(model) ? model : f.name).replace(/\s*\([^)]*\)\s*$/, "")}`;
     }
     if (fd.type === "param") return `${fd.label || fd.fixtures?.join(",")} ${PARAM_NAME[fd.attr] || fd.attr}`;
     if (fd.type === "dmx") return `DMX ${fd.universe}/${fd.address}`;
@@ -208,7 +208,7 @@
     const s = S(), fd = slot(page, i);
     const fixtures = (s.fixtures || []).filter(f => Number.isFinite(Number(f?.fixtureNumber))).sort((a, b) => a.fixtureNumber - b.fixtureNumber);
     const options = [["", "— Nothing (clear) —"], ["grand:", "Grand master"], ["param:", "A parameter of some lights (pan, tilt, zoom, colour…)…"], ["dmx:", "A DMX channel…"],
-      ...fixtures.map(f => [`fixture:${f.fixtureNumber}`, `Fixture ${f.fixtureNumber}: ${f.name}`]),
+      ...fixtures.map(f => [`fixture:${f.fixtureNumber}`, `Fixture ${f.fixtureNumber}: ${window.fixtureLabel ? window.fixtureLabel(f) : f.name}`]),
       ...(s.groups || []).filter(g => g?.name).map(g => [`group:${g.name}`, `Group: ${g.name}`]),
       ...Object.keys(s.savedEffects || {}).map(n => [`effect:${n}`, `Effect: ${n}`]),
       ...(s.chases || []).filter(c => c?.name).map(c => [`chase:${c.name}`, `Chase: ${c.name}`])];

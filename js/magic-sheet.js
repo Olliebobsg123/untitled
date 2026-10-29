@@ -309,7 +309,7 @@
   function rebuild() {
     const width = Math.max(360, panel.querySelector(".magic-stage").clientWidth);
     const state = S();
-    const key = JSON.stringify([width, (state.fixtures || []).map(f => f && [f.id, f.name, f.fixtureNumber, f.uni, f.addr]), state.visualizer?.positions || {}, Boolean(decode)]);
+    const key = JSON.stringify([width, (state.fixtures || []).map(f => f && [f.id, f.name, f.label, f.fixtureNumber, f.uni, f.addr]), state.visualizer?.positions || {}, Boolean(decode)]);
     if (key === layoutKey) return;
     layoutKey = key;
     const layout = buildLayout(width);
@@ -344,7 +344,7 @@
       num.textContent = item.fixture.fixtureNumber ?? "";
       const lvl = el("text", { y: item.kind === "bar" ? 24 : 34, class: "ms-lvl" }, g);
       const title = el("title", {}, g);
-      title.textContent = `${item.fixture.fixtureNumber}. ${item.fixture.name} — Uni ${item.fixture.uni} Addr ${item.fixture.addr}`;
+      title.textContent = `${item.fixture.fixtureNumber}. ${window.fixtureLabel ? window.fixtureLabel(item.fixture) : item.fixture.name}${item.fixture.label ? ` (${item.fixture.name})` : ""} — Uni ${item.fixture.uni} Addr ${item.fixture.addr}`;
       return { ...item, g, glow, lit, lvl, last: "" };
     });
     lasso = el("rect", { class: "ms-lasso", style: "display:none" }, svg);

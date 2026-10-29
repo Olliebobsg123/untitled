@@ -470,7 +470,7 @@
 
   function install(tries = 0) {
     if (!window.LXWindows?.register) { if (tries < 100) setTimeout(() => install(tries + 1), 200); return; }
-    if (!window.LXWindows.list().includes("song")) window.LXWindows.register({ id: "song", title: "Song Timeline", build, w: 960, h: 340 });
+    if (!window.LXWindows.list().includes("song")) window.LXWindows.register({ id: "song", title: "Song Timeline", build, w: 960, h: 340, snap: "bottom" });
     if (!document.getElementById("lxSongStyles")) {
       const st = document.createElement("style");
       st.id = "lxSongStyles";

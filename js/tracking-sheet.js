@@ -103,7 +103,7 @@
 
   function install(tries = 0) {
     if (!window.LXWindows?.register) { if (tries < 100) setTimeout(() => install(tries + 1), 200); return; }
-    if (!window.LXWindows.list().includes("tracking")) window.LXWindows.register({ id: "tracking", title: "Tracking Sheet", build, w: 760, h: 460 });
+    if (!window.LXWindows.list().includes("tracking")) window.LXWindows.register({ id: "tracking", title: "Tracking Sheet", build, w: 760, h: 460, snap: "top" });
     if (!document.getElementById("lxTsStyles")) {
       const st = document.createElement("style");
       st.id = "lxTsStyles";

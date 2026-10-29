@@ -385,9 +385,10 @@ function setIntensityUI(v){
   const intEl=document.getElementById('intensity'), valEl=document.getElementById('intVal') || document.getElementById('intensityVal');
   if(intEl)intEl.value=v; if(valEl)valEl.textContent=v+'%';
 }
+// Members are fixture ids (bar groups, Auto Create) or fixture numbers (typed).
 function selectGroup(grp){
   State.selected.clear(); let found=0;
-  (grp.members||[]).forEach(n=>{const f=getFixtureByNumber(n);if(f){State.selected.add(f.id);found++;}});
+  (grp.members||[]).forEach(n=>{const f=State.fixtures.find(x=>x&&String(x.id)===String(n))||getFixtureByNumber(n);if(f){State.selected.add(f.id);found++;}});
   renderFixtures?.(); updateControlsForSelection(); updateDMX?.();
   return found;
 }

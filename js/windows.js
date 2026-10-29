@@ -9,8 +9,12 @@
  * (Palettes, Preferences). Where each window was, its size, and which were
  * open are remembered.
  *
- *   LXWindows.open(id)  .close(id)  .toggle(id)  .isOpen(id)
- *   LXWindows.register({ id, title, panel | build, w, h, menu })
+ * A window can snap to a half of the workspace or fill it: ⊞ in its title
+ * bar, or drag it to an edge (left, right, top = fill, bottom). Snapped
+ * windows keep their place when the app window changes size.
+ *
+ *   LXWindows.open(id)  .close(id)  .toggle(id)  .isOpen(id)  .snap(id, where)
+ *   LXWindows.register({ id, title, panel | build, w, h, menu, snap })
  */
 (function () {
   if (window.LXWindows) return;
@@ -63,6 +67,74 @@
     Object.assign(el.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.w}px`, height: `${rect.h}px` });
   }
 
+  // Halves of the workspace (the area between the sidebar, top bar, cue list
+  // and command line), or all of it.
+  const SNAPS = { left: "Left half", right: "Right half", top: "Top half", bottom: "Bottom half", fill: "Fill the workspace" };
+  function snapRect(where) {
+    const a = workspaceRect(), g = 6;
+    const half = (n, of) => Math.round((of - g) / 2);
+    switch (where) {
+      case "left": return { x: a.left, y: a.top, w: half(1, a.width), h: a.height };
+      case "right": return { x: a.left + half(1, a.width) + g, y: a.top, w: half(1, a.width), h: a.height };
+      case "top": return { x: a.left, y: a.top, w: a.width, h: half(1, a.height) };
+      case "bottom": return { x: a.left, y: a.top + half(1, a.height) + g, w: a.width, h: half(1, a.height) };
+      case "fill": return { x: a.left, y: a.top, w: a.width, h: a.height };
+      default: return null;
+    }
+  }
+  function snapTo(id, where) {
+    const entry = open.get(id);
+    if (!entry || entry.host) return false;
+    const rect = snapRect(where);
+    if (!rect) return false;
+    place(entry.el, rect);
+    entry.el.dataset.snap = where;
+    saved[id] = { ...(saved[id] || {}), snap: where };
+    remember(id);
+    window.dispatchEvent(new Event("resize"));
+    return true;
+  }
+  function unsnap(id) {
+    const entry = open.get(id);
+    if (entry) delete entry.el.dataset.snap;
+    if (saved[id]) delete saved[id].snap;
+  }
+  // The app window changed size: snapped windows follow.
+  let resnapTimer = null;
+  window.addEventListener("resize", e => {
+    if (e.isTrusted === false) return;
+    clearTimeout(resnapTimer);
+    resnapTimer = setTimeout(() => { for (const [id, entry] of open) { const where = entry.el.dataset.snap; if (where && !entry.host) place(entry.el, snapRect(where)); } }, 60);
+  });
+  // While dragging: which edge the pointer is at, and a preview of the snap.
+  function edgeAt(x, y) {
+    const a = workspaceRect(), m = 28;
+    if (x < a.left + m) return "left";
+    if (x > a.left + a.width - m) return "right";
+    if (y < a.top + m) return "fill";
+    if (y > a.top + a.height - m) return "bottom";
+    return null;
+  }
+  function preview(where) {
+    let el = document.getElementById("lxwSnapPreview");
+    if (!where) { el?.remove(); return; }
+    if (!el) { el = document.createElement("div"); el.id = "lxwSnapPreview"; ensureLayer().appendChild(el); }
+    place(el, snapRect(where));
+  }
+  function snapMenu(id, button) {
+    document.querySelector(".lxw-snapmenu")?.remove();
+    const menu = document.createElement("div");
+    menu.className = "lxw-menu lxw-snapmenu";
+    menu.innerHTML = `<div class="lxw-menu-label">PUT IT</div>${Object.entries(SNAPS).map(([k, label]) => `<button type="button" data-snap="${k}"><span class="tick">${open.get(id)?.el.dataset.snap === k ? "●" : ""}</span><span>${label}</span><kbd></kbd></button>`).join("")}`;
+    document.body.appendChild(menu);
+    const r = button.getBoundingClientRect();
+    menu.style.left = `${Math.max(4, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 4))}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    const close = e => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener("pointerdown", close, true); } };
+    setTimeout(() => document.addEventListener("pointerdown", close, true), 0);
+    menu.addEventListener("click", e => { const b = e.target.closest("[data-snap]"); if (!b) return; menu.remove(); document.removeEventListener("pointerdown", close, true); snapTo(id, b.dataset.snap); });
+  }
+
   function defaultRect(def) {
     const area = workspaceRect();
     const count = open.size;
@@ -86,16 +158,27 @@
       event.preventDefault();
       front(id);
       handle.setPointerCapture(event.pointerId);
+      // A snapped window dragged by its title bar comes back to its own size.
+      if (mode === "move" && el.dataset.snap && !host) {
+        const back = saved[id]?.free;
+        unsnap(id);
+        if (back?.w) { const w = Math.min(back.w, innerWidth - 40); place(el, { x: event.clientX - w / 2, y: el.offsetTop, w, h: back.h }); }
+      }
       const start = { px: event.clientX, py: event.clientY, x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight };
+      let edge = null;
       const move = e => {
         const dx = e.clientX - start.px, dy = e.clientY - start.py;
         const rect = mode === "move" ? { x: start.x + dx, y: start.y + dy, w: start.w, h: start.h } : { x: start.x, y: start.y, w: start.w + dx, h: start.h + dy };
         place(el, clamp(snap(rect, mode), host));
+        if (mode === "move" && !host) { const now = edgeAt(e.clientX, e.clientY); if (now !== edge) { edge = now; preview(edge); } }
       };
       const up = () => {
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", up);
         handle.removeEventListener("pointercancel", up);
+        preview(null);
+        if (mode === "size" && !host) unsnap(id);
+        if (edge) { saved[id] = { ...(saved[id] || {}), free: { w: start.w, h: start.h } }; snapTo(id, edge); return; }
         remember(id);
         window.dispatchEvent(new Event("resize")); // magic sheet etc. re-lay out
       };
@@ -148,7 +231,7 @@
     const el = document.createElement("div");
     el.className = "lxw";
     el.dataset.win = id;
-    el.innerHTML = `<div class="lxw-bar"><span class="lxw-title"></span>${def.panel ? '<button type="button" class="lxw-dock" title="Put back in the page">⇲</button>' : ""}<button type="button" class="lxw-close" title="Close">×</button></div><div class="lxw-body"></div><div class="lxw-grip"></div>`;
+    el.innerHTML = `<div class="lxw-bar"><span class="lxw-title"></span>${host ? "" : '<button type="button" class="lxw-snap" title="Snap to half the workspace, or fill it (or drag the window to an edge)">⊞</button>'}${def.panel ? '<button type="button" class="lxw-dock" title="Put back in the page">⇲</button>' : ""}<button type="button" class="lxw-close" title="Close">×</button></div><div class="lxw-body"></div><div class="lxw-grip"></div>`;
     el.querySelector(".lxw-title").textContent = def.title;
     const body = el.querySelector(".lxw-body");
     if (host) { el.classList.add("lxw-docked"); host.el.appendChild(el); }
@@ -163,6 +246,10 @@
     const userClose = () => { host?.onRemove?.(id); closeWindow(id); };
     el.querySelector(".lxw-close").addEventListener("click", userClose);
     el.querySelector(".lxw-dock")?.addEventListener("click", userClose);
+    el.querySelector(".lxw-snap")?.addEventListener("click", e => snapMenu(id, e.currentTarget));
+    // Where it was snapped last time, or where this kind of window starts.
+    const where = host ? null : saved[id]?.w ? saved[id].snap : def.snap;
+    if (where && snapRect(where)) { place(el, snapRect(where)); el.dataset.snap = where; saved[id] = { ...(saved[id] || {}), snap: where }; }
     drag(el.querySelector(".lxw-bar"), el, id, "move");
     drag(el.querySelector(".lxw-grip"), el, id, "size");
     bodyClass(def, true);
@@ -372,6 +459,7 @@
   }
 
   window.LXWindows = Object.freeze({
+    snap: snapTo,
     register, open: openWindow, close: closeWindow, toggle,
     isOpen: id => open.has(id),
     hostOf: id => open.get(id)?.host || null,

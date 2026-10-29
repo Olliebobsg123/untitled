@@ -155,6 +155,17 @@
     if (!host) return;
     const f = data();
     $("fadersPages").innerHTML = Array.from({ length: PAGES }, (_, p) => `<button type="button" class="fd-page${p === page ? " on" : ""}" data-page="${p}">Page ${p + 1}</button>`).join("") + `<button type="button" class="fd-page fd-fillbtn" data-fill>Fill with fixtures…</button>`;
+    // Nothing on this page yet: say what faders are for, and a way to start.
+    const start = $("fadersStart");
+    if (start) {
+      const blank = f.pages[page].every(fd => !fd.type);
+      start.hidden = !blank;
+      if (blank) {
+        const groups = (S().groups || []).filter(g => g?.name).length;
+        start.innerHTML = `<div><b>Assign groups or cues to faders</b><span>A fader brings its lights up by hand — a group, one light, an effect, a chase, or the grand master. Tap ＋ on a fader, or fill the page in one go:</span></div>
+          <div class="fd-start-buttons">${groups ? `<button type="button" class="btn-primary" data-start="groups">Put my ${groups} group${groups === 1 ? "" : "s"} on faders</button>` : ""}<button type="button" class="${groups ? "btn-secondary" : "btn-primary"}" data-start="fixtures">A fader per light…</button><button type="button" class="btn-secondary" data-start="one">Assign fader ${page * PER_PAGE + 1} myself</button></div>`;
+      }
+    }
     host.innerHTML = f.pages[page].map((fd, i) => {
       const lvl = fd.type === "grand" ? Number(f.grand) : Number(fd.level) || 0;
       const empty = !fd.type;
@@ -257,6 +268,19 @@
     render(); output();
   }
 
+  // Your groups, a fader each, in order (and the grand master on the last).
+  function fillWithGroups() {
+    const groups = (S().groups || []).filter(g => g?.name).slice(0, PER_PAGE - 1);
+    if (!groups.length) { window.log?.("Make some groups first", "warn"); return; }
+    data().pages[page].forEach((fd, i) => {
+      fd.level = 0; sync(page, i);
+      for (const k of Object.keys(fd)) delete fd[k];
+      Object.assign(fd, groups[i] ? { type: "group", name: groups[i].name, level: 0 } : i === PER_PAGE - 1 ? { type: "grand", name: "", level: 0 } : { type: "", level: 0 });
+    });
+    render(); output();
+    window.log?.(`Faders: ${groups.map(g => g.name).join(", ")}, and the grand master`, "ok");
+  }
+
   // The command line's suggestions sit over the bottom of the page while it
   // has the focus; touching a fader is done with typing.
   const leaveTyping = () => { const a = document.activeElement; if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName)) a.blur(); };
@@ -329,6 +353,13 @@
       .fd-grand .fd-fill{background:linear-gradient(180deg,#f2b84b,rgba(242,184,75,.25))}
       .fd-grand .fd-flash.down{background:#ff6b6b}
       .fd-fillbtn{margin-left:auto}
+      .fd-start{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 10px;padding:14px 16px;border:1px dashed var(--accent-line,#1f5a4a);border-radius:10px;background:rgba(25,214,163,.05)}
+      .fd-start[hidden]{display:none}
+      .fd-start > div:first-child{flex:1 1 320px;display:flex;flex-direction:column;gap:4px}
+      .fd-start b{color:var(--text);font-size:16px}
+      .fd-start span{color:var(--text-soft,#c9d3d1);font-size:13px;line-height:1.45}
+      .fd-start-buttons{display:flex;flex-wrap:wrap;gap:8px}
+      .fd-start-buttons button{min-height:38px;padding:0 14px}
       .fd-param .fd-fill{background:linear-gradient(180deg,#5ca8ff,rgba(92,168,255,.25))}
       .fd-dmx .fd-fill{background:linear-gradient(180deg,#c6d0ce,rgba(198,208,206,.2))}
       .fd-effect .fd-fill,.fd-chase .fd-fill{background:linear-gradient(180deg,#9b7bff,rgba(155,123,255,.25))}
@@ -346,7 +377,7 @@
     const pageEl = document.createElement("div");
     pageEl.className = "page";
     pageEl.id = "page-faders";
-    pageEl.innerHTML = `<section class="panel" style="height:100%"><div class="panel-header"><div><span class="eyebrow">PLAYBACK</span> Faders</div><span class="panel-meta">GROUPS · EFFECTS · CHASES</span></div><div class="panel-body"><div class="fd-pages" id="fadersPages"></div><div class="fd-bank" id="fadersBank"></div></div></section>`;
+    pageEl.innerHTML = `<section class="panel" style="height:100%"><div class="panel-header"><div><span class="eyebrow">PLAYBACK</span> Faders</div><span class="panel-meta">GROUPS · EFFECTS · CHASES</span></div><div class="panel-body"><div class="fd-pages" id="fadersPages"></div><div class="fd-start" id="fadersStart" hidden></div><div class="fd-bank" id="fadersBank"></div></div></section>`;
     main.appendChild(pageEl);
     const nav = document.createElement("button");
     nav.className = "nav-link";
@@ -366,6 +397,12 @@
       render();
     });
     document.querySelectorAll(".nav-link[data-page]").forEach((b, i) => { const tag = b.querySelector("b"); if (tag) tag.textContent = String(i + 1).padStart(2, "0"); });
+    $("fadersStart").addEventListener("click", e => {
+      const a = e.target.closest("[data-start]")?.dataset.start;
+      if (a === "groups") fillWithGroups();
+      else if (a === "fixtures") fillWithFixtures();
+      else if (a === "one") assign(0);
+    });
     $("fadersPages").addEventListener("click", e => { if (e.target.closest("[data-fill]")) { fillWithFixtures(); return; } const b = e.target.closest("[data-page]"); if (b) { page = Number(b.dataset.page); render(); } });
     wire($("fadersBank"));
     render();

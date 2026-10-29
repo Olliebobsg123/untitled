@@ -213,6 +213,7 @@
       palettes: cloneValue(state.palettes || []),
       faders: state.faders ? cloneValue(state.faders) : null,
       tempo: state.tempo ? cloneValue(state.tempo) : null,
+      song: state.song ? cloneValue(state.song) : null,
       targets: cloneValue(state.targets || []),
       fixtureStates: state.fixtureStates instanceof Map ? [...state.fixtureStates.entries()].map(([id, value]) => [id, cloneValue(value)]) : [],
       current: cloneValue(state.current || {}),
@@ -360,6 +361,8 @@
     state.palettes = Array.isArray(show.palettes) ? show.palettes : [];
     state.faders = show.faders && typeof show.faders === "object" ? show.faders : null;
     state.tempo = show.tempo && Number(show.tempo.bpm) > 0 ? { bpm: Number(show.tempo.bpm) } : null;
+    // The Song Timeline's track: its name, length and waveform (the audio stays on each Mac).
+    state.song = show.song && typeof show.song === "object" && Number(show.song.duration) > 0 ? show.song : null;
     state.targets = Array.isArray(show.targets) ? show.targets : [];
     state.current = show.current && typeof show.current === "object" ? cloneValue(show.current) : {};
     state.selectedFixtureId = show.selectedFixtureId ?? null;

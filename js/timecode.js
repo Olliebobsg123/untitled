@@ -8,6 +8,8 @@
  *   LTC       timecode as audio, from a sound card input (js/ltc.js decodes)
  *   Internal  Light Spark's own clock: play / pause / locate in the
  *             Timecode window — for rehearsing without the sound desk.
+ *   Song      the Song Timeline playing its track (js/song-timeline.js),
+ *             while it plays, whatever is chosen.
  *
  * If the time jumps (someone locates in the DAW), the cue that should be
  * live at the new time is put up — straight away or with its own fade.
@@ -74,7 +76,10 @@
   const unwrap = seconds => (seconds > 24 * 3600 - 60 ? seconds - 24 * 3600 : seconds);
   // A source reports a time. Ignored unless it's the chosen source.
   function feed(seconds, source, fps) {
-    if (source !== pref("tcSource", "off")) return;
+    // The Song Timeline (js/song-timeline.js) playing its track is the
+    // source while it plays, whatever is chosen in Settings.
+    const song = source === "song" && window.LXSong?.driving?.();
+    if (!song && (source !== pref("tcSource", "off") || window.LXSong?.playing?.())) return;
     seconds = unwrap(seconds);
     const t = performance.now();
     const was = lastSeen; // the last time cues were checked against, not the clock's guess
@@ -84,7 +89,7 @@
   }
   // A source says it has stopped (e.g. internal pause).
   function halt(source) {
-    if (source !== pref("tcSource", "off")) return;
+    if (source !== pref("tcSource", "off") && !(source === "song" && window.LXSong?.driving?.())) return;
     clock.time = now(); clock.at = performance.now(); clock.running = false; clock.freewheel = false;
   }
 

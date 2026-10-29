@@ -20,7 +20,7 @@
   const $ = id => document.getElementById(id);
   const S = () => window.State || {};
   const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  let config = { enabled: false, patchMode: "send", selection: true, levels: false, addressing: "auto" };
+  let config = { enabled: false, patchMode: "send", selection: true, levels: false, addressing: "auto", universes: 0 };
   try { config = { ...config, ...(JSON.parse(localStorage.getItem(STORE) || "{}") || {}) }; } catch (_) {}
   if (typeof config.patch === "boolean") { config.patchMode = config.patch ? "send" : "off"; delete config.patch; }
   let socket = null, retry = null, status = null, lastPatch = "", lastSelection = "", fromPeer = false, lastLevels = "", lastLevelsAt = 0;
@@ -372,6 +372,7 @@
     ["selection", "levels"].forEach(k => { host.querySelector(`[data-c=${k}]`).checked = Boolean(config[k]); });
     host.querySelector("[data-c=patchMode]").value = config.patchMode;
     host.querySelector("[data-c=addressing]").value = config.addressing || "auto";
+    host.querySelector("[data-c=universes]").value = String(Number(config.universes) || 0);
     const linked = peers.some(p => p.connected);
     host.querySelector("[data-citp=get]").disabled = !on || !linked;
     const list = $("citpPeers");
@@ -379,7 +380,7 @@
     else if (!on) list.innerHTML = `<div class="citp-note">Off. Tick “Link with a visualiser” to look for Capture.</div>`;
     else if (status?.error) list.innerHTML = `<div class="citp-note warn">⚠ ${esc(status.error)}</div>`;
     else if (!peers.length) list.innerHTML = `<div class="citp-note">Looking for a visualiser… Open Capture on this computer or the same network. In Capture: Universes tab → Console links, pick Light Spark.</div>`;
-    else list.innerHTML = peers.map(p => `<div class="citp-peer"><span class="dot ${p.connected ? "on" : ""}"></span><div><b>${esc(p.name || "Visualiser")}</b><span>${esc(p.type || "")} · ${esc(p.ip)} · ${p.connected ? `linked — ${status.patched} light${status.patched === 1 ? "" : "s"} shared` : "found, connecting…"}</span></div></div>`).join("");
+    else list.innerHTML = peers.map(p => `<div class="citp-peer"><span class="dot ${p.connected ? "on" : ""}"></span><div><b>${esc(p.name || "Visualiser")}</b><span>${esc(p.type || "")} · ${esc(p.ip)} · ${p.connected ? `linked — ${status.patched} light${status.patched === 1 ? "" : "s"} shared, ${status.universes || 1} universe${status.universes === 1 ? "" : "s"}${config.levels ? " with levels" : ""}` : "found, connecting…"}</span></div></div>`).join("");
   }
 
   function install() {
@@ -394,6 +395,7 @@
       <p class="citp-note">CITP lets Light Spark and a visualiser such as Capture share what they know: the lights you patch here appear in Capture at the right addresses, and selecting lights in one selects them in the other. The light levels still go by Art-Net or sACN (the outputs above) unless you tick “Levels too”.</p>
       <label class="citp-row"><input type="checkbox" data-c="enabled"> <b>Link with a visualiser</b></label>
       <label class="citp-row">Patch <select data-c="patchMode"><option value="send">Light Spark → Capture (Light Spark's patch counts)</option><option value="receive">Capture → Light Spark (Capture's patch counts)</option><option value="off">Don't share the patch</option></select></label>
+      <label class="citp-row">Universes <select data-c="universes"><option value="0">Automatic (up to the last one with lights in)</option>${Array.from({ length: 32 }, (_, i) => `<option value="${i + 1}">${i + 1} universe${i ? "s" : ""}</option>`).join("")}</select></label>
       <label class="citp-row">Addresses <select data-c="addressing"><option value="auto">Automatic</option><option value="split">Universe + address (2/1)</option><option value="through">Counted straight on (universe 2 starts at 513)</option></select></label>
       <div class="action-row" style="margin:0 0 8px"><button type="button" class="btn-secondary" data-citp="get">⇩ Get Capture's patch…</button></div>
       <div id="citpPreview"></div>
@@ -419,7 +421,7 @@
       if (e.target.dataset.pick != null) return pick(e.target);
       const key = e.target.dataset.c;
       if (!key) return;
-      config[key] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+      config[key] = e.target.type === "checkbox" ? e.target.checked : key === "universes" ? Number(e.target.value) || 0 : e.target.value;
       if (key === "addressing" && preview) setTimeout(() => { $("citpPreview").innerHTML = `<div class="citp-note">Asking Capture again with the new address setting…</div>`; send({ type: "CITP_REQUEST_PATCH" }); }, 50);
       save();
       lastPatch = lastSelection = "";

@@ -41,7 +41,9 @@ const NAME = 'Light Spark';
 //             as Capture does with a consecutive Patch base
 //   "auto"    read either (an address past 512 runs on into the next
 //             universe); send universe + address
-let config = { enabled: false, patchMode: 'send', selection: true, levels: false, addressing: 'auto' };
+// universes: how many universes Light Spark offers the visualiser (1, 2…),
+// whether or not anything is patched in them; 0 = the ones with lights in.
+let config = { enabled: false, patchMode: 'send', selection: true, levels: false, addressing: 'auto', universes: 0 };
 const sending = () => config.patchMode === 'send';
 const receiving = () => config.patchMode === 'receive';
 let patch = new Map();          // fixture number -> { id, universe, channel, count, make, name }
@@ -105,6 +107,8 @@ function chbk(universe, levels) {
   return citp('SDMX', Buffer.concat([cookie('ChBk'), body, Buffer.from(levels)]));
 }
 const sptc = () => fptc('SPtc', 0, idList([])); // "send me your whole patch"
+// SDMX/UNam: a universe's name, which is how a visualiser learns it's there.
+const unam = universe => citp('SDMX', Buffer.concat([cookie('UNam'), Buffer.from([Math.max(0, universe - 1)]), ucs1(`Light Spark ${universe}`)]));
 const sdmxCapa = () => citp('SDMX', Buffer.concat([cookie('Capa'), u16(1), u16(1)])); // channel lists
 
 // Split a TCP stream into whole messages; returns what's left over.
@@ -135,9 +139,23 @@ function readIds(buf, offset) {
 
 // ------------------------------------------------------------------- peers
 
+// The universes offered: the number chosen, or every universe up to the
+// highest one with a light in it.
+function universeList() {
+  const chosen = Math.max(0, Math.min(255, Math.round(Number(config.universes) || 0)));
+  const count = chosen || Math.max(1, ...[...patch.values()].map(f => f.universe), ...Object.keys(universes).map(Number).filter(Number.isFinite));
+  return Array.from({ length: count }, (_, i) => i + 1);
+}
+
+function announceUniverses(peer) {
+  const list = universeList();
+  send(peer, sdmxCapa());
+  for (const u of list) send(peer, unam(u));
+}
+
 function status() {
   return {
-    type: 'CITP_STATUS', config, tcpPort, error: lastError, patched: patch.size,
+    type: 'CITP_STATUS', config, tcpPort, error: lastError, patched: patch.size, universes: universeList().length,
     peers: [...peers.values()].map(p => ({ ip: p.ip, name: p.name, type: p.type, state: p.state, connected: Boolean(p.connected), seen: p.seen }))
   };
 }
@@ -161,7 +179,8 @@ function welcome(peer) {
   if (sending() && !request) sendPatch(peer);
   if (receiving() && !request) requestPatch(peer, false);
   if (config.selection && selection.length) send(peer, sele(selection));
-  if (config.levels) send(peer, sdmxCapa());
+  announceUniverses(peer);
+  if (config.levels) sendLevels(true);
 }
 
 function sendPatch(peer, only = null) {
@@ -394,9 +413,12 @@ function sweep() {
 // Levels go out the moment they change (and every second anyway, so a
 // visualiser that joins late or missed one catches up). Waiting for a
 // timer is what made CITP levels lag behind sACN.
+// Every offered universe goes out, an empty one as all zeros.
+const ZERO = new Array(512).fill(0);
 function sendLevels(all = false) {
   if (!config.levels || ![...peers.values()].some(p => p.connected)) return;
-  for (const [u, levels] of Object.entries(universes)) {
+  for (const u of universeList()) {
+    const levels = Array.isArray(universes[u]) ? universes[u] : ZERO;
     const key = levels.join(',');
     if (!all && sentLevels[u] === key) continue;
     sentLevels[u] = key;

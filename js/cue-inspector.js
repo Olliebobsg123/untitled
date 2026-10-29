@@ -209,7 +209,9 @@
 
   // Sweep: groups in order, each a step later than the one before.
   async function sweep(cue) {
-    const groups = (S().groups || []).filter(g => g?.name).map(g => g.name);
+    let groups = (S().groups || []).filter(g => g?.name).map(g => g.name);
+    // No groups yet: offer one per bar from the visualiser (js/bar-groups.js).
+    if (!groups.length && window.LXBarGroups) { await window.LXBarGroups.makeAsk(); groups = (S().groups || []).filter(g => g?.name).map(g => g.name); }
     if (!groups.length) return say("Make groups first (e.g. one per bar), then sweep across them", "warn");
     const r = await window.LXAsk?.("Sweep across groups", [
       { key: "order", label: "Groups in order, first to last (comma between)", value: groups.join(", ") },

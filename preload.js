@@ -8,7 +8,12 @@ const showFileApi = {
   getDefaultDirectory: () => ipcRenderer.invoke('lx-show-default-directory'),
   list: () => ipcRenderer.invoke('lx-show-list'),
   saveDialog: name => ipcRenderer.invoke('lx-show-save-dialog', { name }),
-  openDialog: () => ipcRenderer.invoke('lx-show-open-dialog')
+  openDialog: () => ipcRenderer.invoke('lx-show-open-dialog'),
+  // Shows folder and two-Mac safety (js/show-sync.js)
+  folder: () => ipcRenderer.invoke('lx-shows-folder'),
+  setFolder: (kind, options = {}) => ipcRenderer.invoke('lx-shows-folder-set', { kind, path: options.path, copy: Boolean(options.copy) }),
+  chooseFolder: () => ipcRenderer.invoke('lx-shows-folder-choose'),
+  lock: (filePath, on) => ipcRenderer.invoke('lx-show-lock', { filePath, on: Boolean(on) })
 };
 
 const feedbackApi = {

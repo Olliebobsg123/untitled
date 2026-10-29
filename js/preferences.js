@@ -239,6 +239,9 @@
   async function autosave() {
     const files = window.LXShowFiles, show = window.LXShowCommands;
     if (!files?.save || !show?.snapshot) return null;
+    // The show was saved on another Mac and you haven't said which to keep
+    // (js/show-sync.js): don't write over it in the meantime.
+    if (window.__lxShowHold) return null;
     const state = window.State || {};
     if (!state.fixtures?.length && !state.cues?.length) return null; // nothing to keep yet
     const snap = show.snapshot();

@@ -55,11 +55,105 @@ let usbDmxService = null;
 let shuttingDown = false;
 let qlabLicenseTimer = null;
 
+// ---- Shows folder (and working across two Macs) ----
+// Shows live in Documents/LX Console Shows unless you choose iCloud Drive
+// (iCloud Drive/Light Spark Shows) or a folder of your own in Preferences →
+// Show → Shows Folder. In a synced folder the show is the same on every Mac;
+// Light Spark adds what syncing alone doesn't: who saved it (savedBy), a
+// note while it's open somewhere (<show>.json.lxlock), and downloading a
+// show iCloud has only a placeholder for.
+const os = require('os');
+const showsConfigFile = () => path.join(app.getPath('userData'), 'shows-folder.json');
+const icloudRoot = () => path.join(os.homedir(), 'Library', 'Mobile Documents', 'com~apple~CloudDocs');
+function readShowsConfig() {
+  try { return JSON.parse(fs.readFileSync(showsConfigFile(), 'utf8')) || {}; } catch (_) { return {}; }
+}
+function showDirectoryFor(config) {
+  if (config.kind === 'icloud') return path.join(icloudRoot(), 'Light Spark Shows');
+  if (config.kind === 'custom' && config.path) return config.path;
+  return path.join(app.getPath('documents'), 'LX Console Shows');
+}
 function getShowDirectory() {
-  const directory = path.join(app.getPath('documents'), 'LX Console Shows');
+  const directory = showDirectoryFor(readShowsConfig());
   fs.mkdirSync(directory, { recursive: true });
   return directory;
 }
+// This Mac's name as you know it ("Oliver's MacBook Air").
+let hostName = null;
+function thisHost() {
+  if (hostName) return hostName;
+  if (process.platform === 'darwin') { try { hostName = require('child_process').execFileSync('scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000 }).trim(); } catch (_) {} }
+  if (!hostName) hostName = os.hostname().replace(/\.local$/i, '');
+  return hostName;
+}
+const lockPath = filePath => `${filePath}.lxlock`;
+const LOCK_FRESH_MS = 3 * 60 * 1000; // a lock not refreshed for 3 minutes is left over from a crash
+function readLock(filePath) {
+  try { const lock = JSON.parse(fs.readFileSync(lockPath(filePath), 'utf8')); return lock && lock.host ? lock : null; } catch (_) { return null; }
+}
+// iCloud keeps a placeholder ".Name.json.icloud" for a file it hasn't
+// downloaded to this Mac yet; ask for it and wait.
+const placeholderOf = filePath => path.join(path.dirname(filePath), `.${path.basename(filePath)}.icloud`);
+async function downloadFromICloud(filePath, waitMs = 60000) {
+  if (fs.existsSync(filePath) || !fs.existsSync(placeholderOf(filePath))) return fs.existsSync(filePath);
+  try { require('child_process').execFile('brctl', ['download', filePath], () => {}); } catch (_) {}
+  const until = Date.now() + waitMs;
+  while (Date.now() < until) {
+    if (fs.existsSync(filePath)) { await new Promise(r => setTimeout(r, 300)); return true; }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return fs.existsSync(filePath);
+}
+function copyShows(from, to) {
+  let copied = 0;
+  const copyDir = (src, dest, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(src, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of entries) {
+      const a = path.join(src, e.name), b = path.join(dest, e.name);
+      if (e.isDirectory() && depth < 2 && !e.name.startsWith('.')) { fs.mkdirSync(b, { recursive: true }); copyDir(a, b, depth + 1); }
+      else if (e.isFile() && /\.json$/i.test(e.name)) {
+        // Never over a newer copy that's already there.
+        try { if (fs.existsSync(b) && fs.statSync(b).mtimeMs >= fs.statSync(a).mtimeMs) continue; } catch (_) {}
+        fs.copyFileSync(a, b);
+        if (path.basename(src) !== 'Backups') copied++; // backups come too, but aren't counted as shows
+      }
+    }
+  };
+  fs.mkdirSync(to, { recursive: true });
+  copyDir(from, to, 0);
+  return copied;
+}
+ipcMain.handle('lx-shows-folder', () => {
+  const config = readShowsConfig();
+  return { kind: config.kind || 'documents', path: getShowDirectory(), icloud: fs.existsSync(icloudRoot()), icloudPath: showDirectoryFor({ kind: 'icloud' }), host: thisHost() };
+});
+ipcMain.handle('lx-shows-folder-set', (_event, payload) => {
+  const before = getShowDirectory();
+  const kind = ['documents', 'icloud', 'custom'].includes(payload?.kind) ? payload.kind : 'documents';
+  if (kind === 'icloud' && !fs.existsSync(icloudRoot())) throw new Error('iCloud Drive isn\'t turned on for this Mac (System Settings → your name → iCloud → iCloud Drive)');
+  if (kind === 'custom' && !payload?.path) throw new Error('No folder chosen');
+  fs.writeFileSync(showsConfigFile(), JSON.stringify({ kind, path: kind === 'custom' ? payload.path : undefined }), 'utf8');
+  const after = getShowDirectory();
+  const copied = payload?.copy && path.resolve(before) !== path.resolve(after) ? copyShows(before, after) : 0;
+  return { path: after, copied, from: before };
+});
+ipcMain.handle('lx-shows-folder-choose', async event => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const result = await dialog.showOpenDialog(win, { title: 'Choose a shows folder', defaultPath: fs.existsSync(icloudRoot()) ? icloudRoot() : app.getPath('documents'), properties: ['openDirectory', 'createDirectory'] });
+  return result.canceled || !result.filePaths?.[0] ? null : result.filePaths[0];
+});
+// While a show is open, a small note next to it says where; on with
+// on: true (refreshed every minute), off when it's closed.
+ipcMain.handle('lx-show-lock', (_event, payload) => {
+  let filePath;
+  try { filePath = resolveShowPath(payload?.filePath); } catch (_) { return null; }
+  const lock = readLock(filePath);
+  const other = lock && lock.host !== thisHost() && Date.now() - Number(lock.at || 0) < LOCK_FRESH_MS ? lock : null;
+  if (payload?.on) { try { fs.writeFileSync(lockPath(filePath), JSON.stringify({ host: thisHost(), at: Date.now(), since: lock && lock.host === thisHost() ? lock.since : Date.now() }), 'utf8'); } catch (_) {} }
+  else if (lock && lock.host === thisHost()) { try { fs.unlinkSync(lockPath(filePath)); } catch (_) {} }
+  return { other, host: thisHost() };
+});
 
 function resolveShowPath(filePath) {
   const requested = String(filePath || '').trim();
@@ -106,19 +200,27 @@ ipcMain.handle('lx-ask-microphone', async () => {
 // couldn't be.
 ipcMain.handle('lx-show-list', () => {
   const directory = getShowDirectory();
-  let entries;
-  try { entries = fs.readdirSync(directory, { withFileTypes: true }); }
-  catch (err) { return []; }
-  return entries
-    .filter(entry => entry.isFile() && /\.json$/i.test(entry.name))
-    .map(entry => {
-      const filePath = path.join(directory, entry.name);
+  const found = [];
+  // The folder itself and one folder down (a folder per production, with
+  // its QLab workspace and Capture project beside the show), not Backups.
+  const look = (dir, depth) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (depth === 0 && entry.name !== 'Backups' && !entry.name.startsWith('.') && !/\.(qlab\d*|cap\w*)$/i.test(entry.name)) look(full, 1); continue; }
+      if (!entry.isFile()) continue;
+      let name = null, filePath = full, cloud = false;
+      if (/\.json$/i.test(entry.name) && !entry.name.startsWith('.')) name = entry.name.replace(/\.json$/i, '');
+      else { const m = /^\.(.+\.json)\.icloud$/i.exec(entry.name); if (m) { name = m[1].replace(/\.json$/i, ''); filePath = path.join(dir, m[1]); cloud = true; } }
+      if (!name) continue;
       let mtimeMs = 0;
-      try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch (_) {}
-      return { name: entry.name.replace(/\.json$/i, ''), path: filePath, mtimeMs };
-    })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .slice(0, 8);
+      try { mtimeMs = fs.statSync(full).mtimeMs; } catch (_) {}
+      found.push({ name: depth ? `${path.basename(dir)} / ${name}` : name, path: filePath, mtimeMs, cloud });
+    }
+  };
+  look(directory, 0);
+  return found.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, 12);
 });
 // Before a save replaces a show file, the old one is copied to
 // Backups/<name> before <date time>.json (the last 20 per show are kept), so
@@ -149,10 +251,13 @@ ipcMain.handle('lx-show-save', (_event, payload) => {
   const show = payload?.show;
   if (!show || typeof show !== 'object') throw new Error('No show data supplied');
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const text = JSON.stringify(show, null, 2);
+  // Which Mac saved it: the other Mac sees "saved on Oliver's MacBook Pro".
+  const text = JSON.stringify({ ...show, savedBy: thisHost() }, null, 2);
   const backup = payload?.backup ? backupBeforeReplace(filePath, text) : null;
   fs.writeFileSync(filePath, text, 'utf8');
-  return { path: filePath, backup };
+  let mtimeMs = 0;
+  try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch (_) {}
+  return { path: filePath, backup, mtimeMs, savedBy: thisHost() };
 });
 // What's in a show file, for "are you sure?" questions.
 ipcMain.handle('lx-show-stat', (_event, payload) => {
@@ -165,11 +270,11 @@ ipcMain.handle('lx-show-stat', (_event, payload) => {
       if (match) filePath = path.join(path.dirname(filePath), match);
     } catch (_) {}
   }
-  if (!fs.existsSync(filePath)) return { path: filePath, exists: false };
+  if (!fs.existsSync(filePath)) return { path: filePath, exists: false, cloud: fs.existsSync(placeholderOf(filePath)) };
   const st = fs.statSync(filePath);
-  let cues = null, fixtures = null;
-  try { const j = JSON.parse(fs.readFileSync(filePath, 'utf8')); cues = (j.cues || []).filter(Boolean).length; fixtures = (j.fixtures || []).length; } catch (_) {}
-  return { path: filePath, exists: true, mtimeMs: st.mtimeMs, cues, fixtures };
+  let cues = null, fixtures = null, savedBy = null, savedAt = null;
+  try { const j = JSON.parse(fs.readFileSync(filePath, 'utf8')); cues = (j.cues || []).filter(Boolean).length; fixtures = (j.fixtures || []).length; savedBy = j.savedBy || null; savedAt = j.savedAt || null; } catch (_) {}
+  return { path: filePath, exists: true, mtimeMs: st.mtimeMs, cues, fixtures, savedBy, savedAt, host: thisHost() };
 });
 // Save As… and Open… pick a file with the system dialog, starting in the
 // shows folder.
@@ -185,13 +290,16 @@ ipcMain.handle('lx-show-open-dialog', async event => {
   const result = await dialog.showOpenDialog(win, { title: 'Open Show', defaultPath: getShowDirectory(), properties: ['openFile'], filters: [{ name: 'Light Spark Show', extensions: ['json'] }] });
   return result.canceled || !result.filePaths?.[0] ? null : result.filePaths[0];
 });
-ipcMain.handle('lx-show-load', (_event, payload) => {
+ipcMain.handle('lx-show-load', async (_event, payload) => {
   const filePath = resolveShowPath(payload?.filePath);
+  if (!fs.existsSync(filePath) && fs.existsSync(placeholderOf(filePath)) && !(await downloadFromICloud(filePath))) throw new Error(`iCloud hasn't downloaded “${path.basename(filePath)}” to this Mac yet — check the internet connection and try again`);
   if (!fs.existsSync(filePath)) throw new Error(`Show file not found: ${filePath}`);
   let show;
   try { show = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
   catch (err) { throw new Error(`Could not read show file: ${err.message}`); }
-  return { path: filePath, show };
+  let mtimeMs = 0;
+  try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch (_) {}
+  return { path: filePath, show, mtimeMs };
 });
 
 // ---- Phone remote (see remote-server.js) ----

@@ -378,6 +378,9 @@ else if(typeof map.shutter==="number"&&map.shutter===map.strobe){const strobe=Ma
 if(typeof map.pan==="number"){write(base,map.pan,saved.pan??128);if(typeof map.panf==="number")write(base,map.panf,saved.panf??0);}
 if(typeof map.tilt==="number"){write(base,map.tilt,saved.tilt??128);if(typeof map.tiltf==="number")write(base,map.tiltf,saved.tiltf??0);}
 });
+// Faders page DMX-channel faders: that channel goes at least to the
+// fader's level (brighter wins), blackout aside.
+if(!blackout&&window.LXFaders?.dmxLevels){for(const [key,v] of window.LXFaders.dmxLevels()){const[u,a]=key.split(":").map(Number);const i=(u-1)*DMX_CHANNELS+(a-1);if(i>=0&&i<State.dmx.length)State.dmx[i]=Math.max(State.dmx[i],clamp255(v));}}
 ArtNet.send();
 }
 

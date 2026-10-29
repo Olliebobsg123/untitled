@@ -285,6 +285,8 @@ function isRelease(msg){
 }
 
 function handleMIDIMessage(e){
+  // Settings → MIDI → MIDI Map can turn this fixed mapping off (js/midi-map.js).
+  if(window.LXMidiMap?.blocksOld?.()&&!MIDI.learning)return;
   const d=e.data;
   if(!d||d.length<2)return;
 

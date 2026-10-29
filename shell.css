@@ -1,0 +1,214 @@
+/* ============================================================
+   Light Spark — layout and design system (js/shell.js builds it).
+   Loaded last: it sets the zones and the type scale over the older
+   stylesheets.
+
+   Type    11 caps label · 13 body · 14 emphasis · 16 heading · 20+ display
+   Colour  --live (teal) is LIVE / on stage · --blind (blue) is BLIND ·
+           --danger (red) only for blackout, delete, stop.
+   ============================================================ */
+
+:root {
+  --live: #19d6a3;
+  --live-rgb: 25, 214, 163;
+  --blind: #4f9dff;
+  --blind-rgb: 79, 157, 255;
+  --danger: #ff5265;
+  --fs-label: 11px;
+  --fs-body: 13px;
+  --fs-em: 14px;
+  --fs-head: 16px;
+  --text: #f1f6f5;
+  --text-soft: #c9d3d1;
+  --text-muted: #9aa7a4;
+  --rail: 84px;
+  --dock: 372px;
+  --log: 104px;
+}
+@media (min-width: 1600px) { :root { --dock: 400px; } }
+body.lx-shell.shell-wide { --rail: var(--sidebar-open, 196px); }
+@media (max-width: 1180px) { :root { --dock: 320px; } }
+
+/* ---------- Zones ---------- */
+
+html body.lx-shell {
+  font-size: var(--fs-body);
+  grid-template-columns: var(--rail) minmax(0, 1fr) var(--dock) !important;
+  grid-template-rows: 56px minmax(0, 1fr) var(--log) 44px !important;
+  grid-template-areas:
+    "sidebar topbar topbar"
+    "sidebar workspace cues"
+    "sidebar log cues"
+    "sidebar cmd-line cmd-line" !important;
+  gap: 8px;
+  padding: 8px;
+}
+/* The Cue Inspector has its own cue list; a popped-out cue list leaves too. */
+html body.lx-shell[data-page="inspector"],
+html body.lx-shell.lxw-out-cues {
+  grid-template-columns: var(--rail) minmax(0, 1fr) 0 !important;
+  grid-template-areas:
+    "sidebar topbar topbar"
+    "sidebar workspace workspace"
+    "sidebar log log"
+    "sidebar cmd-line cmd-line" !important;
+}
+html body.lx-shell[data-page="inspector"] .shell-cues { display: none; }
+html body.lx-shell.lxw-out-log { grid-template-rows: 56px minmax(0, 1fr) 0 44px !important; }
+html body.lx-shell.lxw-out-log .bottom-row { display: none; }
+
+body.lx-shell .bottom-row { grid-area: log; grid-template-columns: minmax(0, 1fr) !important; }
+body.lx-shell .bottom-row > .terminal { min-height: 0; display: flex; flex-direction: column; }
+body.lx-shell .terminal .panel-body { height: auto; flex: 1; min-height: 0; font-size: 12px; line-height: 1.55; }
+body.lx-shell .shell-cues { grid-area: cues; min-height: 0; display: flex; flex-direction: column; }
+/* The old tile stack stays in the page (other code uses it) but out of sight. */
+body.lx-shell .shell-cues > .panel-header,
+body.lx-shell .shell-cues > #cueList { display: none; }
+body.lx-shell .shell-cuelist { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.lx-shell .shell-cuelist > .cl { flex: 1; min-height: 0; }
+
+/* ---------- Sidebar: pages by task ---------- */
+
+body.lx-shell .sidebar { min-width: 0; }
+body.lx-shell .sidebar-section-label { display: none; }
+body.lx-shell .nav { gap: 1px; padding: 4px 6px 8px; overflow-y: auto; }
+body.lx-shell .nav-link > b { display: none; }
+body.lx-shell .shell-nav-head {
+  padding: 12px 8px 4px;
+  color: #8e9b98;
+  font-size: var(--fs-label);
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+body.lx-shell .nav-link {
+  min-height: 38px;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: #c3cdcb;
+}
+body.lx-shell .nav-link .nav-icon { font-size: 16px; color: #9aa7a4; width: 22px; }
+body.lx-shell .nav-link.active .nav-icon { color: var(--live); }
+body.lx-shell .nav-tool.open .nav-icon { color: var(--live); }
+body.lx-shell .nav-tool.open::after { content: "●"; margin-left: auto; color: var(--live); font-size: 9px; }
+
+/* Narrow rail (screens under 1600px, unless Preferences says always wide):
+   icon over a short name, always readable. */
+body.lx-shell:not(.shell-wide) .brand { justify-content: center; padding: 12px 6px; min-height: 58px; }
+body.lx-shell:not(.shell-wide) .brand-copy { display: none; }
+body.lx-shell:not(.shell-wide) .shell-nav-head { padding: 10px 2px 3px; text-align: center; font-size: 10px; letter-spacing: .8px; }
+body.lx-shell:not(.shell-wide) .nav { padding: 2px 5px 8px; }
+body.lx-shell:not(.shell-wide) .nav-link {
+  position: relative;
+  flex-direction: column; justify-content: center; gap: 3px;
+  min-height: 54px; padding: 6px 2px; text-align: center;
+}
+body.lx-shell:not(.shell-wide) .nav-link .nav-text {
+  display: block; width: 100%;
+  font-size: 11px; font-weight: 600; line-height: 1.15;
+  white-space: normal; overflow-wrap: anywhere;
+}
+body.lx-shell:not(.shell-wide) .nav-tool.open::after { position: absolute; top: 6px; right: 8px; margin: 0; }
+body.lx-shell:not(.shell-wide) .sidebar-footer .nav-text { display: none; }
+body.lx-shell:not(.shell-wide) .sidebar-footer { padding: 10px 6px; display: flex; justify-content: center; }
+/* Wide: icon and name side by side. */
+body.lx-shell.shell-wide .nav-link { justify-content: flex-start; gap: 10px; padding: 0 10px; }
+body.lx-shell .sidebar .nav-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 22px; }
+
+/* ---------- Top bar ---------- */
+
+body.lx-shell .topbar { gap: 12px; padding: 0 10px 0 14px; min-width: 0; }
+body.lx-shell .page-title { flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; flex: 0 1 220px; }
+body.lx-shell .shell-show {
+  max-width: 100%;
+  color: var(--text);
+  font-size: var(--fs-em);
+  font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.lx-shell .page-kicker { display: none; }
+body.lx-shell .page-title strong { font-size: var(--fs-label); color: #9aa7a4; letter-spacing: 1.2px; font-weight: 700; }
+
+.shell-run { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.shell-slot { display: flex; align-items: center; }
+body.lx-shell .console-mode-switch button { min-width: 70px; height: 34px; font-size: 13px; letter-spacing: 1.2px; }
+body.lx-shell .console-mode-switch button:not(.active) { color: #9aa7a4; }
+body.lx-shell .console-mode-switch button.live.active { color: #03140e; background: var(--live); }
+body.lx-shell .console-mode-switch button.blind.active { color: #04101f; background: var(--blind); }
+
+.lx-tempo { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 6px 0 10px; border: 1px solid var(--border); border-radius: 9px; background: #080d10; }
+.lx-tempo input { width: 58px; height: 30px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: 6px; background: #0b1114; color: var(--text); font: 700 15px var(--mono); text-align: right; }
+.lx-tempo-unit { color: #9aa7a4; font-size: var(--fs-label); font-weight: 700; letter-spacing: 1px; }
+.lx-tempo button { height: 30px; padding: 0 14px; font-size: var(--fs-body); font-weight: 700; }
+.lx-tempo-dot { width: 9px; height: 9px; border-radius: 50%; background: #26323a; }
+.lx-tempo-dot.on { background: var(--live); box-shadow: 0 0 8px rgba(var(--live-rgb), .8); }
+
+.shell-go { display: flex; align-items: center; gap: 6px; }
+.shell-back, .shell-gobtn { height: 40px; border-radius: 9px; cursor: pointer; font-weight: 800; }
+.shell-back { padding: 0 12px; border: 1px solid var(--border-strong); background: #0d1417; color: var(--text-soft); font-size: var(--fs-body); }
+.shell-back:hover { color: var(--text); border-color: #3c4b52; }
+.shell-gobtn { min-width: 92px; padding: 0 18px; border: 1px solid #5cf5cb; background: var(--live); color: #03140e; font-size: 18px; letter-spacing: 1.5px; box-shadow: 0 0 18px rgba(var(--live-rgb), .25); }
+.shell-gobtn:hover { filter: brightness(1.08); }
+.shell-gobtn:active { transform: translateY(1px); }
+html[data-console-mode="blind"] .shell-gobtn { background: var(--blind); border-color: #8cc0ff; color: #04101f; box-shadow: 0 0 18px rgba(var(--blind-rgb), .25); }
+
+.shell-master { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 2px 8px; height: 40px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 9px; background: #080d10; color: var(--text); cursor: pointer; text-align: left; }
+.shell-master span { color: #9aa7a4; font-size: var(--fs-label); font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.shell-master b { font: 700 14px var(--mono); }
+.shell-master i { grid-column: 1 / -1; display: block; height: 3px; border-radius: 2px; background: #1d272c; overflow: hidden; }
+.shell-master em { display: block; height: 100%; width: 100%; background: var(--live); }
+.shell-master.down b { color: var(--warning); }
+.shell-master.down em { background: var(--warning); }
+
+body.lx-shell .topbar-status { min-width: 0; flex: 1 1 auto; justify-content: flex-end; flex-wrap: nowrap; overflow: hidden; gap: 6px; }
+body.lx-shell .topbar-status .safety-control { white-space: nowrap; height: 34px; font-size: var(--fs-label); }
+body.lx-shell .topbar-status > * { flex: 0 0 auto; }
+body.lx-shell .topbar-status .status-pill { height: 30px; padding: 0 8px; font-size: var(--fs-label); color: #b4bfbd; }
+@media (max-width: 1500px) {
+  body.lx-shell .page-title { flex-basis: 150px; }
+  .shell-back span, .shell-master span { display: none; }
+  .shell-master { grid-template-columns: auto; }
+  .shell-run { gap: 8px; }
+}
+
+/* ---------- BLIND: impossible to miss ---------- */
+
+.shell-blind-bar, .shell-blind-frame { display: none; }
+html[data-console-mode="blind"] body.lx-shell { padding-top: 40px; }
+html[data-console-mode="blind"] .shell-blind-bar {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 9000; height: 34px;
+  display: flex; align-items: center; gap: 14px; padding: 0 14px;
+  background: var(--blind); color: #031024; font-size: var(--fs-em);
+}
+.shell-blind-bar b { font: 900 15px var(--mono); letter-spacing: 3px; }
+.shell-blind-bar span { flex: 1; font-weight: 600; }
+.shell-blind-bar button { height: 26px; padding: 0 12px; border: 1px solid rgba(3, 16, 36, .45); border-radius: 6px; background: rgba(255, 255, 255, .25); color: #031024; font-weight: 800; cursor: pointer; }
+html[data-console-mode="blind"] .shell-blind-frame {
+  display: block; position: fixed; inset: 0; z-index: 8999; pointer-events: none;
+  box-shadow: inset 0 0 0 4px var(--blind);
+}
+
+/* ---------- Readability across the app ---------- */
+
+body.lx-shell .panel-header { font-size: var(--fs-em); }
+body.lx-shell .panel-meta,
+body.lx-shell .eyebrow,
+body.lx-shell .section-divider span,
+body.lx-shell .toolbar-label { color: #a3afac; font-size: var(--fs-label); }
+body.lx-shell label, body.lx-shell .form-row label { color: var(--text-soft); }
+body.lx-shell input, body.lx-shell select, body.lx-shell textarea { font-size: var(--fs-body); }
+body.lx-shell .btn-primary, body.lx-shell .btn-secondary, body.lx-shell .btn-danger-soft { font-size: var(--fs-body); }
+body.lx-shell .cmd-line input { font-size: 14px; }
+
+/* Licence: in the sidebar footer. */
+body.lx-shell .sidebar-footer { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+body.lx-shell .sidebar-footer .license-tier-badge { justify-content: center; }
+body.lx-shell .sidebar-footer .license-tier-description { display: none; }
+body.lx-shell .sidebar-footer #changeLicenseButton { width: 100%; font-size: var(--fs-label) !important; }
+body.lx-shell:not(.shell-wide) .sidebar-footer { flex-direction: column; align-items: stretch; }
+body.lx-shell:not(.shell-wide) .sidebar-footer .mini-status { justify-content: center; }
+
+/* Touch screens: bigger targets in the top bar. */
+html[data-touch="on"] .shell-gobtn,
+html[data-touch="on"] .shell-back { height: 48px; }
+html[data-touch="on"] .shell-gobtn { min-width: 110px; }

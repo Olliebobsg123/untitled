@@ -3555,7 +3555,7 @@ function renderLibrary(filter = "") {
                     <span>${name}</span>
 
                     <span style="
-                        font-size:10px;
+                        font-size:13px;
                         color:var(--text-muted);
                     ">
                         ${def.channels}ch
@@ -3804,7 +3804,7 @@ function renderFixtures() {
                 </span>
 
                 <span style="
-                    font-size:10px;
+                    font-size:13px;
                     color:var(--text-muted);
                 ">
                     Uni ${f.uni}

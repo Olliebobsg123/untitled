@@ -15,7 +15,7 @@ function ensureCommandConsoleStyles() {
 
    #termLog {
   font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
-  font-size: 9px !important;
+  font-size: 12px !important;
   line-height: 1.5 !important;
   letter-spacing: .025em;
   font-weight: 800;
@@ -34,16 +34,16 @@ function ensureCommandConsoleStyles() {
 }
 
 #termLog .lx-log-time {
-  color: #53615e;
+  color: #99a8a5;
   font-family: var(--mono, monospace);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 #termLog .lx-log-level {
   font-family: var(--mono, monospace);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: .08em;
   white-space: nowrap;
@@ -155,7 +155,7 @@ function ensureCommandConsoleStyles() {
 
   font-family: var(--mono, monospace);
 
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 900;
 
   letter-spacing: .04em;

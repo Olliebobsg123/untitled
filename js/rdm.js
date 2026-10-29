@@ -13,11 +13,11 @@
     style.id = "rdmPatchStyles";
     style.textContent = `
       .rdm-panel{margin-top:14px}.rdm-actions{display:flex;gap:8px;flex-wrap:wrap}
-      .rdm-status{font:700 9px/1.4 var(--mono,monospace);color:#6f7b79}
+      .rdm-status{font:700 12px/1.4 var(--mono,monospace);color:#a2aba9}
       .rdm-device{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 12px;border:1px solid #202a30;border-radius:8px;background:#0a0f12;cursor:pointer}
-      .rdm-device:hover,.rdm-device.selected{border-color:#19d6a3;background:#0d1717}.rdm-uid{font:800 11px/1 var(--mono,monospace);letter-spacing:.8px;color:#dce7e4}
-      .rdm-meta{font:700 8px/1.4 var(--mono,monospace);color:#64716f}.rdm-empty{padding:14px;color:#64716f;font:700 9px/1.5 var(--mono,monospace)}
-      .patch-range{margin-top:10px;padding:10px 12px;border:1px solid #202a30;border-radius:8px;background:#0a0f12;font:800 10px/1.4 var(--mono,monospace);color:#8bc5ff}
+      .rdm-device:hover,.rdm-device.selected{border-color:#19d6a3;background:#0d1717}.rdm-uid{font:800 13px/1 var(--mono,monospace);letter-spacing:.8px;color:#dce7e4}
+      .rdm-meta{font:700 11px/1.4 var(--mono,monospace);color:#9faaa8}.rdm-empty{padding:14px;color:#9faaa8;font:700 12px/1.5 var(--mono,monospace)}
+      .patch-range{margin-top:10px;padding:10px 12px;border:1px solid #202a30;border-radius:8px;background:#0a0f12;font:800 13px/1.4 var(--mono,monospace);color:#8bc5ff}
     `;
     document.head.appendChild(style);
   }

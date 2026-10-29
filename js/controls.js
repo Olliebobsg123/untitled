@@ -282,7 +282,7 @@
     card.appendChild(heading);
 
     const note = document.createElement("div");
-    note.style.cssText = "color:var(--text-muted,#7c8a92);font-size:9px;letter-spacing:.06em;text-transform:uppercase;padding:4px 2px 0;line-height:1.4;";
+    note.style.cssText = "color:var(--text-muted,#7c8a92);font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:4px 2px 0;line-height:1.4;";
 
     if (zoomOnly) {
       note.textContent = "Set by the Zoom control on this fixture.";
@@ -324,7 +324,7 @@
     reset.className = "btn-secondary";
     reset.textContent = "Library";
     reset.title = info.text ? `Back to the library angle (${info.text})` : "Back to the library angle";
-    reset.style.cssText = "margin-left:6px;padding:2px 8px;font-size:10px;";
+    reset.style.cssText = "margin-left:6px;padding:2px 8px;font-size:13px;";
     field.appendChild(reset);
 
     const describe = () => {
@@ -389,7 +389,7 @@
     auto.className = "btn-secondary";
     auto.textContent = "Auto";
     auto.title = "The usual edge for this kind of light";
-    auto.style.cssText = "margin-left:6px;padding:2px 8px;font-size:10px;";
+    auto.style.cssText = "margin-left:6px;padding:2px 8px;font-size:13px;";
     const show = () => {
       const edge = representative.edge;
       range.value = String(Math.round((edge ?? 0.2) * 100));
@@ -443,7 +443,7 @@
 
     const note = document.createElement("div");
     note.textContent = "Manual — shaped at the fixture, never sent over DMX.";
-    note.style.cssText = "color:var(--text-muted,#7c8a92);font-size:9px;letter-spacing:.06em;text-transform:uppercase;padding:4px 2px 0;line-height:1.4;";
+    note.style.cssText = "color:var(--text-muted,#7c8a92);font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:4px 2px 0;line-height:1.4;";
     card.appendChild(note);
 
     container.appendChild(card);
@@ -1098,7 +1098,7 @@
     if (!document.getElementById("wheelSlotStyles")) {
       const st = document.createElement("style");
       st.id = "wheelSlotStyles";
-      st.textContent = `.wheel-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;margin-top:8px}.wheel-slot{display:flex;align-items:center;gap:7px;min-height:34px;padding:5px 8px;border:1px solid #26343a;border-radius:7px;background:#10171b;color:#c6d0ce;font-size:11px;font-weight:700;cursor:pointer;text-align:left}.wheel-slot-chip{flex:0 0 auto;width:16px;height:16px;border-radius:50%;background:var(--slot);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}.wheel-slot.on{border-color:var(--accent,#19d6a3);color:#edf4f2;background:#152026}`;
+      st.textContent = `.wheel-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;margin-top:8px}.wheel-slot{display:flex;align-items:center;gap:7px;min-height:34px;padding:5px 8px;border:1px solid #26343a;border-radius:7px;background:#10171b;color:#c6d0ce;font-size:13px;font-weight:700;cursor:pointer;text-align:left}.wheel-slot-chip{flex:0 0 auto;width:16px;height:16px;border-radius:50%;background:var(--slot);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}.wheel-slot.on{border-color:var(--accent,#19d6a3);color:#edf4f2;background:#152026}`;
       document.head.appendChild(st);
     }
   }

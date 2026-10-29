@@ -98,12 +98,31 @@
 
   // --------------------------------------------------------------- window
 
-  let body = null, timer = null;
+  // m:ss.s on the song timeline.
+  const clock = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+  // Little icons for what else the cue does.
+  function extras(c) {
+    const out = [];
+    const fx = Array.isArray(c.effects) && c.effects.length ? c.effects : c.effect?.type ? [c.effect] : [];
+    if (fx.length) out.push(`<i class="cl-ic fx" title="Effect${fx.length > 1 ? "s" : ""}: ${esc(fx.map(e => e.name || e.type).join(", "))}">✹</i>`);
+    const delays = [];
+    if (Number(c.delay) > 0) delays.push(`waits ${secs(c.delay)} s`);
+    if (Array.isArray(c.partDelays) && c.partDelays.length) delays.push(`delays by group: ${c.partDelays.map(pd => `${pd.group || pd.lights} +${secs(pd.delay)} s`).join(", ")}`);
+    if (c.timing?.split) delays.push("split times");
+    if (delays.length) out.push(`<i class="cl-ic dl" title="${esc(delays.join(" · "))}">⧗</i>`);
+    if (c.followEnabled) out.push(`<i class="cl-ic fo" data-edit="follow" title="${c.followMode === "go" ? "Follows" : "Goes on"} by itself after ${secs((c.follow || 0) * 1000)} s — double-click to change">↪${secs((c.follow || 0) * 1000)}</i>`);
+    return out.join("");
+  }
 
-  function build(host) {
-    body = host;
+  // Every place the table is showing: the dock on the right (js/shell.js)
+  // and the Cue List window.
+  const bodies = new Set();
+  let timer = null;
+
+  function build(host, { docked = false } = {}) {
+    bodies.add(host);
     host.innerHTML = `
-      <div class="cl">
+      <div class="cl${docked ? " docked" : ""}">
         <div class="cl-top">
           <div class="cl-status"><div><span class="cl-tag live">LIVE</span><b data-k="live">—</b></div><div><span class="cl-tag next">NEXT</span><b data-k="next">—</b></div></div>
           <div class="cl-buttons">
@@ -112,7 +131,7 @@
           </div>
         </div>
         <div class="cl-gonote" hidden></div>
-        <div class="cl-head"><span></span><span>#</span><span title="T = tracked (stores only changes) · B = block (stores the whole look)">Mode</span><span>Name</span><span>Fade</span><span>Follow</span><span title="Timecode: when timecode passes this time, the cue fires">TC</span><span class="cl-fxh">Effect</span></div>
+        <div class="cl-head"><span></span><span>#</span><span class="cl-modeh" title="T = tracked (stores only changes) · B = block (stores the whole look)">Mode</span><span>Name</span><span>Fade</span><span title="Its place on the song timeline (timecode): when the time passes it, the cue fires">Time</span><span class="cl-fxh" title="✹ effect · ⧗ delays · ↪ follows on">Extras</span></div>
         <div class="cl-rows"></div>
         <div class="cl-foot">
           <button type="button" class="btn-secondary" data-cl="record">＋ Record next cue</button>
@@ -149,14 +168,16 @@
     });
     wireDrag(host.querySelector(".cl-rows"));
     render();
-    clearInterval(timer);
-    timer = setInterval(() => { if (!host.isConnected) { clearInterval(timer); timer = null; body = null; return; } render(); }, 100);
+    if (!timer) timer = setInterval(() => { for (const b of bodies) if (!b.isConnected) bodies.delete(b); if (!bodies.size) { clearInterval(timer); timer = null; return; } render(); }, 100);
   }
+  // The table in a host of your own (the dock): GO and BACK are in the top bar.
+  const mount = host => build(host, { docked: true });
+
+  function render() { for (const b of bodies) if (b.isConnected) renderOne(b); }
 
   // Rows are rebuilt only when the list itself changes; otherwise just
   // classes, text and the progress bar are touched.
-  function render() {
-    if (!body) return;
+  function renderOne(body) {
     const s = S();
     const cues = s.cues || [];
     const rows = body.querySelector(".cl-rows");
@@ -181,9 +202,8 @@
           <span class="cl-dot"></span><span class="cl-num" data-edit="num" title="Double-click to renumber (e.g. 2.5 puts it between 2 and 3)">${window.cueLabel(i)}</span><span class="cl-tags">${modeTag(c, i)}</span>
           <span data-edit="name">${esc(c.name || `Cue ${window.cueLabel(i)}`)}</span>
           <span data-edit="fade">${secs(c.fade ?? 800)} s</span>
-          <span data-edit="follow">${c.followEnabled ? `${c.followMode === "go" ? "F " : ""}${secs((c.follow || 0) * 1000)} s` : "—"}</span>
-          <span data-edit="tc" class="cl-tc">${Number.isFinite(c.timecode) ? window.LXTimecode?.format(c.timecode) ?? "" : "—"}</span>
-          <span class="cl-fx">${esc(c.effect ? c.effect.name || c.effect.type : "")}</span>
+          <span data-edit="tc" class="cl-tc" title="${Number.isFinite(c.timecode) ? `Fires at ${esc(window.LXTimecode?.format(c.timecode) ?? "")}` : "No time — double-click to give it one, or drag it onto the Song Timeline"}">${Number.isFinite(c.timecode) ? clock(c.timecode) : "—"}</span>
+          <span class="cl-fx">${extras(c)}</span>
           <i class="cl-progress"></i>
         </div>` : "").join("") || '<div class="cl-empty">No cues yet. Set a look and press ＋ Record next cue.</div>';
       rows.dataset.key = key;
@@ -244,8 +264,8 @@
       }
       // Take the box away (and its keyboard focus) before redrawing.
       input.remove();
-      cell.textContent = field === "num" ? window.cueLabel(S().cues.indexOf(cue)) : field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade ?? 800)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) ?? "" : "—") : cue.followEnabled ? `${secs((cue.follow || 0) * 1000)} s` : "—";
-      body.querySelector(".cl-rows").dataset.key = "";
+      cell.textContent = field === "num" ? window.cueLabel(S().cues.indexOf(cue)) : field === "name" ? cue.name : field === "fade" ? `${secs(cue.fade ?? 800)} s` : field === "tc" ? (Number.isFinite(cue.timecode) ? clock(cue.timecode) : "—") : cue.followEnabled ? `↪${secs((cue.follow || 0) * 1000)}` : "";
+      for (const b of bodies) { const r = b.querySelector(".cl-rows"); if (r) r.dataset.key = ""; }
       window.renderCues?.();
       window.updateInspectorList?.();
       render();
@@ -348,28 +368,32 @@
       .cl{display:flex;flex-direction:column;height:100%;min-height:0}
       .cl-gonote{padding:8px 12px;border-bottom:1px solid var(--border);background:#1b1508;color:#ffd27a;font-size:20px;font-weight:800;line-height:1.25}
       .cl-top{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);background:#0e1519}
-      .cl-status{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:12px}
+      .cl-status{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:14px}
       .cl-status div{display:flex;align-items:center;gap:8px;min-width:0}
       .cl-status b{font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .cl-tag{flex:none;width:44px;text-align:center;padding:2px 0;border-radius:3px;font-size:9px;font-weight:900;letter-spacing:1px}
+      .cl-tag{flex:none;width:44px;text-align:center;padding:2px 0;border-radius:3px;font-size:12px;font-weight:900;letter-spacing:1px}
       .cl-tag.live{background:rgba(74,201,108,.18);color:#6fe08e}
       .cl-tag.next{background:rgba(255,180,84,.16);color:#ffc46e}
       .cl-buttons{display:flex;gap:6px;align-items:center}
       .cl-buttons .btn-secondary{height:40px}
-      .cl-go{height:40px;min-width:92px;border:0;border-radius:6px;background:#2fbf63;color:#04140a;font-size:16px;font-weight:900;letter-spacing:2px;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+      .cl-go{height:40px;min-width:92px;border:0;border-radius:6px;background:#2fbf63;color:#04140a;font-size:17px;font-weight:900;letter-spacing:2px;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
       .cl-go:hover{background:#39d672}
       .cl-go:active{transform:translateY(1px)}
-      .cl-head,.cl-row{display:grid;grid-template-columns:16px 44px 84px minmax(0,1fr) 60px 64px 92px minmax(0,.6fr);gap:8px;align-items:center;padding:0 10px}
-      .cl-head{height:24px;border-bottom:1px solid var(--border);color:#5d6b68;font-size:9px;font-weight:850;letter-spacing:1.1px;text-transform:uppercase}
+      .cl-head,.cl-row{display:grid;grid-template-columns:16px 44px 84px minmax(0,1fr) 60px 70px 92px;gap:8px;align-items:center;padding:0 10px}
+      .cl-head{height:24px;border-bottom:1px solid var(--border);color:#9ca9a6;font-size:12px;font-weight:850;letter-spacing:1.1px;text-transform:uppercase}
       .cl-rows{flex:1 1 auto;min-height:0;overflow:auto}
-      .cl-scene{padding:9px 10px 4px;font:800 9.5px/1 system-ui;letter-spacing:.09em;text-transform:uppercase;color:#6f7d7b;border-bottom:1px solid #141c20}
+      .cl-scene{padding:9px 10px 4px;font:800 9.5px/1 system-ui;letter-spacing:.09em;text-transform:uppercase;color:#a1acaa;border-bottom:1px solid #141c20}
       .cl-row.cl-disabled{opacity:.42}.cl-row.cl-disabled [data-edit=name]{text-decoration:line-through}
       .cl-row{box-shadow:inset 3px 0 0 var(--tag,transparent)}
-      .cl-row{position:relative;height:30px;border-bottom:1px solid #141c20;color:#b9c5c2;font-size:12px;cursor:pointer;user-select:none}
+      .cl-row{position:relative;height:30px;border-bottom:1px solid #141c20;color:#b9c5c2;font-size:14px;cursor:pointer;user-select:none}
       .cl-row:hover{background:#121b20}
       .cl-row > span{position:relative;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .cl-num{font-family:var(--mono);color:#8c9a97}
-      .cl-fx{color:#e24fd0;font-size:10.5px}
+      .cl-num{font-family:var(--mono);color:#a7b2af}
+      .cl-fx{display:flex;gap:5px;align-items:center}
+      .cl-ic{font-style:normal;font-size:13px;line-height:1;padding:2px 4px;border-radius:4px}
+      .cl-ic.fx{color:#f08ae4;background:rgba(226,79,208,.14)}
+      .cl-ic.dl{color:#8bc5ff;background:rgba(92,168,255,.14)}
+      .cl-ic.fo{color:#ffd27a;background:rgba(255,173,31,.13);font-family:var(--mono);font-size:12px}
       .cl-dot{width:8px;height:8px;border-radius:50%;background:transparent}
       .cl-row.live{background:rgba(47,191,99,.14);color:#e9fff0;box-shadow:inset 3px 0 0 #2fbf63}
       .cl-row.live .cl-dot{background:#2fbf63;box-shadow:0 0 8px #2fbf63}
@@ -382,19 +406,30 @@
       .cl-mode.t{background:rgba(92,168,255,.16);color:#8bc5ff}
       .cl-mode.b{background:rgba(255,255,255,.07);color:#9aa8a5}
       .cl-mib{background:rgba(155,123,255,.2);color:#c7b6ff}
-      .cl-mib.off{background:transparent;color:#5d6b68;text-decoration:line-through}
-      .cl.no-fx .cl-head,.cl.no-fx .cl-row{grid-template-columns:16px 44px 84px minmax(0,1fr) 60px 64px 92px}
-      .cl-tc{font-family:var(--mono);font-size:11px;color:#ffd27a}
+      .cl-mib.off{background:transparent;color:#9ca9a6;text-decoration:line-through}
+      .cl.no-fx .cl-head,.cl.no-fx .cl-row{grid-template-columns:16px 44px 84px minmax(0,1fr) 60px 70px}
+      .cl.no-mode .cl-head,.cl.no-mode .cl-row{grid-template-columns:16px 44px 0 minmax(0,1fr) 60px 70px 92px}
+      /* Docked on the right: GO/BACK are in the top bar; names wrap, never cut. */
+      .cl.docked .cl-buttons{display:none}
+      .cl.docked .cl-top{padding:8px 10px}
+      .cl.docked .cl-head,.cl.docked .cl-row{grid-template-columns:8px 34px minmax(0,1fr) 40px 54px 62px;gap:6px;padding:0 8px}
+      .cl.docked .cl-modeh,.cl.docked .cl-tags{display:none}
+      .cl.docked .cl-row{height:auto;min-height:36px;padding-top:5px;padding-bottom:5px}
+      .cl.docked .cl-row > [data-edit=name]{white-space:normal;overflow-wrap:anywhere;line-height:1.3}
+      .cl.docked .cl-gonote{font-size:19px;padding:10px 12px}
+      .cl.docked .cl-foot span{display:none}
+      .cl.docked .cl-foot .btn-secondary{flex:1 1 auto}
+      .cl-tc{font-family:var(--mono);font-size:13px;color:#ffd27a}
       .cl.no-fx .cl-fx,.cl.no-fx .cl-fxh{display:none}
-      .cl.no-mode .cl-mode{display:none}
+      .cl.no-mode .cl-tags,.cl.no-mode .cl-modeh{visibility:hidden}
       .cl.big-go .cl-go{height:64px;min-width:150px;font-size:24px}
       .cl.big-go .cl-buttons .btn-secondary{height:64px}
       .cl-row.dragging{opacity:.4}
       .cl-row.drop{box-shadow:inset 0 2px 0 var(--accent)}
-      .cl-input{width:100%;height:22px;padding:0 6px;background:#0a1013;border:1px solid var(--accent-line);border-radius:3px;color:var(--text);font-size:12px;user-select:text}
-      .cl-empty{padding:26px;text-align:center;color:#6f7d7a;font-size:12px}
+      .cl-input{width:100%;height:22px;padding:0 6px;background:#0a1013;border:1px solid var(--accent-line);border-radius:3px;color:var(--text);font-size:14px;user-select:text}
+      .cl-empty{padding:26px;text-align:center;color:#a1aca9;font-size:14px}
       .cl-foot{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 10px;border-top:1px solid var(--border)}
-      .cl-foot span{margin-left:auto;color:#5d6b68;font-size:10px}
+      .cl-foot span{margin-left:auto;color:#9ca9a6;font-size:13px}
       #cueList .cue-item.next{box-shadow:inset 3px 0 0 #ffad1f;background:rgba(255,173,31,.10)}
     `;
     document.head.appendChild(style);
@@ -410,5 +445,5 @@
   }
   window.addEventListener("load", () => setTimeout(boot, 500));
 
-  window.LXCueList = Object.freeze({ open: () => window.LXWindows?.open("cuelist"), setNext, next: nextIndex, refresh: () => refreshAll() });
+  window.LXCueList = Object.freeze({ open: () => window.LXWindows?.open("cuelist"), mount, setNext, next: nextIndex, refresh: () => refreshAll() });
 })();

@@ -5,8 +5,8 @@
  * speed: how long one cycle lasts (a wave over 1 bar = 4 beats), or one
  * step for step effects (chase, build, sparkle: 1 beat = a step a beat).
  * Change the tempo — type it, "tempo 128", or tap — and those effects
- * speed up or slow down in place, without jumping. The chase Tap button
- * sets it too. Saved with the show.
+ * speed up or slow down in place, without jumping. It's in the top bar,
+ * with Tap. Saved with the show.
  */
 (function () {
   if (window.LXTempo) return;
@@ -72,23 +72,25 @@
     return false;
   }
 
-  // ------------------------------------------------- the Effects page bar
+  // ------------------------------------------------- in the top bar
 
+  // js/shell.js makes the slot (#shellTempo) in the top bar.
   function render() {
-    const host = document.querySelector("#page-effects .toolbar-card");
+    const host = document.getElementById("shellTempo");
     if (!host) return;
     let bar = document.getElementById("lxTempoBar");
     if (!bar) {
       bar = document.createElement("div");
       bar.id = "lxTempoBar";
       bar.className = "lx-tempo";
-      bar.innerHTML = `<span class="lx-tempo-label">Tempo</span><input type="number" id="lxTempoBpm" min="20" max="300" step="1"><span>BPM</span><button type="button" class="btn-secondary" id="lxTempoTap">Tap</button><span class="lx-tempo-dot"></span><small>Effects set to “Follow tempo” run at this speed. The chase Tap sets it too.</small>`;
+      bar.title = "Show tempo: effects set to “Follow tempo”, and chases following the show tempo, run at this speed";
+      bar.innerHTML = `<span class="lx-tempo-dot"></span><input type="number" id="lxTempoBpm" min="20" max="300" step="1" aria-label="Show tempo (BPM)"><span class="lx-tempo-unit">BPM</span><button type="button" class="btn-secondary" id="lxTempoTap">Tap</button>`;
       host.appendChild(bar);
       bar.querySelector("#lxTempoBpm").addEventListener("change", e => set(e.target.value));
       bar.querySelector("#lxTempoTap").addEventListener("pointerdown", e => { e.preventDefault(); tap(); });
     }
     const input = bar.querySelector("#lxTempoBpm");
-    if (document.activeElement !== input) input.value = String(bpm());
+    if (document.activeElement !== input) input.value = String(Math.round(bpm() * 10) / 10);
   }
 
   // The dot blinks on the beat.
@@ -101,15 +103,9 @@
   }
 
   function install(tries = 0) {
-    if (!document.querySelector("#page-effects .toolbar-card")) { if (tries < 100) setTimeout(() => install(tries + 1), 200); return; }
+    if (!document.getElementById("shellTempo")) { if (tries < 150) setTimeout(() => install(tries + 1), 200); return; }
     render();
     blink();
-    if (!document.getElementById("lxTempoStyles")) {
-      const st = document.createElement("style");
-      st.id = "lxTempoStyles";
-      st.textContent = `.lx-tempo{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:#c6d0ce}.lx-tempo-label{font-weight:700;color:#edf4f2}.lx-tempo input{width:72px}.lx-tempo button{min-height:32px;padding:0 16px}.lx-tempo small{flex-basis:100%;color:#7d8987;font-size:11px}.lx-tempo-dot{width:10px;height:10px;border-radius:50%;background:#26323a}.lx-tempo-dot.on{background:var(--accent,#19d6a3)}`;
-      document.head.appendChild(st);
-    }
   }
   // A show that's opened brings its tempo.
   window.addEventListener("lx-show-file", () => setTimeout(() => { retime(); render(); }, 200));

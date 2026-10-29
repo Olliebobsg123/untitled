@@ -102,12 +102,12 @@
       .fresnel-title strong {
         letter-spacing:.08em;
         text-transform:uppercase;
-        font-size:13px;
+        font-size:14px;
       }
       .fresnel-title small,
       .fresnel-note {
         color:var(--text-muted);
-        font-size:9px;
+        font-size:12px;
         letter-spacing:.12em;
         text-transform:uppercase;
       }

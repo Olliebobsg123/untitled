@@ -498,15 +498,15 @@
       modal.innerHTML = `
         <div class="palette-window" role="dialog" aria-modal="true" aria-label="Auto Create" style="width:min(520px,94vw)">
           <div class="palette-window-head"><div class="palette-window-title">AUTO CREATE<small>FROM YOUR PATCH</small></div><button type="button" class="palette-window-close" aria-label="Close">×</button></div>
-          <div style="padding:15px 17px;color:#9aa7a4;font-size:11px;line-height:1.5">
+          <div style="padding:15px 17px;color:#9aa7a4;font-size:13px;line-height:1.5">
             Builds groups, palettes, effects and chases for the fixtures you've patched. Position palettes aim each moving head at the stage from where it hangs in the visualiser.
             Running it again updates what it made before; your own groups, palettes, effects and chases are never changed.
           </div>
-          <div style="padding:0 17px 6px;display:grid;gap:8px;font-size:12px;color:#d9e2e0">
-            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="groups" checked> Groups <small style="color:#66736f">all, by type, by model, odd/even, left/right</small></label>
-            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="palettes" checked> Palettes <small style="color:#66736f">colour, position, beam, intensity</small></label>
-            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="effects" checked> Effects <small style="color:#66736f">intensity, colour, movement and beam effects</small></label>
-            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="chases" checked> Chases <small style="color:#66736f">colour, intensity, movement and beam chases</small></label>
+          <div style="padding:0 17px 6px;display:grid;gap:8px;font-size:14px;color:#d9e2e0">
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="groups" checked> Groups <small style="color:#9faaa7">all, by type, by model, odd/even, left/right</small></label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="palettes" checked> Palettes <small style="color:#9faaa7">colour, position, beam, intensity</small></label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="effects" checked> Effects <small style="color:#9faaa7">intensity, colour, movement and beam effects</small></label>
+            <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-auto="chases" checked> Chases <small style="color:#9faaa7">colour, intensity, movement and beam chases</small></label>
           </div>
           <div class="palette-actions-row" style="padding:12px 17px 17px"><button type="button" class="btn-primary" data-auto-go>✨ Create</button><button type="button" class="btn-secondary" data-auto-cancel>Cancel</button></div>
         </div>`;

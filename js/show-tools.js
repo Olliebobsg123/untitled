@@ -27,7 +27,7 @@
     return typeof window.peekNextCue === "function" ? window.peekNextCue() : -1;
   }
   function goNoteTick() {
-    const header = document.querySelector(".bottom-row .panel.cues .panel-header");
+    const header = document.querySelector(".panel.cues .panel-header");
     if (!header) return;
     let el = document.getElementById("lxGoNote");
     if (!el) {
@@ -139,12 +139,12 @@
       return `${head}<tr${c.disabled ? ' class="off"' : ""}><td class="n">${esc(window.cueLabel?.(i) ?? i + 1)}</td><td><b>${esc(c.name || "")}</b>${fx(c) ? `<div class="fx">✦ ${fx(c)}</div>` : ""}</td><td>${timing(c)}</td><td>${then(c)}</td><td class="go">${esc(c.goNote || "")}</td><td class="note">${esc(c.note || "")}</td></tr>`;
     }).join("");
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(name)} — cue sheet</title><style>
-      @page{size:A4 landscape;margin:12mm}body{font:11px/1.35 -apple-system,Segoe UI,Arial,sans-serif;color:#111}
-      h1{font-size:18px;margin:0 0 2px}.sub{color:#666;margin:0 0 10px}table{width:100%;border-collapse:collapse}
-      th{text-align:left;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;border-bottom:2px solid #111;padding:4px 6px}
-      td{border-bottom:1px solid #ccc;padding:5px 6px;vertical-align:top}td.n{font-weight:800;font-size:13px;width:40px}
-      td.go{font-weight:700;font-size:12px;width:22%}td.note{color:#444;width:22%;white-space:pre-wrap}.fx{color:#6a3fbf;font-size:10px}
-      tr.scene td{background:#eee;font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:10px}tr.off{color:#999;text-decoration:line-through}
+      @page{size:A4 landscape;margin:12mm}body{font:13px/1.35 -apple-system,Segoe UI,Arial,sans-serif;color:#111}
+      h1{font-size:18px;margin:0 0 2px}.sub{color:#a3a3a3;margin:0 0 10px}table{width:100%;border-collapse:collapse}
+      th{text-align:left;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#a0a0a0;border-bottom:2px solid #111;padding:4px 6px}
+      td{border-bottom:1px solid #ccc;padding:5px 6px;vertical-align:top}td.n{font-weight:800;font-size:14px;width:40px}
+      td.go{font-weight:700;font-size:14px;width:22%}td.note{color:#9c9c9c;width:22%;white-space:pre-wrap}.fx{color:#6a3fbf;font-size:13px}
+      tr.scene td{background:#eee;font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:13px}tr.off{color:#999;text-decoration:line-through}
       tr{page-break-inside:avoid}</style></head><body>
       <h1>${esc(name)}</h1><p class="sub">Cue sheet · ${cues.length} cues · printed ${new Date().toLocaleString()}</p>
       <table><thead><tr><th>#</th><th>Cue</th><th>Time</th><th>Then</th><th>GO on</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;

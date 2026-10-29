@@ -160,7 +160,7 @@
     if (!document.getElementById("lxAtmosStyles")) {
       const st = document.createElement("style");
       st.id = "lxAtmosStyles";
-      st.textContent = `.lx-atmos-trip{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:100050;display:flex;align-items:center;gap:12px;max-width:min(820px,calc(100vw - 32px));padding:10px 14px;border:1px solid #7a2a20;border-radius:10px;background:#250d09;color:#ffd8cf;font-size:13px;line-height:1.4;box-shadow:0 12px 30px rgba(0,0,0,.5)}.lx-atmos-trip span{flex:1}.lx-atmos-trip button{flex:0 0 auto;min-height:34px;white-space:nowrap}.lx-atmos-row{margin:6px 0;font-size:12.5px;color:#c6d0ce}.lx-atmos-row input{width:76px;margin:0 6px}`;
+      st.textContent = `.lx-atmos-trip{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:100050;display:flex;align-items:center;gap:12px;max-width:min(820px,calc(100vw - 32px));padding:10px 14px;border:1px solid #7a2a20;border-radius:10px;background:#250d09;color:#ffd8cf;font-size:14px;line-height:1.4;box-shadow:0 12px 30px rgba(0,0,0,.5)}.lx-atmos-trip span{flex:1}.lx-atmos-trip button{flex:0 0 auto;min-height:34px;white-space:nowrap}.lx-atmos-row{margin:6px 0;font-size:12.5px;color:#c6d0ce}.lx-atmos-row input{width:76px;margin:0 6px}`;
       document.head.appendChild(st);
     }
   }

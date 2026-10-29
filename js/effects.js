@@ -702,7 +702,7 @@ if (!document.getElementById("runningEffectStyles")) {
     .running-effects{margin:6px 0 10px}
     .running-effect{display:flex;align-items:center;gap:10px;padding:7px 10px;margin-top:6px;border:1px solid rgba(226,79,208,.35);border-radius:8px;background:rgba(226,79,208,.07)}
     .running-effect b{font-size:12.5px}
-    .running-effect small{flex:1;min-width:0;color:#8c9a97;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .running-effect small{flex:1;min-width:0;color:#a7b2af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .running-effect .btn-danger-soft{height:26px;padding:0 10px}
     .running-dot{width:8px;height:8px;border-radius:50%;background:#e24fd0;box-shadow:0 0 8px #e24fd0;flex:none}`;
   (document.head || document.documentElement).appendChild(style);

@@ -107,20 +107,20 @@
     if (!document.getElementById("lxTsStyles")) {
       const st = document.createElement("style");
       st.id = "lxTsStyles";
-      st.textContent = `.ts{display:flex;flex-direction:column;height:100%;min-height:0;font-size:12px;color:#c6d0ce}
+      st.textContent = `.ts{display:flex;flex-direction:column;height:100%;min-height:0;font-size:14px;color:#c6d0ce}
 .ts-top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:8px 10px;border-bottom:1px solid var(--border,#1d262b)}
 .ts-warn{color:#ffb4a4;font-weight:700}.ts-ok{color:#7fdcb2}.ts-only{display:flex;align-items:center;gap:5px;margin-left:auto}
-.ts-key{display:flex;align-items:center;gap:4px;color:#7d8987;font-size:11px}.ts-key i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:6px}
+.ts-key{display:flex;align-items:center;gap:4px;color:#a5adac;font-size:13px}.ts-key i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:6px}
 .ts-key .up{background:#1f7a52}.ts-key .down{background:#8a2c62}.ts-key .trk{background:#26323a}
-.ts-empty{padding:24px;color:#7d8987}
+.ts-empty{padding:24px;color:#a5adac}
 .ts-scroll{flex:1;min-height:0;overflow:auto}
-.ts table{border-collapse:separate;border-spacing:0;font:12px var(--mono,monospace)}
+.ts table{border-collapse:separate;border-spacing:0;font:14px var(--mono,monospace)}
 .ts th,.ts td{padding:3px 6px;border-right:1px solid #161d21;border-bottom:1px solid #161d21;text-align:center;white-space:nowrap;min-width:34px}
 .ts thead th{position:sticky;top:0;z-index:2;background:#11181c;color:#9fb0ac;cursor:pointer}
 .ts thead th.live{color:var(--accent,#19d6a3)}
 .ts .ts-fix{position:sticky;left:0;z-index:1;background:#0d1316;text-align:left;max-width:190px;overflow:hidden;text-overflow:ellipsis;font-family:inherit;font-weight:400;color:#c6d0ce}
 .ts thead .ts-fix{z-index:3}
-.ts td{cursor:pointer;color:#5d6a68;position:relative}
+.ts td{cursor:pointer;color:#9da9a7;position:relative}
 .ts td.trk{color:#93a19e}
 .ts td.up{background:rgba(31,122,82,.35);color:#c9f5df;font-weight:700}
 .ts td.down{background:rgba(138,44,98,.35);color:#ffd1ec;font-weight:700}

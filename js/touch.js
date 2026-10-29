@@ -279,18 +279,18 @@
       .lx-keypad[hidden]{display:none}
       /* Above dialogs so it can type into them, but a menu that's open goes over it. */
       body:has(.lxw-menu:not([hidden])) .lx-keypad{z-index:1900}
-      .lx-keypad-bar{display:flex;align-items:center;justify-content:space-between;height:34px;padding:0 6px 0 12px;border-bottom:1px solid #202a30;color:#61706c;font-size:10px;font-weight:850;letter-spacing:1.2px;cursor:grab}
-      .lx-keypad-bar button{width:40px;height:30px;border:0;border-radius:6px;background:transparent;color:#8a9894;font-size:18px;cursor:pointer}
+      .lx-keypad-bar{display:flex;align-items:center;justify-content:space-between;height:34px;padding:0 6px 0 12px;border-bottom:1px solid #202a30;color:#9daaa7;font-size:13px;font-weight:850;letter-spacing:1.2px;cursor:grab}
+      .lx-keypad-bar button{width:40px;height:30px;border:0;border-radius:6px;background:transparent;color:#a7b1ae;font-size:18px;cursor:pointer}
       .lx-keypad-keys{display:grid;gap:6px;padding:8px}
       .lx-keypad-row{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
       .lx-keypad-keys.abc{gap:5px}.lx-keypad-keys.abc .lx-keypad-row{gap:4px}
       .lx-keypad-keys.abc .lx-keypad-row:last-child{grid-template-columns:1fr 2.4fr 1fr 1.6fr;grid-auto-flow:row}
-      .lx-keypad-keys button{min-height:52px;padding:0 2px;border:1px solid #26343a;border-radius:8px;background:#121b20;color:#c6d0ce;font-size:13px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;cursor:pointer;touch-action:manipulation}
-      .lx-keypad-keys.abc button{min-height:46px;font-size:15px;text-transform:none}
+      .lx-keypad-keys button{min-height:52px;padding:0 2px;border:1px solid #26343a;border-radius:8px;background:#121b20;color:#c6d0ce;font-size:14px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;cursor:pointer;touch-action:manipulation}
+      .lx-keypad-keys.abc button{min-height:46px;font-size:16px;text-transform:none}
       .lx-keypad-keys button.num{font-size:21px;font-family:var(--mono,monospace);color:#edf4f2;background:#18232a}
       .lx-keypad-keys button.go{background:var(--accent,#19d6a3);border-color:transparent;color:#061210}
       .lx-keypad-keys button:active{transform:scale(.95);filter:brightness(1.3)}
-      .lx-touch-tip{position:fixed;z-index:100060;max-width:320px;padding:9px 12px;border:1px solid #2b383f;border-radius:8px;background:#0b1114;color:#dbe4e2;font-size:13px;line-height:1.35;box-shadow:0 10px 26px rgba(0,0,0,.5);pointer-events:none}
+      .lx-touch-tip{position:fixed;z-index:100060;max-width:320px;padding:9px 12px;border:1px solid #2b383f;border-radius:8px;background:#0b1114;color:#dbe4e2;font-size:14px;line-height:1.35;box-shadow:0 10px 26px rgba(0,0,0,.5);pointer-events:none}
 
       /* A finger is about 9 mm: about 44 px is the smallest thing worth aiming at. */
       ${T} body{-webkit-tap-highlight-color:transparent}
@@ -300,13 +300,13 @@
       ${T} .btn-icon{padding-left:14px!important;padding-right:14px!important}
       ${T} .lx-swatches button{min-height:0!important;width:36px;height:36px}
       ${T} button:active{filter:brightness(1.25)}
-      ${T} input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]),${T} select{min-height:42px!important;font-size:15px!important}
+      ${T} input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]),${T} select{min-height:42px!important;font-size:16px!important}
       ${T} input[type=checkbox],${T} input[type=radio]{width:24px;height:24px}
       ${T} .nav-link{min-height:52px!important}
       ${T} .item-list > *,${T} .fixture-item,${T} .pt-row,${T} .qlab-sync-list > *{min-height:46px!important}
-      ${T} .cl-row{height:48px!important;font-size:14px!important}
+      ${T} .cl-row{height:48px!important;font-size:15px!important}
       ${T} .cl-head{height:34px}
-      ${T} #btnCueGo{min-width:120px;font-size:16px!important;font-weight:900}
+      ${T} #btnCueGo{min-width:120px;font-size:17px!important;font-weight:900}
       ${T} #btnCueBack{min-width:84px}
       ${T} .cue-actions{gap:8px}
       ${T} .cmd-line{min-height:52px}
@@ -314,7 +314,7 @@
       ${T} .lxw-bar{height:44px!important;min-height:44px}
       ${T} .lxw-bar button{width:44px!important;height:38px!important;font-size:18px!important}
       ${T} .lxw-grip{width:34px!important;height:34px!important}
-      ${T} .lxw-menu button,${T} .lxw-menu-btn{min-height:44px!important;font-size:14px!important}
+      ${T} .lxw-menu button,${T} .lxw-menu-btn{min-height:44px!important;font-size:15px!important}
       ${T} .lxw-menu button{padding-top:10px!important;padding-bottom:10px!important}
       ${T} .xy-pad,${T} #colourWheel,${T} .colour-wheel,${T} canvas,${T} svg{touch-action:none}
       ${T} input[type=range]{height:40px!important;touch-action:none}

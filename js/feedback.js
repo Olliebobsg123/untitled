@@ -15,17 +15,17 @@
       #lxFeedbackModal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.72); z-index:100000; padding:20px; box-sizing:border-box; }
       #lxFeedbackModal.is-open { display:flex; }
       #lxFeedbackModal .lx-feedback-box { width:min(620px,100%); background:#0b1012; border:1px solid #2a373b; box-shadow:0 24px 80px rgba(0,0,0,.55); padding:22px; box-sizing:border-box; color:#eef4f2; font-family:Inter,"Segoe UI",system-ui,sans-serif; }
-      #lxFeedbackModal .lx-feedback-kicker { color:#19d6a3; font:900 9px/1 var(--mono,monospace); letter-spacing:.14em; text-transform:uppercase; margin-bottom:8px; }
+      #lxFeedbackModal .lx-feedback-kicker { color:#19d6a3; font:900 12px/1 var(--mono,monospace); letter-spacing:.14em; text-transform:uppercase; margin-bottom:8px; }
       #lxFeedbackModal h3 { margin:0 0 7px; font-size:20px; }
-      #lxFeedbackModal p { margin:0 0 16px; color:#879693; font-size:12px; }
-      #lxFeedbackModal textarea { width:100%; min-height:170px; resize:vertical; box-sizing:border-box; background:#070a0b; border:1px solid #2a373b; color:#eef4f2; padding:12px; outline:none; font:700 12px/1.5 var(--mono,monospace); }
+      #lxFeedbackModal p { margin:0 0 16px; color:#a6b1af; font-size:14px; }
+      #lxFeedbackModal textarea { width:100%; min-height:170px; resize:vertical; box-sizing:border-box; background:#070a0b; border:1px solid #2a373b; color:#eef4f2; padding:12px; outline:none; font:700 14px/1.5 var(--mono,monospace); }
       #lxFeedbackModal textarea:focus { border-color:#19d6a3; }
       #lxFeedbackModal .lx-feedback-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:13px; }
-      #lxFeedbackModal button { border:1px solid #2a373b; background:#11191c; color:#eef4f2; padding:9px 14px; cursor:pointer; font:900 10px/1 var(--mono,monospace); text-transform:uppercase; }
+      #lxFeedbackModal button { border:1px solid #2a373b; background:#11191c; color:#eef4f2; padding:9px 14px; cursor:pointer; font:900 13px/1 var(--mono,monospace); text-transform:uppercase; }
       #lxFeedbackModal button:hover { background:#172124; }
       #lxFeedbackModal .lx-feedback-send { background:#19d6a3; color:#06110d; border-color:#19d6a3; }
       #lxFeedbackModal .lx-feedback-send:hover { background:#42e2b8; }
-      #lxFeedbackModal .lx-feedback-status { min-height:16px; margin-top:9px; color:#879693; font:700 10px/1.4 var(--mono,monospace); }
+      #lxFeedbackModal .lx-feedback-status { min-height:16px; margin-top:9px; color:#a6b1af; font:700 13px/1.4 var(--mono,monospace); }
     `;
     document.head.appendChild(style);
   };

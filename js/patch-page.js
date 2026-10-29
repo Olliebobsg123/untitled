@@ -121,31 +121,31 @@
       #patchLibraryPanel .library-list{height:430px;max-height:none;overflow:auto}
       #libList .fixture-item.picked{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent)}
       .patch-picked{display:flex;flex-direction:column;gap:4px;padding:12px 14px;margin-bottom:14px;border:1px solid var(--accent-line);border-radius:8px;background:var(--accent-soft)}
-      .patch-picked b{font-size:13px;color:var(--text)}
-      .patch-picked span{font-size:11px;color:#9aa7a4}
+      .patch-picked b{font-size:14px;color:var(--text)}
+      .patch-picked span{font-size:13px;color:#9aa7a4}
       .patch-picked .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-      .patch-picked .chips i{font-style:normal;font-size:10px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:5px;background:rgba(0,0,0,.25);color:#b9c5c2}
+      .patch-picked .chips i{font-style:normal;font-size:13px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:5px;background:rgba(0,0,0,.25);color:#b9c5c2}
       .patch-picked.empty{border-style:dashed;border-color:var(--border);background:transparent}
       .patch-picked.empty b{color:#9aa7a4}
-      .patch-link{margin-left:8px;padding:0;border:0;background:none;color:var(--accent);font-size:9px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer}
-      .patch-range{margin:4px 0 12px;font-size:11px;line-height:1.5;color:#8bc5ff}
+      .patch-link{margin-left:8px;padding:0;border:0;background:none;color:var(--accent);font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer}
+      .patch-range{margin:4px 0 12px;font-size:13px;line-height:1.5;color:#8bc5ff}
       .patch-range.bad{color:#ff8996}
       .patch-range.clash{color:#f5b03c}
       #patchFormPanel .action-row{flex-wrap:wrap}
-      #patchFormPanel #btnPatch{flex:1;height:40px;font-size:12px}
+      #patchFormPanel #btnPatch{flex:1;height:40px;font-size:14px}
       .patch-tools{margin-top:8px}
       .patch-tools:empty{display:none}
       .patch-tools button{flex:1}
       #tapoSetup{display:block}
       #tapoSetup .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-      #tapoSetup small{font-size:11px;line-height:1.5}
+      #tapoSetup small{font-size:13px;line-height:1.5}
       .patch-table-tools{display:flex;gap:8px;align-items:center;margin-bottom:10px}
       .patch-table-tools .search-box{flex:1;margin:0}
       .patch-table{border:1px solid var(--border);border-radius:8px;overflow:hidden}
-      .pt-row{display:grid;grid-template-columns:34px 74px minmax(0,1fr) 58px 84px 92px 96px 78px 40px;align-items:center;min-height:38px;border-bottom:1px solid var(--border);font-size:12px}
+      .pt-row{display:grid;grid-template-columns:34px 74px minmax(0,1fr) 58px 84px 92px 96px 78px 40px;align-items:center;min-height:38px;border-bottom:1px solid var(--border);font-size:14px}
       .pt-row:last-child{border-bottom:0}
       .pt-row > *{padding:0 8px;min-width:0}
-      .pt-head{min-height:32px;background:rgba(255,255,255,.02);font-size:9px;font-weight:850;letter-spacing:1px;color:#5d6b68;text-transform:uppercase}
+      .pt-head{min-height:32px;background:rgba(255,255,255,.02);font-size:12px;font-weight:850;letter-spacing:1px;color:#9ca9a6;text-transform:uppercase}
       .pt-row:not(.pt-head){cursor:pointer}
       .pt-row:not(.pt-head):hover{background:rgba(255,255,255,.02)}
       .pt-row.sel{background:var(--accent-soft)}
@@ -153,13 +153,13 @@
       .pt-row.clash{background:rgba(255,80,96,.07)}
       .pt-row.clash .pt-range{color:#ff8996;font-weight:800}
       .pt-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
-      .pt-name small{display:block;color:#6f7d7a;font-size:10px}
-      .pt-row input[type=number]{width:100%;height:28px;padding:0 6px;background:#0d1418;border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px}
+      .pt-name small{display:block;color:#a1aca9;font-size:13px}
+      .pt-row input[type=number]{width:100%;height:28px;padding:0 6px;background:#0d1418;border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:14px}
       .pt-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent)}
       .pt-range,.pt-ch,.pt-beam{color:#9aa7a4;font-variant-numeric:tabular-nums}
-      .pt-del{border:0;background:none;color:#7d8987;font-size:15px;cursor:pointer;padding:4px 8px;border-radius:5px}
+      .pt-del{border:0;background:none;color:#a5adac;font-size:16px;cursor:pointer;padding:4px 8px;border-radius:5px}
       .pt-del:hover{color:#ff8996;background:rgba(255,80,96,.1)}
-      .pt-empty{padding:26px;text-align:center;color:#6f7d7a;font-size:12px}
+      .pt-empty{padding:26px;text-align:center;color:#a1aca9;font-size:14px}
       @media (max-width:1100px){#page-patch .patch-layout{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);

@@ -47,25 +47,25 @@
       .lx-settings{display:grid;grid-template-columns:168px minmax(0,1fr);height:100%;min-height:0}
       .lx-settings .settings-head{display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--border);background:#0a1013;overflow:auto}
       .lx-settings .settings-head .deck-tabs{display:flex;flex-direction:column;gap:2px;margin:0}
-      .lx-settings .settings-head .deck-tab{padding:0 10px;height:30px;min-width:0;text-align:left;text-transform:none;letter-spacing:.2px;font-size:12px;font-weight:650;border:0;border-radius:5px;background:transparent;color:#9aa7a4}
+      .lx-settings .settings-head .deck-tab{padding:0 10px;height:30px;min-width:0;text-align:left;text-transform:none;letter-spacing:.2px;font-size:14px;font-weight:650;border:0;border-radius:5px;background:transparent;color:#9aa7a4}
       .lx-settings .settings-head .deck-tab:hover{background:#141d22;color:var(--text)}
       .lx-settings .settings-head .deck-tab.active{background:var(--accent-soft);color:var(--accent-2);box-shadow:inset 2px 0 0 var(--accent)}
       .lx-settings .settings-main{display:flex;flex-direction:column;min-height:0;overflow:auto;padding:12px}
-      .lx-settings .settings-hint{color:#7d8b88;font-size:11px;margin:0 0 10px}
+      .lx-settings .settings-hint{color:#a4aeac;font-size:13px;margin:0 0 10px}
       .lx-settings .settings-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:10px;align-items:start}
       .lx-settings .settings-body > .panel[data-settings-hidden]{display:none!important}
       .lx-settings .settings-body > .panel{box-shadow:none}
       #page-settings > .page-grid:empty{display:none}
       .lx-settings input[type="checkbox"]{width:16px;height:16px;min-height:0;flex:none;padding:0;accent-color:var(--accent)}
       /* DMX Outputs: calmer intro, card titles and status lines. */
-      #multiOutputPanel .panel-body > p{font-size:11px;line-height:1.55;color:#7d8987;opacity:1!important;margin:0 0 12px}
-      #multiOutputPanel strong{font-size:12px;letter-spacing:.4px}
-      #multiOutputPanel .multi-status{font-size:11px;color:#7d8987}
+      #multiOutputPanel .panel-body > p{font-size:13px;line-height:1.55;color:#a5adac;opacity:1!important;margin:0 0 12px}
+      #multiOutputPanel strong{font-size:14px;letter-spacing:.4px}
+      #multiOutputPanel .multi-status{font-size:13px;color:#a5adac}
       /* MIDI mapping list: same look as the rest of the form controls. */
       #midiMappings > div{display:grid!important;grid-template-columns:110px 1fr auto;gap:8px!important;align-items:center;margin-bottom:6px!important}
-      #midiMappings span{width:auto!important;color:#9aa7a4;font-size:10px;font-weight:800;letter-spacing:.8px}
-      #midiMappings select{height:32px;padding:0 10px;background:#0d1418;border:1px solid var(--border);border-radius:6px;color:#e3ebe9;font-size:12px}
-      #midiMappings button{height:32px;min-width:92px;font-size:10px}
+      #midiMappings span{width:auto!important;color:#9aa7a4;font-size:13px;font-weight:800;letter-spacing:.8px}
+      #midiMappings select{height:32px;padding:0 10px;background:#0d1418;border:1px solid var(--border);border-radius:6px;color:#e3ebe9;font-size:14px}
+      #midiMappings button{height:32px;min-width:92px;font-size:13px}
     `;
     document.head.appendChild(style);
   }

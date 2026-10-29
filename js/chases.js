@@ -87,34 +87,92 @@
     return true;
   }
 
+  // The colour of a light in a step, for the preview strip.
+  function swatch(st) {
+    if (!st || typeof st !== "object") return "#1a2226";
+    const level = Math.max(0, Math.min(100, Number(st.intensity ?? 100))) / 100;
+    if (level <= 0.02) return "#0d1215";
+    const mix = (r, g, b) => `rgb(${Math.round(r * level + 13 * (1 - level))},${Math.round(g * level + 18 * (1 - level))},${Math.round(b * level + 21 * (1 - level))})`;
+    if ([st.r, st.g, st.b].some(v => Number(v) > 0) && ![st.r, st.g, st.b].every(v => Number(v) === Number(st.r))) return mix(Number(st.r) || 0, Number(st.g) || 0, Number(st.b) || 0);
+    const sat = Number(st.sat) || 0;
+    if (sat > 5) {
+      const h = (Number(st.hue) || 0) / 360, l = Math.max(0.3, Math.min(0.7, (Number(st.light) || 50) / 100)), s2 = Math.min(1, sat / 100);
+      const k = n => (n + h * 12) % 12, a = s2 * Math.min(l, 1 - l);
+      const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+      return mix(f(0) * 255, f(8) * 255, f(4) * 255);
+    }
+    return mix(235, 228, 210);
+  }
+  // Steps × lights of colour (up to 12 steps, 6 lights).
+  function preview(chase) {
+    const s = S();
+    let steps = [];
+    if (chase.mode === "snapshot") steps = (chase.snapshots || []).map(sn => (sn.fixtureStates || []).map(x => x?.[1]));
+    else if (chase.mode === "spread") steps = [...Array(6).keys()].map(k => [...Array(6).keys()].map(i => ({ hue: ((i + k) * 60) % 360, sat: 100, light: 50, intensity: 100 })));
+    else steps = (chase.steps || []).map(i => { const look = typeof window.getCueTarget === "function" && s.cues?.[i] ? window.getCueTarget(s.cues[i]).fixtureMap : null; return look ? [...look.values()] : []; });
+    return steps.slice(0, 12).map(states => { const pick = states.filter(Boolean); const n = Math.min(6, pick.length || 1); return [...Array(n).keys()].map(j => swatch(pick[Math.floor(j * pick.length / n)])); });
+  }
+  const groupOf = chase => (chase.auto ? `Auto · ${(/^([^:]+?):/.exec(String(chase.name || "")) || [, "Other"])[1]}` : "Your chases");
+  let showAuto = true;
+  try { showAuto = localStorage.getItem("lx-chases-auto") !== "0"; } catch (_) {}
+
   function renderChases() {
     const list = document.getElementById("chaseList");
     const s = S();
     if (!list || !s) return;
     s.chases = Array.isArray(s.chases) ? s.chases : [];
     list.replaceChildren();
+    list.classList.add("ch-groups");
     if (!s.chases.length) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "No chases yet. Click New Chase to create one.";
+      empty.textContent = "No chases yet. Click New Chase to create one, or Auto Create on the Patch page makes a set.";
       list.appendChild(empty);
       return;
     }
+    const autoCount = s.chases.filter(c => c?.auto).length;
+    if (autoCount) {
+      const bar = document.createElement("label");
+      bar.className = "ch-autobar";
+      bar.innerHTML = `<input type="checkbox"${showAuto ? " checked" : ""}> Show the ${autoCount} auto-made chase${autoCount === 1 ? "" : "s"}`;
+      bar.querySelector("input").addEventListener("change", e => { showAuto = e.target.checked; try { localStorage.setItem("lx-chases-auto", showAuto ? "1" : "0"); } catch (_) {} renderChases(); });
+      list.appendChild(bar);
+    }
+    const groups = new Map();
     s.chases.forEach((chase, i) => {
-      if (!chase) return;
-      const el = document.createElement("div");
-      el.className = `cue-item ${i === selectedChase ? "active" : ""}`;
-      const title = document.createElement("strong");
-      title.textContent = `${i + 1}. ${chase.name || `Chase ${i + 1}`}`;
-      const meta = document.createElement("small");
-      const count = chase.mode === "snapshot" ? (chase.snapshots?.length || 0) : (chase.steps?.length || 0);
-      const mode = chase.mode === "spread" ? "🌈 Per-fixture" : chase.mode === "snapshot" ? "● Recorded" : "→ Sequence";
-      const fxCount = Array.isArray(chase.fixtureIds) && chase.fixtureIds.length ? `${chase.fixtureIds.length} fixture(s)` : "All fixtures";
-      meta.textContent = `${count} ${chase.mode === "snapshot" ? "look(s)" : "cue(s)"} · ${mode} · ${fxCount} · ${chase.loop ? "Loop" : "Once"} · ${Math.round(bpmOf(chase))} BPM · ${n(chase.fade, 0)}ms fade`;
-      el.append(title, meta);
-      el.onclick = () => { selectedChase = i; showSpeed(chase); renderChases(); log(`Selected Chase ${i + 1}: ${chase.name || `Chase ${i + 1}`}`); };
-      list.appendChild(el);
+      if (!chase || (chase.auto && !showAuto && i !== s.currentChase)) return;
+      const g = groupOf(chase);
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push([chase, i]);
     });
+    const order = [...groups.keys()].sort((a, b) => (a === "Your chases" ? -1 : b === "Your chases" ? 1 : a.localeCompare(b)));
+    for (const g of order) {
+      const section = document.createElement("section");
+      section.className = "ch-group";
+      section.innerHTML = `<h3>${g.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]))} <small>${groups.get(g).length}</small></h3><div class="ch-grid"></div>`;
+      const grid = section.querySelector(".ch-grid");
+      for (const [chase, i] of groups.get(g)) {
+        const el = document.createElement("div");
+        el.className = `cue-item ch-card ${i === selectedChase ? "active" : ""} ${i === s.currentChase ? "running" : ""}`;
+        el.dataset.chase = String(i);
+        const steps = preview(chase);
+        const count = chase.mode === "snapshot" ? (chase.snapshots?.length || 0) : (chase.steps?.length || 0);
+        const name = chase.auto ? String(chase.name || "").replace(/^[^:]+?:\s*/, "") : chase.name || `Chase ${i + 1}`;
+        const fxCount = Array.isArray(chase.fixtureIds) && chase.fixtureIds.length ? `${chase.fixtureIds.length} light${chase.fixtureIds.length === 1 ? "" : "s"}` : "all lights";
+        el.title = `${i + 1}. ${chase.name || `Chase ${i + 1}`}`;
+        el.innerHTML = `<div class="ch-strip">${steps.map(col => `<span>${col.map(c => `<i style="background:${c}"></i>`).join("")}</span>`).join("") || "<span></span>"}</div>
+          <div class="ch-body"><strong></strong><small>${count} step${count === 1 ? "" : "s"} · ${chase.followTempo ? "♩ show tempo" : `${Math.round(bpmOf(chase))} BPM`} · ${fxCount}${chase.loop ? "" : " · once"}</small></div>
+          <button type="button" class="ch-play" title="${i === s.currentChase ? "Stop" : "Run"} this chase">${i === s.currentChase ? "■" : "▶"}</button>`;
+        el.querySelector("strong").textContent = name;
+        el.onclick = e => {
+          if (e.target.closest(".ch-play")) { if (i === S().currentChase) stopChase(); else startChase(i); return; }
+          selectedChase = i; showSpeed(chase); renderChases(); log(`Selected Chase ${i + 1}: ${chase.name || `Chase ${i + 1}`}`);
+        };
+        el.ondblclick = () => startChase(i);
+        grid.appendChild(el);
+      }
+      list.appendChild(section);
+    }
   }
 
   function stopChase(message = true) {
@@ -139,7 +197,10 @@
    */
   const BPM_MIN = 6, BPM_MAX = 1200;
   const clampBpm = v => Math.max(BPM_MIN, Math.min(BPM_MAX, Math.round(Number(v) * 10) / 10 || 120));
+  // A chase can follow the show tempo (js/tempo.js, in the top bar): one
+  // step per beat.
   function bpmOf(chase) {
+    if (chase?.followTempo && window.LXTempo) return clampBpm(window.LXTempo.bpm());
     if (Number.isFinite(Number(chase?.bpm))) return clampBpm(chase.bpm);
     return clampBpm(0.6 * Math.max(10, Math.min(100, n(chase?.speed, 50))));
   }
@@ -157,44 +218,41 @@
     const speed = document.getElementById("chaseSpeed");
     if (!speed || !chase) return;
     speed.value = String(bpmToSlider(bpmOf(chase)));
+    speed.disabled = Boolean(chase.followTempo);
     const out = document.getElementById("chaseSpeedVal");
-    if (out) out.textContent = describeBpm(bpmOf(chase));
+    if (out) out.textContent = chase.followTempo ? `show tempo · ${Math.round(bpmOf(chase))} BPM` : describeBpm(bpmOf(chase));
+    const follow = document.getElementById("chaseFollowTempo");
+    if (follow) follow.checked = Boolean(chase.followTempo);
   }
   let metaTimer = null;
   const renderChaseMetaSoon = () => { clearTimeout(metaTimer); metaTimer = setTimeout(() => renderChases(), 150); };
 
-  // Tap tempo: tap along to the music, the chase follows.
-  function installTap(speed) {
+  // "Follow show tempo" beside the speed: the tempo and its Tap are in the
+  // top bar, once for the whole show.
+  function installFollow(speed) {
     const row = speed.closest("label");
-    if (!row || document.getElementById("chaseTap")) return;
-    const tap = document.createElement("button");
-    tap.type = "button";
-    tap.id = "chaseTap";
-    tap.className = "btn-secondary";
-    tap.textContent = "Tap";
-    tap.title = "Tap in time to set the chase's speed";
-    tap.style.cssText = "margin-left:10px;height:26px;padding:0 12px;flex:none";
-    const taps = [];
-    tap.addEventListener("click", e => {
-      e.preventDefault();
-      const now = performance.now();
-      if (taps.length && now - taps[taps.length - 1] > 2500) taps.length = 0;
-      taps.push(now);
-      if (taps.length > 6) taps.shift();
-      if (taps.length < 2) return;
-      const gap = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
-      const bpm = clampBpm(60000 / gap);
-      speed.value = String(bpmToSlider(bpm));
+    if (!row || document.getElementById("chaseFollowTempo")) return;
+    const box = document.createElement("label");
+    box.className = "ch-follow";
+    box.title = "One step per beat of the show tempo (top bar). Tap there to set it.";
+    box.innerHTML = '<input type="checkbox" id="chaseFollowTempo"> Follow show tempo';
+    row.after(box);
+    box.querySelector("input").addEventListener("change", e => {
       const c = S()?.chases?.[selectedChase];
-      if (c) c.bpm = bpm;
-      // Effects that follow the tempo go with it (js/tempo.js).
-      window.LXTempo?.set(bpm, { quiet: true });
-      const out = document.getElementById("chaseSpeedVal");
-      if (out) out.textContent = describeBpm(bpm);
+      if (!c) { e.target.checked = false; log("Select a chase first", "warn"); return; }
+      c.followTempo = e.target.checked;
+      if (!c.followTempo) c.bpm = bpmOf({ ...c, followTempo: false });
+      showSpeed(c);
       renderChaseMetaSoon();
     });
-    row.appendChild(tap); // right beside the readout
   }
+
+  // The show tempo changed: chases following it show the new speed.
+  window.addEventListener("lx-tempo", () => {
+    const c = S()?.chases?.[selectedChase];
+    if (c?.followTempo) showSpeed(c);
+    if ((S()?.chases || []).some(x => x?.followTempo)) renderChaseMetaSoon();
+  });
 
   function schedule(token, chase, fn) {
     const s = S();
@@ -445,7 +503,7 @@
         const c = S()?.chases?.[selectedChase];
         if (c) { c.bpm = bpm; renderChaseMetaSoon(); }
       };
-      installTap(speed);
+      installFollow(speed);
       const c = S()?.chases?.[selectedChase];
       if (c) showSpeed(c); else { speed.value = String(bpmToSlider(defaultBpm())); speed.oninput(); }
     }

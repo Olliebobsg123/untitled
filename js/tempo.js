@@ -49,6 +49,7 @@
     s.tempo = { bpm: v };
     retime();
     render();
+    window.dispatchEvent(new CustomEvent("lx-tempo", { detail: { bpm: v } }));
     if (!quiet) say(`Tempo ${v} BPM`, "ok");
     return v;
   }

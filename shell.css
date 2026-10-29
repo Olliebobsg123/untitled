@@ -266,3 +266,59 @@ body.lx-shell .shell-lib-toggle { margin-left: auto; height: 30px; padding: 0 12
 body.lx-shell.patch-lib-hidden #page-patch .patch-layout { grid-template-columns: minmax(0, 1fr) !important; grid-template-areas: "table" "table" "rdm"; }
 body.lx-shell.patch-lib-hidden #patchFormPanel,
 body.lx-shell.patch-lib-hidden #patchLibraryPanel { display: none; }
+
+/* ---------- Chases: grouped cards with a preview of each step ---------- */
+
+body.lx-shell #chaseList.ch-groups { display: block; }
+.ch-autobar { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; color: var(--text-soft); font-size: var(--fs-body); }
+.ch-group { margin-bottom: 14px; }
+.ch-group h3 { margin: 0 0 6px; color: #a9b5b2; font-size: var(--fs-label); font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+.ch-group h3 small { margin-left: 4px; color: #7f8c89; font: 600 11px var(--mono); }
+.ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+body.lx-shell .ch-card { position: relative; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0; min-height: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-left-width: 1px; border-radius: 9px; background: #0e1519; }
+body.lx-shell .ch-card.active { border-color: var(--live); box-shadow: 0 0 0 1px var(--live) inset; }
+body.lx-shell .ch-card.running { border-color: #ffad1f; }
+.ch-strip { display: flex; height: 30px; gap: 2px; padding: 4px; background: #070b0d; }
+.ch-strip span { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ch-strip i { flex: 1; border-radius: 2px; }
+.ch-body { display: flex; flex-direction: column; gap: 2px; padding: 7px 40px 8px 10px; min-width: 0; }
+.ch-body strong { color: var(--text); font-size: var(--fs-body); font-weight: 650; white-space: normal; overflow-wrap: anywhere; }
+.ch-body small { color: #a2aeab; font-size: 12px; }
+.ch-play { position: absolute; right: 8px; bottom: 8px; width: 28px; height: 28px; border: 1px solid var(--border-strong); border-radius: 50%; background: #131c21; color: var(--live); font-size: 11px; cursor: pointer; }
+.ch-card.running .ch-play { color: #ffad1f; border-color: #ffad1f; }
+.ch-follow { display: flex; align-items: center; gap: 6px; margin-left: 12px; color: var(--text-soft); font-size: var(--fs-body); white-space: nowrap; }
+#chaseSpeed:disabled { opacity: .35; }
+
+/* ---------- Effects: list and presets left, the editor in its own panel ---------- */
+
+body.lx-shell #page-effects.fxp.active { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 8px; height: 100%; }
+body.lx-shell #page-effects.fxp > .panel { min-height: 0; display: flex; flex-direction: column; }
+body.lx-shell #page-effects.fxp > .panel > .panel-body { flex: 1; min-height: 0; overflow-y: auto; }
+body.lx-shell #effectEditor { display: block !important; margin: 0; }
+body.lx-shell #effectEditor .section-divider { display: none; }
+body.lx-shell #effectEditor .form-grid { grid-template-columns: 1fr 1fr; }
+body.lx-shell #effectEditor .action-row { flex-wrap: wrap; }
+.fxp-head { margin: 14px 0 6px; color: #a9b5b2; font-size: var(--fs-label); font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; }
+.fxp-group { margin-bottom: 12px; }
+.fxp-group h3 { margin: 0 0 6px; color: var(--text-soft); font-size: var(--fs-body); font-weight: 700; }
+.fxp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.fxp-preset { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 4px 6px 4px 12px; border: 1px solid var(--border); border-radius: 8px; background: #0e1519; color: var(--text); font-size: var(--fs-body); cursor: pointer; }
+.fxp-preset span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fxp-preset:hover { border-color: var(--border-strong); background: #121b20; }
+.fxp-preset.on { border-color: var(--live); background: rgba(var(--live-rgb), .08); }
+.fxp-run { flex: 0 0 auto; width: 28px; height: 28px; border: 1px solid var(--border-strong); border-radius: 50%; background: #131c21; color: var(--live); font-size: 11px; cursor: pointer; }
+@media (max-width: 1180px) { body.lx-shell #page-effects.fxp.active { grid-template-columns: 1fr; height: auto; } }
+/* Your effects, then presets, then the auto-made ones, in one column. */
+body.lx-shell #page-effects.fxp > .panel:first-child > .panel-body { display: flex; flex-direction: column; gap: 8px; }
+body.lx-shell #page-effects.fxp #effectsList { display: contents; }
+body.lx-shell #page-effects.fxp .toolbar-card { order: 0; }
+body.lx-shell #page-effects.fxp .fxp-sec.mine, body.lx-shell #page-effects.fxp #effectsList > .empty-state { order: 1; }
+body.lx-shell #page-effects.fxp .fxp-sec.presets { order: 2; }
+body.lx-shell #page-effects.fxp .fxp-sec.auto { order: 3; }
+.fxp-sec { border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,.012); }
+.fxp-sec > summary { padding: 9px 12px; color: var(--text); font-size: var(--fs-em); font-weight: 700; cursor: pointer; list-style: none; }
+.fxp-sec > summary::before { content: "▸"; display: inline-block; width: 16px; color: #9aa7a4; }
+.fxp-sec[open] > summary::before { content: "▾"; }
+.fxp-sec > summary small { margin-left: 4px; color: #8e9b98; font: 600 11px var(--mono); }
+.fxp-sec > .fxp-cards, .fxp-sec > #fxpPresets { padding: 0 10px 10px; }
+.fxp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }

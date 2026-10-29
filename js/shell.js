@@ -73,7 +73,10 @@
       extra.forEach(([, b]) => frag.appendChild(b));
     }
     nav.querySelectorAll(".shell-nav-head").forEach(h => h.remove());
+    // Anything else in the sidebar (the ＋ New page button) stays at the end.
+    const rest = [...nav.children].filter(el => !el.matches(".nav-link[data-page], .nav-tool"));
     nav.appendChild(frag);
+    rest.forEach(el => nav.appendChild(el));
     return links.has("faders") && links.has("magic");
   }
 

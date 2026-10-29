@@ -138,6 +138,7 @@ const lightPool = new LightPool(scene);
 const bounce = new THREE.HemisphereLight(0x000000, 0x000000, 1);
 scene.add(bounce);
 const bounceColour = new THREE.Color();
+let shownMachineHaze = -1;
 
 const composer = new EffectComposer(renderer);
 const composite = new ShaderPass({
@@ -422,6 +423,14 @@ function update() {
   bounce.groundColor.copy(bounceColour);
   bounce.color.copy(bounceColour).multiplyScalar(0.35);
   const haze = atmosphere.update(dt, machines, s.haze, stageLight, lights);
+  // The haze the hazers and smoke machines are making, beside the Room Haze
+  // slider (which is only extra haze on top).
+  const fromMachines = Math.round(Math.min(1, atmosphere.machineHaze || 0) * 100);
+  if (fromMachines !== shownMachineHaze) {
+    shownMachineHaze = fromMachines;
+    const el = document.getElementById("hazeMachines");
+    if (el) { el.textContent = machines.length ? `+ hazers ${fromMachines}%` : ""; el.title = machines.length ? "Haze from the hazers and smoke machines in the rig, from their levels" : ""; }
+  }
   shared.uniforms.haze.value = haze;
   if (ball) {
     const state = decodeFixture(definitionOf(ball.fixture), dmx, baseAddress(ball.fixture), ball.fixture.name);

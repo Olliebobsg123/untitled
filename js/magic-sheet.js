@@ -168,7 +168,7 @@
       .magic-panel .magic-stage{flex:1;overflow:auto;background:#070b0d;position:relative}
       .magic-panel svg{display:block;user-select:none}
       .ms-bar{stroke:#1d272c;stroke-width:3;stroke-linecap:round}
-      .ms-rowname{fill:#5d6b68;font-size:10px;font-weight:800;letter-spacing:1px}
+      .ms-rowname{fill:#5d6b68;font-size:10px;font-weight:800;letter-spacing:1px;cursor:pointer}.ms-rowname:hover{fill:var(--accent,#19d6a3)}
       .ms-edge{stroke:#26333a;stroke-dasharray:6 6}
       .ms-edgetext{fill:#3f4c50;font-size:9px;font-weight:800;letter-spacing:2px}
       .ms-body{fill:#141c20;stroke:#3a474d;stroke-width:1.3}
@@ -324,6 +324,10 @@
     layout.rows.forEach((row, r) => {
       if (row.hung) el("line", { x1: MARGIN_X - 30, x2: width - 24, y1: row.y, y2: row.y, class: "ms-bar" }, layer);
       const name = el("text", { x: 14, y: row.y + 4, class: "ms-rowname" }, layer); name.textContent = row.name.toUpperCase();
+      // Tap a bar's name: every light on it (Shift/Cmd adds them).
+      const onRow = () => layout.items.filter(it => Math.abs(it.sy - row.y) < ROW_GAP / 2).map(it => it.fixture.id);
+      name.addEventListener("pointerdown", e => { e.stopPropagation(); e.preventDefault(); select(onRow(), e.shiftKey || e.metaKey || e.ctrlKey); });
+      const tip = el("title", {}, name); tip.textContent = `Select everything on ${row.name}`;
       if (r === layout.edgeAfter && r < layout.rows.length - 1) {
         const y = row.y + ROW_GAP * 0.56;
         el("line", { x1: MARGIN_X - 30, x2: width - 24, y1: y, y2: y, class: "ms-edge" }, layer);

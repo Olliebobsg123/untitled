@@ -33,7 +33,9 @@ export function buildTheatre(scene) {
   const curtain = buildCurtain(scene);
 
   // A faint fill so the room is never pure black (like exit signs and spill).
-  scene.add(new THREE.HemisphereLight(0x8c96aa, 0x0c0c10, 0.35));
+  // Neutral and dim: a blue-grey fill made a white cyc glow blue in a
+  // blackout, when on stage it's dark.
+  scene.add(new THREE.HemisphereLight(0x8a8a8a, 0x0c0c0c, 0.12));
   let house = [], lamps = [], work = [];
   const lightsGroup = new THREE.Group();
   scene.add(lightsGroup);

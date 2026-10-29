@@ -88,7 +88,22 @@
       }
       case "macro": if (v) cue.macro = v; else delete cue.macro; return changed(cue, v ? `runs “${v}” on GO` : "no command on GO");
       case "note": if (v) cue.note = String(raw); else delete cue.note; return changed(cue, null);
+      case "goNote": if (v) cue.goNote = v; else delete cue.goNote; return changed(cue, v ? `GO note: ${v}` : "GO note cleared");
       default:
+        // Part delays: pd:<row>:<group|lights|delay|time>
+        if (field.startsWith("pd:")) {
+          const [, row, key] = field.split(":");
+          const pd = cue.partDelays?.[Number(row)];
+          if (!pd) return render(true);
+          if (key === "target") { delete pd.group; delete pd.lights; if (v.startsWith("group:")) pd.group = v.slice(6); else pd.lights = pd.lights || ""; return changed(cue, null); }
+          if (key === "lights") { pd.lights = v; delete pd.group; return changed(cue, null); }
+          if (key === "delay" || key === "time") {
+            if (v === "" && key === "time") { delete pd.time; return changed(cue, null); }
+            const t = ms(v); if (t == null) return render(true);
+            pd[key] = t; return changed(cue, null);
+          }
+          return;
+        }
         if (field.startsWith("t:")) {
           const key = field.slice(2);
           cue.timing ||= {};
@@ -131,6 +146,16 @@
     if (a === "mib") { cue.noMib = !cue.noMib; return changed(cue, `move in black ${cue.noMib ? "off" : "on"}`); }
     if (a === "block") { window.parseCommand?.(`${cue.mode === "track" ? "block" : "track"} cue ${n}`); return render(true); }
     if (a === "noeffect") { cue.effect = null; cue.effects = []; return changed(cue, "effect removed"); }
+    if (a.startsWith("fx:del:")) {
+      const list = cueEffects(cue);
+      list.splice(Number(a.slice(7)), 1);
+      cue.effects = list; cue.effect = list[0] || null;
+      return changed(cue, "effect removed");
+    }
+    if (a === "fx:add") return addEffect(cue);
+    if (a === "pd:add") { cue.partDelays ||= []; const g = (s.groups || []).find(x => x?.name); cue.partDelays.push(g ? { group: g.name, delay: 0 } : { lights: "", delay: 0 }); return changed(cue, null); }
+    if (a.startsWith("pd:del:")) { cue.partDelays?.splice(Number(a.slice(7)), 1); if (!cue.partDelays?.length) delete cue.partDelays; return changed(cue, null); }
+    if (a === "pd:sweep") return sweep(cue);
     if (a.startsWith("then:")) {
       const mode = a.slice(5);
       if (mode === "wait") { cue.followEnabled = false; }
@@ -138,6 +163,69 @@
       return changed(cue, mode === "wait" ? "waits for GO" : mode === "follow" ? `follows ${cue.follow || 0} s after its GO` : `hangs ${cue.follow || 0} s after it finishes, then GOes`);
     }
     if (a.startsWith("tag:")) { const c = a.slice(4); if (c) cue.colourTag = c; else delete cue.colourTag; return changed(cue, null); }
+  }
+
+  // Effects in this cue: run while the cue is up (several at once is fine).
+  const cueEffects = cue => (Array.isArray(cue.effects) && cue.effects.length ? cue.effects : cue.effect?.type ? [cue.effect] : []).map(e => ({ ...e }));
+  const FX_NAMES = { snowfall: "Snowfall", iceshimmer: "Ice shimmer", aurora: "Aurora", fireplace: "Fireplace", blizzard: "Blizzard", freeze: "Freeze", rainbow: "Rainbow", pulse: "Pulse", strobe: "Strobe", wave: "Wave", chase: "Chase" };
+  async function addEffect(cue) {
+    const s = S();
+    const types = ["rainbow", "pulse", "strobe", "wave", "chase", ...Object.keys(typeof FX_TYPES !== "undefined" ? FX_TYPES : {})];
+    const saved = Object.keys(s.savedEffects || {});
+    const r = await window.LXAsk?.("Add an effect to this cue", [
+      { key: "what", label: "Effect", type: "select", value: saved[0] ? `saved:${saved[0]}` : "type:aurora", options: [...saved.map(n => [`saved:${n}`, `Saved: ${n}`]), ...types.map(t => [`type:${t}`, FX_NAMES[t] || t.replace(/^\w/, c => c.toUpperCase())])] },
+      { key: "on", label: "On", type: "select", value: "cue", options: [["cue", "The lights this cue brings up"], ["selected", "The lights selected now"], ...(s.groups || []).filter(g => g?.name).map(g => [`group:${g.name}`, `Group: ${g.name}`])] },
+      { key: "speed", label: "Speed", value: 1, type: "number", step: 0.1 }
+    ], { ok: "Add", message: "It starts when the cue has faded in and runs until a cue that doesn't have it." });
+    if (!r) return;
+    const [kind, ...rest] = String(r.what).split(":");
+    const name = rest.join(":");
+    const base = kind === "saved" ? { ...(s.savedEffects?.[name] || {}), name } : { type: name, name: FX_NAMES[name] || name };
+    if (!base.type) return say("That effect isn't there any more", "warn");
+    let ids = [];
+    if (r.on === "selected") ids = s.selected instanceof Set ? [...s.selected] : [];
+    else if (r.on.startsWith("group:")) { const g = (s.groups || []).find(x => x?.name === r.on.slice(6)); ids = (g?.members || []).map(v => (s.fixtures.find(f => String(f.id) === String(v)) || s.fixtures.find(f => Number(f.fixtureNumber) === Number(v)))?.id).filter(Boolean); }
+    else {
+      // The lights this cue has up.
+      const look = window.LXTracking?.look?.(s.cues.indexOf(cue)) || window.cueLook?.(s.cues.indexOf(cue)) || new Map();
+      ids = [...(look instanceof Map ? look : new Map(look)).entries()].filter(([, st]) => Number(st?.intensity) > 0).map(([id]) => id);
+    }
+    if (kind === "saved" && r.on === "cue" && base.fixtureIds?.length) ids = base.fixtureIds.slice();
+    if (!ids.length) return say("No lights for it — select some, pick a group, or bring lights up in this cue first", "warn");
+    const effect = { ...base, speed: Number(r.speed) > 0 ? Number(r.speed) : (base.speed || 1), fixtureMode: "custom", fixtureIds: ids };
+    const list = cueEffects(cue);
+    list.push(effect);
+    cue.effects = list; cue.effect = list[0];
+    return changed(cue, `${effect.name || effect.type} on ${ids.length} light${ids.length === 1 ? "" : "s"} while this cue runs`);
+  }
+
+  // Sweep: groups in order, each a step later than the one before.
+  async function sweep(cue) {
+    const groups = (S().groups || []).filter(g => g?.name).map(g => g.name);
+    if (!groups.length) return say("Make groups first (e.g. one per bar), then sweep across them", "warn");
+    const r = await window.LXAsk?.("Sweep across groups", [
+      { key: "order", label: "Groups in order, first to last (comma between)", value: groups.join(", ") },
+      { key: "step", label: "Each one starts this much later (s)", value: 0.6, type: "number", step: 0.1 },
+      { key: "time", label: "Each one's own fade (s, empty = the cue's)", value: "" }
+    ], { ok: "Sweep", message: "Replaces this cue's part delays." });
+    if (!r) return;
+    const order = String(r.order).split(",").map(x => x.trim()).filter(x => groups.includes(x));
+    if (!order.length) return say("None of those are groups", "warn");
+    const step = Math.max(0, Number(r.step) || 0), time = String(r.time).trim() === "" ? null : Math.max(0, Number(r.time) || 0);
+    cue.partDelays = order.map((group, n) => ({ group, delay: Math.round(n * step * 1000), ...(time != null ? { time: Math.round(time * 1000) } : {}) }));
+    return changed(cue, `sweeps ${order.join(" → ")}, ${step} s apart`);
+  }
+
+  function partDelaysHtml(cue) {
+    const groups = (S().groups || []).filter(g => g?.name);
+    const rows = (cue.partDelays || []).map((pd, n) => `<div class="ci-pd">
+      <select class="ci-in" data-f="pd:${n}:target">${groups.map(g => `<option value="group:${esc(g.name)}"${pd.group === g.name ? " selected" : ""}>${esc(g.name)}</option>`).join("")}<option value="lights"${pd.group == null ? " selected" : ""}>Lights…</option></select>
+      ${pd.group == null ? field(`pd:${n}:lights`, pd.lights || "", 'placeholder="1 thru 4"') : ""}
+      <label>delay ${secField(`pd:${n}:delay`, secs(pd.delay || 0))}</label>
+      <label>time ${secField(`pd:${n}:time`, pd.time != null ? secs(pd.time) : "", "cue's")}</label>
+      <button type="button" class="btn-secondary ci-small" data-a="pd:del:${n}" title="Remove">×</button></div>`).join("");
+    return `<div class="ci-pds"><div class="ci-pd-head"><b>Delays by group</b><span>${rows ? "" : "Start groups or lights later than the rest — a sweep in one cue."}</span>
+      <button type="button" class="btn-secondary ci-small" data-a="pd:add">＋ Add</button><button type="button" class="btn-secondary ci-small" data-a="pd:sweep">Sweep…</button></div>${rows}</div>`;
   }
 
   // ------------------------------------------------------------- drawing
@@ -258,6 +346,7 @@
               <label>time ${secField(`t:${k}`, cue.timing?.[k] != null ? secs(cue.timing[k]) : "", secs(cue.fade ?? 800))}</label>
               <label>delay ${secField(`t:${k}Delay`, cue.timing?.[k + "Delay"] != null ? secs(cue.timing[k + "Delay"]) : "", secs(cue.delay || 0))}</label></div>`).join("")}
             <p class="ci-muted">Empty = the cue's fade and delay. Up and down are for intensity: a light fading out can go slower than one fading in.</p></div>` : ""}
+          ${partDelaysHtml(cue)}
           ${timeline(cue)}
         </section>
 
@@ -276,7 +365,8 @@
           <button type="button" class="ci-check${!cue.noMib ? " on" : ""}" data-a="mib"><i></i><span><b>Move in black</b> — moving lights preset in the dark before this cue</span></button>
           <button type="button" class="ci-check${cue.disabled ? " on warn" : ""}" data-a="disabled"><i></i><span><b>Disabled</b> — GO skips this cue (you can still go to it directly)</span></button>
           ${curtainRow(cue, i)}
-          ${effect ? `<div class="ci-line">Effect: <b>${esc(effect)}</b> <button type="button" class="btn-secondary ci-small" data-a="noeffect">Remove</button></div>` : ""}
+          ${cueEffects(cue).map((e, n) => `<div class="ci-line">Effect: <b>${esc(e.name || e.type)}</b> <span class="ci-muted">${(e.fixtureIds || []).length} lights · speed ${e.speed || 1}</span> <button type="button" class="btn-secondary ci-small" data-a="fx:del:${n}">Remove</button></div>`).join("")}
+          <button type="button" class="btn-secondary ci-small" data-a="fx:add" title="An effect that runs while this cue is up — e.g. Aurora on the cyc">＋ Add effect to this cue</button>
           ${cue.chase ? `<div class="ci-line">Starts chase ${Number(cue.chase.index) + 1}</div>` : ""}
         </section>
 
@@ -284,6 +374,7 @@
           <h4>Label</h4>
           <label class="ci-line">Scene / part ${field("scene", cue.scene || "", 'placeholder="e.g. Act 1 — Opening"')}</label>
           <div class="ci-tags">${TAGS.map(c => `<button type="button" data-a="tag:${c}" class="${(cue.colourTag || "") === c ? "on" : ""}" style="--c:${c || "transparent"}" title="${c ? "Colour tag" : "No colour"}">${c ? "" : "∅"}</button>`).join("")}</div>
+          <label class="ci-line ci-col">GO note <span class="ci-muted">shown big under GO while this cue is next</span>${field("goNote", cue.goNote || "", 'placeholder="e.g. first note of Vuelie"')}</label>
           <label class="ci-line ci-col">Notes<textarea class="ci-in" data-f="note" rows="3" placeholder="What happens here, who to watch for…">${esc(cue.note || "")}</textarea></label>
         </section>
 
@@ -515,6 +606,7 @@
   .ci-toggle{height:28px;padding:0 10px;border-radius:var(--r-sm);border:1px solid var(--border-strong);background:var(--bg-0);color:var(--text-soft);font:700 11px var(--sans);cursor:pointer}
   .ci-toggle.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
   .ci-small{height:26px;font-size:10.5px;padding:0 9px}
+  .ci-pds{margin-top:10px;display:grid;gap:6px}.ci-pd-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ci-pd-head b{font-size:12px}.ci-pd-head span{flex:1;font-size:11px;color:var(--text-dim,#7d8987)}.ci-pd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-1)}.ci-pd select.ci-in{max-width:180px}.ci-pd label{display:flex;align-items:center;gap:5px;font-size:11px}.ci-pd .ci-in{width:auto;min-width:60px;max-width:110px}
   .ci-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
   .ci-part{display:flex;flex-direction:column;gap:5px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-1)}
   .ci-part label{display:flex;justify-content:space-between;align-items:center;gap:6px;color:var(--text-muted);font-size:10px}

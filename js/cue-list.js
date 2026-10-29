@@ -111,6 +111,7 @@
             <button type="button" class="cl-go" data-cl="go" title="Fire the next cue">GO</button>
           </div>
         </div>
+        <div class="cl-gonote" hidden></div>
         <div class="cl-head"><span></span><span>#</span><span title="T = tracked (stores only changes) · B = block (stores the whole look)">Mode</span><span>Name</span><span>Fade</span><span>Follow</span><span title="Timecode: when timecode passes this time, the cue fires">TC</span><span class="cl-fxh">Effect</span></div>
         <div class="cl-rows"></div>
         <div class="cl-foot">
@@ -210,6 +211,9 @@
     if (liveEl.textContent !== liveText) liveEl.textContent = liveText;
     const nextText = next >= 0 ? label(next) : "end of the list";
     if (nextEl.textContent !== nextText) nextEl.textContent = nextText;
+    // The next cue's GO note, big, like a prompt book.
+    const goNote = body.querySelector(".cl-gonote"), gn = next >= 0 ? String(cues[next]?.goNote || "") : "";
+    if (goNote && goNote.textContent !== (gn ? `GO: ${gn}` : "")) { goNote.textContent = gn ? `GO: ${gn}` : ""; goNote.hidden = !gn; }
     // Keep the live cue in view as the show runs.
     if (live !== rows.__live) { rows.__live = live; rows.querySelector(`.cl-row[data-i="${live}"]`)?.scrollIntoView({ block: "nearest" }); }
   }
@@ -287,7 +291,7 @@
     const menu = document.createElement("div");
     menu.className = "lxw-menu cl-menu";
     const tracked = cue.mode === "track";
-    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["insert", "Insert into Control Deck"], ["tcnow", "Set its time to the timecode now"], ["rename", "Rename…"], ["copy", "Copy to the end"], ["up", "Move up"], ["down", "Move down"], ["moveto", "Move to…"], "-",
+    const items = [["go", "Go to this cue now"], ["next", "Make it next"], "-", ["update", "Update from the stage"], ["updonly", "Update — this cue only (later cues keep their look)"], ["updtrack", "Update — track (changes carry on to later cues)"], ["insert", "Insert into Control Deck"], ["tcnow", "Set its time to the timecode now"], ["rename", "Rename…"], ["copy", "Copy to the end"], ["up", "Move up"], ["down", "Move down"], ["moveto", "Move to…"], "-",
       ["block", "Block cue (stores its whole look)", !tracked], ["mib", "Move in black before this cue", !cue.noMib], "-", ["delete", "Delete…"]];
     menu.innerHTML = `<div class="lxw-menu-label">CUE ${window.cueLabel(i)} · ${esc(cue.name || "")}</div>${items.map(it => it === "-" ? "<hr>" : `<button type="button" data-a="${it[0]}"><span class="tick">${it[2] ? "✓" : ""}</span><span>${it[1]}</span><kbd></kbd></button>`).join("")}`;
     document.body.appendChild(menu);
@@ -305,6 +309,8 @@
       if (a === "go") window.parseCommand?.(`go ${n}`);
       else if (a === "next") setNext(i);
       else if (a === "update") window.parseCommand?.(`update cue ${n}`);
+      else if (a === "updonly") window.parseCommand?.(`update cue ${n} cue only`);
+      else if (a === "updtrack") window.parseCommand?.(`update cue ${n} track`);
       else if (a === "rename") {
         const r = await window.LXAsk?.(`Rename cue ${n}`, [{ key: "name", label: "Name", value: cue.name || "" }], { ok: "Rename" });
         if (r) window.parseCommand?.(`rename cue ${n} ${r.name.trim() || `Cue ${n}`}`);
@@ -340,6 +346,7 @@
     style.id = "lxCueListStyles";
     style.textContent = `
       .cl{display:flex;flex-direction:column;height:100%;min-height:0}
+      .cl-gonote{padding:8px 12px;border-bottom:1px solid var(--border);background:#1b1508;color:#ffd27a;font-size:20px;font-weight:800;line-height:1.25}
       .cl-top{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);background:#0e1519}
       .cl-status{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:12px}
       .cl-status div{display:flex;align-items:center;gap:8px;min-width:0}

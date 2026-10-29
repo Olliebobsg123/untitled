@@ -429,11 +429,30 @@ function setCueMode(index, mode) {
 
 // Store the stage into cue `index` (new or existing), tracked or as a block.
 // In "cue only" mode the cue after it keeps looking exactly as it did.
+// A light that can't change colour (a tungsten lamp, a plain dimmer) has
+// nothing to do with a colour; recording one only confuses later (the cue
+// says the lamp is blue when it can't be).
+function canColour(fixture) {
+    const map = (typeof getFixtureDefinition === "function" ? getFixtureDefinition(fixture) : window.FixtureLibrary?.[fixture?.name])?.map || {};
+    return ["colour", "r", "g", "b", "w", "cyan", "magenta", "yellow", "amber", "uv", "lime", "cto", "cct", "warmWhite", "coolWhite", "naturalWhite", "blueMix", "amberMix", "magentaMix", "colmacro"].some(k => typeof map[k] === "number");
+}
+function withoutImpossibleColour(states) {
+    return states.map(([id, st]) => {
+        const fixture = (State.fixtures || []).find(f => String(f.id) === String(id));
+        if (!fixture || canColour(fixture) || !st) return [id, st];
+        const clean = { ...st };
+        for (const key of COLOUR_KEYS) delete clean[key];
+        return [id, clean];
+    });
+}
+
 function storeLook(index, entry, block = false) {
     healLooks();
-    const states = snapshotFixtureStates();
+    const states = withoutImpossibleColour(snapshotFixtureStates());
     const before = lookBefore(index);
-    const cueOnly = window.LXPrefs?.get("trackMode") === "cueonly";
+    // "update cue 5 cue only" / "… track" choose for this update; otherwise
+    // Preferences → Tracking decides.
+    const cueOnly = (window.__lxTrackOverride || window.LXPrefs?.get("trackMode")) === "cueonly";
     let nextIndex = index + 1;
     while (nextIndex < State.cues.length && !State.cues[nextIndex]) nextIndex++;
     const nextCue = State.cues[nextIndex];
@@ -491,7 +510,13 @@ function applyLightingState(globalState, fixtureMap) {
  *   focus   pan/tilt (moves)           colour  colour of every kind
  *   beam    gobo, zoom, focus, iris, prism, frost…
  *
- * Anything a cue doesn't split uses its fade time and delay. The curve
+ * Anything a cue doesn't split uses its fade time and delay.
+ *
+ * Part delays (cue.partDelays): a group or some lights can start later, and
+ * take their own time — back bar 0 s, bar 2 0.6 s, bar 1 1.2 s, front 1.8 s
+ * sweeps the rig in one cue instead of four follow cues:
+ *   [{ group: "Back bar", delay: 0 }, { lights: "1 thru 4", delay: 600, time: 2000 }]
+ * A light in two of them takes the last. The curve
  * shapes every part of the fade (smooth, linear, ease in/out, snap), and
  * the rate plays the whole cue faster or slower (200% = twice as fast).
  */
@@ -531,8 +556,36 @@ function cueTiming(cue, forceFade = null) {
     if (forceFade != null) Object.values(parts).forEach(p => { p.time = Math.max(0, num(forceFade, 0)); p.delay = 0; });
     else Object.values(parts).forEach(p => { p.time /= rate; p.delay /= rate; });
     const curve = CURVES[cue?.curve] ? cue.curve : "smooth";
-    const total = Math.max(...Object.values(parts).map(p => p.delay + p.time));
-    return { parts, curve, total };
+    const longest = Math.max(...Object.values(parts).map(p => p.delay + p.time));
+    const longestTime = Math.max(...Object.values(parts).map(p => p.time));
+    // Part delays: per light, an extra delay and (optionally) its own time.
+    const lights = new Map();
+    if (forceFade == null && Array.isArray(cue?.partDelays)) {
+        for (const pd of cue.partDelays) {
+            const delay = Math.max(0, num(pd?.delay, 0)) / rate;
+            const time = pd?.time != null && pd.time !== "" && Number.isFinite(Number(pd.time)) ? Math.max(0, Number(pd.time)) / rate : null;
+            for (const id of partDelayFixtureIds(pd)) lights.set(id, { delay, time });
+        }
+    }
+    let total = longest;
+    lights.forEach(l => { total = Math.max(total, l.delay + (l.time != null ? Math.max(...Object.values(parts).map(p => p.delay)) + l.time : longest)); });
+    return { parts, curve, total, lights, longestTime };
+}
+
+// The lights a part delay is for: a group's members or fixture numbers.
+function partDelayFixtureIds(pd) {
+    const fixtures = State.fixtures || [];
+    const byNumber = n => fixtures.find(f => Number(f?.fixtureNumber) === Number(n));
+    if (pd?.group) {
+        const g = (State.groups || []).find(x => x?.name === pd.group);
+        return (g?.members || []).map(v => (fixtures.find(f => String(f.id) === String(v)) || byNumber(v))?.id).filter(Boolean);
+    }
+    const numbers = [];
+    for (const part of String(pd?.lights || "").toLowerCase().replace(/\s*(thru|through|>)\s*/g, "-").split(/[\s,+]+/)) {
+        const m = /^(\d+)(?:-(\d+))?$/.exec(part);
+        if (m) for (let n = Math.min(+m[1], +(m[2] || m[1])); n <= Math.max(+m[1], +(m[2] || m[1])); n++) numbers.push(n);
+    }
+    return numbers.map(byNumber).filter(Boolean).map(f => f.id);
 }
 // How long cue `index` takes to complete (for progress bars).
 function cueDuration(index, forceFade = null) {
@@ -554,16 +607,21 @@ function fadeLighting(from, to, timing, finished) {
     }
     const start = performance.now();
     const ids = new Set([...from.fixtureMap.keys(), ...to.fixtureMap.keys()]);
-    // Where a value is in its own part of the fade: 0 before its delay, 1 once done.
-    const progress = (part, elapsed) => {
+    // Where a value is in its own part of the fade: 0 before its delay, 1 once
+    // done. A light with a part delay starts that much later, and with its
+    // own time takes that long instead.
+    const lights = timing.lights instanceof Map ? timing.lights : new Map();
+    const progress = (part, elapsed, light) => {
         const w = parts[part] || parts.fade;
-        if (elapsed < w.delay) return 0;
-        return w.time <= 0 ? 1 : Math.min(1, (elapsed - w.delay) / w.time);
+        const t = light ? elapsed - light.delay : elapsed;
+        if (t < w.delay) return 0;
+        const time = light && light.time != null ? light.time : w.time;
+        return time <= 0 ? 1 : Math.min(1, (t - w.delay) / time);
     };
-    const blend = (key, a, b, elapsed) => {
+    const blend = (key, a, b, elapsed, light) => {
         let part = partOf(key);
         if (part === "intensity") part = num(b) >= num(a) ? "up" : "down";
-        const p = progress(part, elapsed);
+        const p = progress(part, elapsed, light);
         if (typeof a === "number" || typeof b === "number") return num(a) + (num(b) - num(a)) * ease(p);
         return p < 1 ? (a ?? b) : (b ?? a);
     };
@@ -583,7 +641,8 @@ function fadeLighting(from, to, timing, finished) {
             const b = to.fixtureMap.get(id) || a;
             const result = {};
             const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-            keys.forEach(key => { result[key] = blend(key, a[key], b[key], elapsed); });
+            const light = lights.get(id);
+            keys.forEach(key => { result[key] = blend(key, a[key], b[key], elapsed, light); });
             fixtures.set(id, result);
         });
         State.current ||= {};
@@ -806,7 +865,7 @@ function peekNextCue() {
 }
 
 // Everything about a cue that isn't its look (kept when it's re-recorded).
-const CUE_OPTIONS = ["noMib", "blocked", "timecode", "delay", "timing", "curve", "rate", "followMode", "link", "loop", "disabled", "note", "scene", "colourTag", "macro"];
+const CUE_OPTIONS = ["noMib", "blocked", "timecode", "delay", "timing", "partDelays", "goNote", "curve", "rate", "followMode", "link", "loop", "disabled", "note", "scene", "colourTag", "macro"];
 function recordCue(number, name, fadeMs, follow, followEnabled) {
     window.finishFade?.();
     number = parseCueNumber(number);

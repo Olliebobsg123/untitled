@@ -226,6 +226,9 @@ export function archetype(def, name = "") {
   const map = def?.map || {};
   if (source === "MIRROR_BALL_MOTOR" || /mirror\s*ball/i.test(name)) return "mirrorBall";
   if (source === "ATMOSPHERIC" || isChannel(map.fog) || isChannel(map.haze)) return isChannel(map.haze) ? "hazer" : "fogger";
+  // A hazer or smoke machine patched as a plain dimmer channel, named for what it is.
+  if (/\bhaze/i.test(name) && !isChannel(map.pan)) return "hazer";
+  if (/\b(fog|smoke)\b/i.test(name) && !isChannel(map.pan)) return "fogger";
   // Library types are sometimes generic ("moving", "rgb"), so the name decides too.
   if (isChannel(map.pan) || isChannel(map.tilt)) {
     if (def?.type === "beam" || /\bbeam\b/i.test(name)) return "movingBeam";
@@ -299,7 +302,8 @@ export function decodeFixture(def, frame, base, name = "", manualShutters = null
     colourScroll: (read.raw("colourr") ?? 0) > 5 ? read("colourr") * 2 : 0,
     framing: decodeFraming(read, manualShutters),
     // Atmosphere and mirror-ball motor, 0-1.
-    fog: read("fog") ?? read("haze") ?? 0,
+    // (A hazer on a plain dimmer channel: its level is its output.)
+    fog: read("fog") ?? read("haze") ?? (/\b(haze|hazer|fog|smoke)/i.test(name) ? dimmer ?? 0 : 0),
     fan: read("fana") ?? 1,
     speed: read("speed") ?? 0
   };

@@ -168,6 +168,7 @@ function snapshotCueEffects() {
     return list.map(e => {
         const fixtureIds = normaliseEffectFixtureIds(e.ids instanceof Set ? [...e.ids] : e.fixtureIds);
         const snap = { type: String(e.type), speed: num(e.speed, 1), fixtureMode: "custom", fixtureIds };
+        if (Number(e.beats) > 0) snap.beats = Number(e.beats);
         if (e.name) snap.name = String(e.name);
         if (e.levels instanceof Map) snap.levels = Object.fromEntries(e.levels);
         return snap;
@@ -199,6 +200,7 @@ function startCueEffectIfNeeded(cue) {
         if (!saved || !saved.type) return;
         const fixtureIds = normaliseEffectFixtureIds(saved.fixtureIds);
         const effect = { type: String(saved.type), speed: num(saved.speed, 1) };
+        if (Number(saved.beats) > 0) effect.beats = Number(saved.beats);
         if (saved.name) effect.name = String(saved.name);
         // If the cue recorded a target list, replay that exact list: two
         // effects such as "Rainbow" and "PAR Rainbow" share a type but not

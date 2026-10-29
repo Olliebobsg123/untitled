@@ -383,6 +383,8 @@
       if (c === "redo") return redo();
       // "fog limit 10", "fog reset" (js/atmos-safety.js): before "fog 80".
       if (window.LXAtmos?.command?.(c)) return true;
+      // "tempo 128", "tap" (js/tempo.js).
+      if (window.LXTempo?.command?.(c)) return true;
       if (c === "cue list" || c === "cuelist") { window.LXWindows?.open("cuelist"); return; }
       if (c === "focus" || c === "point and shoot" || c === "point & shoot") { window.LXWindows?.open("focus"); return; }
       if ((m = c.match(/^focus\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/))) { window.LXFocus?.aimAt({ x: Number(m[1]), z: -Number(m[2]) }); return; }

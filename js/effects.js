@@ -250,6 +250,9 @@ function fxStart(type, options = {}, renderFrame, filter) {
   const targetInfo = fxCaptureEffectTargets(options);
   const fixtures = fxGetFixtures({ ...targetInfo, ordered: options.ordered }).filter(filter || (() => true));
   if (!fixtures.length) { fxLog("No fixtures selected for this effect", "warn"); return false; }
+  // Following the show tempo: "beats" is how long one cycle (or one step)
+  // lasts, and the speed comes from the BPM (js/tempo.js keeps it in step).
+  if (Number(options.beats) > 0 && window.LXTempo) options.speed = window.LXTempo.speedFor(type, options.beats);
   const speed = Math.max(type === "strobe" ? 1 : 0.05, fxNumber(options.speed, type === "strobe" ? 8 : 1));
   const ids = fixtures.map(fxGetFixtureId);
   // How each light looked before any effect touched it (taken over from an
@@ -269,7 +272,8 @@ function fxStart(type, options = {}, renderFrame, filter) {
     fixtureMode: targetInfo.fixtureMode, ids: new Set(ids), fixtures,
     level, levels: new Map(ids.map(id => [id, Number.isFinite(Number(options.levels?.[id])) ? Number(options.levels[id]) : level])),
     started: performance.now(), render: renderFrame,
-    before, cueAtStart: State.currentCue
+    before, cueAtStart: State.currentCue,
+    options, beats: Number(options.beats) > 0 ? Number(options.beats) : null
   };
   State.effects.push(effect);
   fxRefreshActive();
@@ -486,6 +490,7 @@ function attachEffectToCue(cueIndex, effectType, options = {}) {
 function saveEffect(name, type, options = {}) {
   const targetInfo = fxCaptureEffectTargets(options);
   const effect = { name: String(name || "Unnamed Effect"), type, speed: fxNumber(options.speed, 1), fixtureMode: targetInfo.fixtureMode, fixtureIds: targetInfo.fixtureIds.slice() };
+  if (Number(options.beats) > 0) effect.beats = Number(options.beats);
   State.savedEffects[effect.name] = effect;
   return { ...effect, fixtureIds: effect.fixtureIds.slice() };
 }
@@ -516,7 +521,7 @@ function renderEffectsList() {
     card.dataset.effectName = effect.name;
     card.dataset.effect = effect.type;
     card.style.cursor = "pointer";
-    card.innerHTML = `<strong>${String(effect.name).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</strong><small>${effect.type} · ${effect.speed} speed · ${effect.fixtureIds?.length || 0} fixture${effect.fixtureIds?.length === 1 ? "" : "s"}</small>`;
+    card.innerHTML = `<strong>${String(effect.name).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</strong><small>${effect.type} · ${effect.beats > 0 ? window.LXTempo?.describeBeats?.(effect.beats) || `${effect.beats} beats` : `${effect.speed} speed`} · ${effect.fixtureIds?.length || 0} fixture${effect.fixtureIds?.length === 1 ? "" : "s"}</small>`;
     card.addEventListener("click", () => {
       const name = card.dataset.effectName;
       const nameEl = document.getElementById("effectName");
@@ -528,6 +533,8 @@ function renderEffectsList() {
       if (nameEl) nameEl.value = saved.name;
       if (typeEl) typeEl.value = saved.type;
       if (speedEl) speedEl.value = saved.speed;
+      const beatsEl = document.getElementById("effectBeats");
+      if (beatsEl) beatsEl.value = saved.beats > 0 ? String(saved.beats) : "";
       if (modeEl) modeEl.value = saved.fixtureMode || "selected";
       State.effectTargetIds = new Set(saved.fixtureIds || []);
       document.getElementById("effectEditor")?.style && (document.getElementById("effectEditor").style.display = "block");
@@ -537,6 +544,9 @@ function renderEffectsList() {
   });
   wireEffectButtons();
 }
+
+// The editor's "Follow tempo" choice: beats per cycle, or null for Speed.
+function fxEditorBeats() { const v = Number(document.getElementById("effectBeats")?.value); return v > 0 ? v : null; }
 
 function wireEffectButtons() {
   const newBtn = document.getElementById("btnNewEffect");
@@ -580,7 +590,7 @@ function wireEffectButtons() {
       }
       const type = document.getElementById("effectType")?.value || "rainbow";
       const speed = Number(document.getElementById("effectSpeed")?.value || 1);
-      startEffect(type, { speed, fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
+      startEffect(type, { speed, beats: fxEditorBeats(), fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
     });
   }
 
@@ -598,7 +608,7 @@ function wireEffectButtons() {
       if (name && State.savedEffects?.[name]) return applySavedEffect(name);
       const type = document.getElementById("effectType")?.value || "rainbow";
       const speed = Number(document.getElementById("effectSpeed")?.value || 1);
-      startEffect(type, { speed, fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
+      startEffect(type, { speed, beats: fxEditorBeats(), fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
     });
   }
 
@@ -627,7 +637,7 @@ function wireEffectEditor() {
       const nameEl = document.getElementById("effectName"), typeEl = document.getElementById("effectType"), speedEl = document.getElementById("effectSpeed");
       if (!nameEl || !typeEl || !speedEl) return;
       const name = nameEl.value.trim() || `Effect ${Object.keys(State.savedEffects || {}).length + 1}`;
-      const saved = saveEffect(name, typeEl.value, { speed: Number(speedEl.value), fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
+      const saved = saveEffect(name, typeEl.value, { speed: Number(speedEl.value), beats: fxEditorBeats(), fixtureMode: document.getElementById("effectFixtureMode")?.value || "selected" });
       renderEffectsList();
       fxLog(`💾 Saved "${saved.name}" for ${saved.fixtureIds.length} fixture${saved.fixtureIds.length === 1 ? "" : "s"}`, "ok");
     });

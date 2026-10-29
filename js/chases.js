@@ -187,6 +187,8 @@
       speed.value = String(bpmToSlider(bpm));
       const c = S()?.chases?.[selectedChase];
       if (c) c.bpm = bpm;
+      // Effects that follow the tempo go with it (js/tempo.js).
+      window.LXTempo?.set(bpm, { quiet: true });
       const out = document.getElementById("chaseSpeedVal");
       if (out) out.textContent = describeBpm(bpm);
       renderChaseMetaSoon();

@@ -212,6 +212,7 @@
       effectTargetIds: state.effectTargetIds instanceof Set ? [...state.effectTargetIds] : Array.isArray(state.effectTargetIds) ? state.effectTargetIds.slice() : [],
       palettes: cloneValue(state.palettes || []),
       faders: state.faders ? cloneValue(state.faders) : null,
+      tempo: state.tempo ? cloneValue(state.tempo) : null,
       targets: cloneValue(state.targets || []),
       fixtureStates: state.fixtureStates instanceof Map ? [...state.fixtureStates.entries()].map(([id, value]) => [id, cloneValue(value)]) : [],
       current: cloneValue(state.current || {}),
@@ -358,6 +359,7 @@
     state.effectTargetIds = new Set(Array.isArray(show.effectTargetIds) ? show.effectTargetIds.map(String) : []);
     state.palettes = Array.isArray(show.palettes) ? show.palettes : [];
     state.faders = show.faders && typeof show.faders === "object" ? show.faders : null;
+    state.tempo = show.tempo && Number(show.tempo.bpm) > 0 ? { bpm: Number(show.tempo.bpm) } : null;
     state.targets = Array.isArray(show.targets) ? show.targets : [];
     state.current = show.current && typeof show.current === "object" ? cloneValue(show.current) : {};
     state.selectedFixtureId = show.selectedFixtureId ?? null;

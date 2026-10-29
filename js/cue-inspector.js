@@ -175,7 +175,8 @@
     const r = await window.LXAsk?.("Add an effect to this cue", [
       { key: "what", label: "Effect", type: "select", value: saved[0] ? `saved:${saved[0]}` : "type:aurora", options: [...saved.map(n => [`saved:${n}`, `Saved: ${n}`]), ...types.map(t => [`type:${t}`, FX_NAMES[t] || t.replace(/^\w/, c => c.toUpperCase())])] },
       { key: "on", label: "On", type: "select", value: "cue", options: [["cue", "The lights this cue brings up"], ["selected", "The lights selected now"], ...(s.groups || []).filter(g => g?.name).map(g => [`group:${g.name}`, `Group: ${g.name}`])] },
-      { key: "speed", label: "Speed", value: 1, type: "number", step: 0.1 }
+      { key: "speed", label: "Speed", value: 1, type: "number", step: 0.1 },
+      { key: "beats", label: "Follow tempo (instead of Speed)", type: "select", value: "", options: [["", "No — use Speed"], ["0.5", "½ beat"], ["1", "1 beat"], ["2", "2 beats"], ["4", "1 bar (4 beats)"], ["8", "2 bars"], ["16", "4 bars"]] }
     ], { ok: "Add", message: "It starts when the cue has faded in and runs until a cue that doesn't have it." });
     if (!r) return;
     const [kind, ...rest] = String(r.what).split(":");
@@ -193,6 +194,8 @@
     if (kind === "saved" && r.on === "cue" && base.fixtureIds?.length) ids = base.fixtureIds.slice();
     if (!ids.length) return say("No lights for it — select some, pick a group, or bring lights up in this cue first", "warn");
     const effect = { ...base, speed: Number(r.speed) > 0 ? Number(r.speed) : (base.speed || 1), fixtureMode: "custom", fixtureIds: ids };
+    if (Number(r.beats) > 0) effect.beats = Number(r.beats);
+    else delete effect.beats;
     const list = cueEffects(cue);
     list.push(effect);
     cue.effects = list; cue.effect = list[0];
@@ -370,7 +373,7 @@
           <button type="button" class="ci-check${!cue.noMib ? " on" : ""}" data-a="mib"><i></i><span><b>Move in black</b> — moving lights preset in the dark before this cue</span></button>
           <button type="button" class="ci-check${cue.disabled ? " on warn" : ""}" data-a="disabled"><i></i><span><b>Disabled</b> — GO skips this cue (you can still go to it directly)</span></button>
           ${curtainRow(cue, i)}
-          ${cueEffects(cue).map((e, n) => `<div class="ci-line">Effect: <b>${esc(e.name || e.type)}</b> <span class="ci-muted">${(e.fixtureIds || []).length} lights · speed ${e.speed || 1}</span> <button type="button" class="btn-secondary ci-small" data-a="fx:del:${n}">Remove</button></div>`).join("")}
+          ${cueEffects(cue).map((e, n) => `<div class="ci-line">Effect: <b>${esc(e.name || e.type)}</b> <span class="ci-muted">${(e.fixtureIds || []).length} lights · ${e.beats > 0 ? `${window.LXTempo?.describeBeats?.(e.beats) || `${e.beats} beats`} (tempo)` : `speed ${e.speed || 1}`}</span> <button type="button" class="btn-secondary ci-small" data-a="fx:del:${n}">Remove</button></div>`).join("")}
           <button type="button" class="btn-secondary ci-small" data-a="fx:add" title="An effect that runs while this cue is up — e.g. Aurora on the cyc">＋ Add effect to this cue</button>
           ${cue.chase ? `<div class="ci-line">Starts chase ${Number(cue.chase.index) + 1}</div>` : ""}
         </section>

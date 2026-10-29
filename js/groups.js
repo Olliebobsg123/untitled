@@ -123,37 +123,6 @@
     normaliseFixtureNumbers();
   }
 
-  // Select a group's lights from the Groups list.
-  function selectGroupLights(group) {
-    if (!group) return;
-    const members = Array.isArray(group.members) ? group.members : [];
-    const name = String(group.name || "Group");
-    if (!(State.selected instanceof Set)) State.selected = new Set();
-    State.selected.clear();
-    let found = 0;
-    members.forEach(value => {
-      const fixture = resolveMember(value);
-      if (!fixture?.id) return;
-      State.selected.add(fixture.id);
-      found += 1;
-    });
-    const intensity = Number(State.current?.intensity ?? 100);
-    const intensityInput = getElement("intensity");
-    const intensityValue = getElement("intVal");
-    if (intensityInput) intensityInput.value = intensity;
-    if (intensityValue) intensityValue.textContent = `${intensity}%`;
-    // Selecting a group only changes which fixtures are selected, not
-    // any fixture's own data — the full renderFixtures() rebuild (every
-    // item torn down and recreated, photometrics/output recalculated
-    // for the whole patch) isn't needed here and was expensive enough
-    // with a large patch to visibly flash the fixture list.
-    if (typeof window.syncFixtureListSelectionClasses === "function") window.syncFixtureListSelectionClasses();
-    else if (typeof window.renderFixtures === "function") window.renderFixtures();
-    if (typeof window.updateControlVisibility === "function") window.updateControlVisibility();
-    if (typeof window.updateDMX === "function") window.updateDMX();
-    if (typeof window.log === "function") window.log(`✅ Selected ${name}: ${found}/${members.length} — DMX active`);
-  }
-
   window.renderGroups = function renderGroups() {
     const list = getElement("groupList");
     if (!list) return;
@@ -164,16 +133,33 @@
       const name = String(group.name || `Group ${groupIndex + 1}`);
       const el = document.createElement("div");
       el.className = "group-item";
-      // The whole name (it wraps), and how many lights.
-      const nameEl = document.createElement("span");
-      nameEl.className = "g-name";
-      nameEl.textContent = name;
-      const count = document.createElement("span");
-      count.className = "g-count";
-      count.textContent = String(members.length);
-      el.append(nameEl, count);
-      el.title = `${name} — ${members.length} light${members.length === 1 ? "" : "s"}`;
-      el.addEventListener("click", () => selectGroupLights(group));
+      el.textContent = name;
+      el.addEventListener("click", () => {
+        if (!(State.selected instanceof Set)) State.selected = new Set();
+        State.selected.clear();
+        let found = 0;
+        members.forEach(value => {
+          const fixture = resolveMember(value);
+          if (!fixture?.id) return;
+          State.selected.add(fixture.id);
+          found += 1;
+        });
+        const intensity = Number(State.current?.intensity ?? 100);
+        const intensityInput = getElement("intensity");
+        const intensityValue = getElement("intVal");
+        if (intensityInput) intensityInput.value = intensity;
+        if (intensityValue) intensityValue.textContent = `${intensity}%`;
+        // Selecting a group only changes which fixtures are selected, not
+        // any fixture's own data — the full renderFixtures() rebuild (every
+        // item torn down and recreated, photometrics/output recalculated
+        // for the whole patch) isn't needed here and was expensive enough
+        // with a large patch to visibly flash the fixture list.
+        if (typeof window.syncFixtureListSelectionClasses === "function") window.syncFixtureListSelectionClasses();
+        else if (typeof window.renderFixtures === "function") window.renderFixtures();
+        if (typeof window.updateControlVisibility === "function") window.updateControlVisibility();
+        if (typeof window.updateDMX === "function") window.updateDMX();
+        if (typeof window.log === "function") window.log(`✅ Selected ${name}: ${found}/${members.length} — DMX active`);
+      });
       list.appendChild(el);
     });
   };

@@ -16,12 +16,12 @@ html[data-density="comfortable"] body { grid-template-rows: 58px minmax(0, 1fr) 
 html[data-density="compact"] .topbar { padding: 0 10px; }
 html[data-density="compact"] .topbar-status { gap: 6px; }
 html[data-density="compact"] .status-pill { height: 24px; }
-html[data-density="compact"] .page-title strong { font-size: 14px; }
+html[data-density="compact"] .page-title strong { font-size: 12px; }
 
 html[data-density="compact"] .panel-header {
   min-height: 31px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: 11px;
 }
 html[data-density="compact"] .panel-body { padding: 8px; }
 html[data-density="compact"] .eyebrow { margin-right: 6px; }
@@ -44,9 +44,9 @@ html[data-density="compact"] .form-row input,
 html[data-density="compact"] .form-row select {
   min-height: 28px;
   height: 28px;
-  font-size: 13px;
+  font-size: 11px;
 }
-html[data-density="compact"] .form-row label { font-size: 12px; }
+html[data-density="compact"] .form-row label { font-size: 9px; }
 
 html[data-density="compact"] .live-grid,
 html[data-density="compact"] .live-grid-left,
@@ -62,7 +62,7 @@ html[data-density="compact"] .cue-item {
   padding: 0 8px;
   gap: 10px;
   border-radius: 5px;
-  font-size: 13px;
+  font-size: 11px;
   white-space: nowrap;
 }
 html[data-density="compact"] .fixture-item > span,
@@ -74,7 +74,7 @@ html[data-density="compact"] .cue-item > * {
 html[data-density="compact"] .fixture-item > span:first-child,
 html[data-density="compact"] .cue-item > strong { flex: 1 1 auto; min-width: 0; }
 html[data-density="compact"] .fixture-item > span + span,
-html[data-density="compact"] .cue-item > small { flex: 0 1 auto; font-size: 13px !important; opacity: .8; }
+html[data-density="compact"] .cue-item > small { flex: 0 1 auto; font-size: 10px !important; opacity: .8; }
 
 /* Groups as a grid of buttons, so far more fit. */
 html[data-density="compact"] #groupList {
@@ -119,8 +119,8 @@ html[data-density="compact"] #effectsList .effect-card small {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-html[data-density="compact"] #effectsList .effect-card strong { font-size: 13px; }
-html[data-density="compact"] #effectsList .effect-card small { font-size: 12px; letter-spacing: .3px; }
+html[data-density="compact"] #effectsList .effect-card strong { font-size: 11px; }
+html[data-density="compact"] #effectsList .effect-card small { font-size: 9px; letter-spacing: .3px; }
 html[data-density="compact"] #effectsList .empty-state { grid-column: 1 / -1; }
 
 html[data-density="compact"] #chaseList {
@@ -136,7 +136,7 @@ html[data-density="compact"] #chaseList .cue-item {
   gap: 2px;
 }
 html[data-density="compact"] #chaseList .cue-item > strong { flex: none; }
-html[data-density="compact"] #chaseList .cue-item > small { font-size: 12px !important; }
+html[data-density="compact"] #chaseList .cue-item > small { font-size: 9px !important; }
 html[data-density="compact"] #chaseList .empty-state { grid-column: 1 / -1; }
 
 /* Cue stack in the bottom bar: columns, read left to right. */
@@ -148,7 +148,7 @@ html[data-density="compact"] .bottom-row #cueList {
   align-content: start;
   gap: 3px;
 }
-html[data-density="compact"] .terminal .panel-body { height: auto; font-size: 12px; }
+html[data-density="compact"] .terminal .panel-body { height: auto; font-size: 9px; }
 html[data-density="compact"] .bottom-row > .panel { display: flex; flex-direction: column; min-height: 0; }
 html[data-density="compact"] .bottom-row > .panel > .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
@@ -157,10 +157,10 @@ html[data-density="compact"] .parameter-card { margin-top: 6px; padding: 8px 9px
 html[data-density="compact"] .control-group { gap: 6px; }
 html[data-density="compact"] .deck-tabs { margin-top: 8px; gap: 4px; }
 html[data-density="compact"] .deck-tab { padding: 6px 4px; }
-html[data-density="compact"] .big-value { font-size: 17px; }
+html[data-density="compact"] .big-value { font-size: 16px; }
 
 html[data-density="compact"] .cmd-line { padding: 0 10px; }
-html[data-density="compact"] .cmd-line input { font-size: 13px; }
+html[data-density="compact"] .cmd-line input { font-size: 11px; }
 
 /* ---------- Sidebar labels (Preferences → Interface) ---------- */
 
@@ -176,9 +176,9 @@ html[data-sidebar="labels"] body:has(.sidebar:hover) { grid-template-columns: va
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: #a4aeac;
+  color: #7d8b88;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 10px;
   cursor: pointer;
   text-align: right;
   margin-right: 104px; /* room for the Remote button */
@@ -215,8 +215,8 @@ body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
   justify-content: center;
   flex-direction: column;
   gap: 10px;
-  color: #a1aca9;
-  font-size: 14px;
+  color: #6f7d7a;
+  font-size: 12px;
 }
 .lxw-placeholder.show { display: flex; }
 
@@ -265,7 +265,7 @@ body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .4px;
 }
@@ -277,8 +277,8 @@ body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #a2acaa;
-  font-size: 14px;
+  color: #73817e;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
 }
@@ -346,7 +346,7 @@ body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
   border-radius: 6px;
   background: rgba(255, 255, 255, .02);
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: 8px;
   font-weight: 800;
   letter-spacing: .9px;
   cursor: pointer;
@@ -377,20 +377,20 @@ body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
   border-radius: 4px;
   background: transparent;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: 11px;
   text-align: left;
   cursor: pointer;
 }
 .lxw-menu button:hover { background: var(--accent-soft); color: var(--text); }
-.lxw-menu button .tick { color: var(--accent); font-size: 13px; }
-.lxw-menu button kbd { color: #9ca9a6; font-family: var(--mono); font-size: 12px; }
+.lxw-menu button .tick { color: var(--accent); font-size: 10px; }
+.lxw-menu button kbd { color: #5d6b68; font-family: var(--mono); font-size: 9px; }
 .lxw-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
-.lxw-menu .lxw-menu-label { padding: 6px 8px 3px; color: #99a8a5; font-size: 11px; font-weight: 850; letter-spacing: 1.2px; }
+.lxw-menu .lxw-menu-label { padding: 6px 8px 3px; color: #53615e; font-size: 8px; font-weight: 850; letter-spacing: 1.2px; }
 
 /* ---------- Palettes direct-select window ---------- */
 
 .lx-direct { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-.lx-direct h5 { color: #9ca9a6; font-size: 12px; font-weight: 850; letter-spacing: 1.2px; margin: 0; }
+.lx-direct h5 { color: #5d6b68; font-size: 9px; font-weight: 850; letter-spacing: 1.2px; margin: 0; }
 .lx-direct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 3px; }
 .lx-direct-grid button {
   height: 34px;
@@ -400,7 +400,7 @@ body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
   border-radius: 4px;
   background: #10171b;
   color: #c4ceca;
-  font-size: 13px;
+  font-size: 10px;
   text-align: left;
   overflow: hidden;
   white-space: nowrap;
@@ -408,7 +408,7 @@ body.lxw-out-fixtures .groups-panel { max-height: none; flex: 1 1 auto; }
   cursor: pointer;
 }
 .lx-direct-grid button:hover { background: #172026; color: var(--text); border-color: var(--accent-line); }
-.lx-direct-empty { color: #9ca9a6; font-size: 13px; padding: 18px 4px; text-align: center; }
+.lx-direct-empty { color: #5d6b68; font-size: 11px; padding: 18px 4px; text-align: center; }
 
 /* Patch page: shorter library so the patched-fixtures table shows too. */
 html[data-density="compact"] #page-patch .patch-layout { gap: 6px; grid-template-columns: minmax(0, 1fr) 380px; }
@@ -467,12 +467,12 @@ html[data-text="small"] .fixture-item,
 html[data-text="small"] .group-item,
 html[data-text="small"] .cue-item,
 html[data-text="small"] #effectsList .effect-card strong,
-html[data-text="small"] .lx-direct-grid button { font-size: 13px; }
+html[data-text="small"] .lx-direct-grid button { font-size: 10px; }
 html[data-text="large"] .fixture-item,
 html[data-text="large"] .group-item,
 html[data-text="large"] .cue-item,
 html[data-text="large"] #effectsList .effect-card strong,
-html[data-text="large"] .lx-direct-grid button { font-size: 14px; }
+html[data-text="large"] .lx-direct-grid button { font-size: 13px; }
 html[data-text="large"] .fixture-item,
 html[data-text="large"] .cue-item { min-height: 30px; }
 html[data-text="large"] #groupList { grid-auto-rows: 30px; }
@@ -522,7 +522,7 @@ html[data-top-licence="off"] #changeLicenseButton { display: none; }
   padding: 0 8px;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: .5px;
 }
 

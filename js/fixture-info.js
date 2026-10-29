@@ -365,7 +365,7 @@
     const k = name => main.querySelector(`[data-k="${name}"]`);
 
     // Header.
-    setHTML(main.querySelector(".fi-title"), `<b>${esc(f.fixtureNumber)}</b> ${esc(window.fixtureLabel ? window.fixtureLabel(f) : f.name)}`);
+    setHTML(main.querySelector(".fi-title"), `<b>${esc(f.fixtureNumber)}</b> ${esc(f.name)}`);
     setText(main.querySelector(".fi-sub"), `${String(f.name).toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")} · Univ ${f.uni} · Addr ${f.addr}`);
 
     // The value.
@@ -449,18 +449,18 @@
     style.textContent = `
       .fi{display:flex;flex-direction:column;min-height:100%}
       .fi-pick{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--border);background:#0e1519;position:sticky;top:0;z-index:1}
-      .fi-lbl{color:#9ca9a6;font-size:13px;font-weight:700}
-      .fi-pick select{flex:1;min-width:0;height:26px;padding:0 6px;background:#0a1013;border:1px solid var(--border-strong);border-radius:4px;color:var(--text);font-size:13px}
+      .fi-lbl{color:#5d6b68;font-size:10px;font-weight:700}
+      .fi-pick select{flex:1;min-width:0;height:26px;padding:0 6px;background:#0a1013;border:1px solid var(--border-strong);border-radius:4px;color:var(--text);font-size:11px}
       .fi-live{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
       .fi-main{padding:0 0 10px}
-      .fi-empty{padding:30px;color:#a1aca9;text-align:center;font-size:14px}
+      .fi-empty{padding:30px;color:#6f7d7a;text-align:center;font-size:12px}
       .fi-head{padding:10px 12px;background:rgba(92,168,255,.10);border-left:3px solid var(--blue)}
-      .fi-title{font-size:16px;font-weight:800;color:var(--text)}
+      .fi-title{font-size:15px;font-weight:800;color:var(--text)}
       .fi-title b{margin-right:6px}
-      .fi-sub{margin-top:3px;color:#a4aeac;font-family:var(--mono);font-size:13px}
+      .fi-sub{margin-top:3px;color:#7d8b88;font-family:var(--mono);font-size:10px}
       .fi-value.small .fi-big{font-size:17px}
       .fi-value{padding:10px 12px;border-bottom:1px solid var(--border)}
-      .fi-tags{display:flex;gap:10px;align-items:baseline;font-size:13px;font-weight:800;letter-spacing:1px;color:#a1aca9}
+      .fi-tags{display:flex;gap:10px;align-items:baseline;font-size:10px;font-weight:800;letter-spacing:1px;color:#6f7d7a}
       .fi-tags b{color:var(--accent-2)}
       .fi-tags span.on{color:var(--warning)}
       .fi-big{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:30px;font-weight:300;color:var(--text);font-family:var(--mono)}
@@ -469,12 +469,12 @@
       .fi-bar{height:4px;border-radius:2px;background:#1c272d;overflow:hidden}
       .fi-bar[hidden]{display:none}
       .fi-bar i{display:block;height:100%;background:var(--accent);transition:width .15s}
-      .fi-dmx{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;color:#a1aca9;font-family:var(--mono);font-size:13px}
+      .fi-dmx{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;color:#6f7d7a;font-family:var(--mono);font-size:10px}
       .fi-dmx em{font-style:normal;color:#9aa7a4}
       .fi-dmx b{color:var(--text)}
       .fi-card{margin:6px 10px;padding:7px 10px;border-left:3px solid var(--k);background:#0f171b;border-radius:3px;opacity:.6}
       .fi-card.win{opacity:1;background:#121c21}
-      .fi-kind span{margin-left:6px;padding:1px 5px;border-radius:3px;background:var(--k);color:#071014;font-size:11px;letter-spacing:.6px}
+      .fi-kind span{margin-left:6px;padding:1px 5px;border-radius:3px;background:var(--k);color:#071014;font-size:8px;letter-spacing:.6px}
       .fi-kind{color:var(--k);font-size:9.5px;font-weight:900;letter-spacing:1.2px}
       .fi-card-title{margin-top:2px;color:var(--text);font-family:var(--mono);font-size:11.5px}
     `;

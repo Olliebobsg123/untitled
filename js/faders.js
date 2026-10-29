@@ -140,7 +140,7 @@
       const f = fixtureNumbered(fd.number);
       if (!f) return `${fd.number} (not patched)`;
       const model = String(defOf(f).photometrics?.model || "");
-      return `${fd.number} ${f.label || (model && !/^unknown$/i.test(model) ? model : f.name).replace(/\s*\([^)]*\)\s*$/, "")}`;
+      return `${fd.number} ${(model && !/^unknown$/i.test(model) ? model : f.name).replace(/\s*\([^)]*\)\s*$/, "")}`;
     }
     if (fd.type === "param") return `${fd.label || fd.fixtures?.join(",")} ${PARAM_NAME[fd.attr] || fd.attr}`;
     if (fd.type === "dmx") return `DMX ${fd.universe}/${fd.address}`;
@@ -155,17 +155,6 @@
     if (!host) return;
     const f = data();
     $("fadersPages").innerHTML = Array.from({ length: PAGES }, (_, p) => `<button type="button" class="fd-page${p === page ? " on" : ""}" data-page="${p}">Page ${p + 1}</button>`).join("") + `<button type="button" class="fd-page fd-fillbtn" data-fill>Fill with fixtures…</button>`;
-    // Nothing on this page yet: say what faders are for, and a way to start.
-    const start = $("fadersStart");
-    if (start) {
-      const blank = f.pages[page].every(fd => !fd.type);
-      start.hidden = !blank;
-      if (blank) {
-        const groups = (S().groups || []).filter(g => g?.name).length;
-        start.innerHTML = `<div><b>Assign groups or cues to faders</b><span>A fader brings its lights up by hand — a group, one light, an effect, a chase, or the grand master. Tap ＋ on a fader, or fill the page in one go:</span></div>
-          <div class="fd-start-buttons">${groups ? `<button type="button" class="btn-primary" data-start="groups">Put my ${groups} group${groups === 1 ? "" : "s"} on faders</button>` : ""}<button type="button" class="${groups ? "btn-secondary" : "btn-primary"}" data-start="fixtures">A fader per light…</button><button type="button" class="btn-secondary" data-start="one">Assign fader ${page * PER_PAGE + 1} myself</button></div>`;
-      }
-    }
     host.innerHTML = f.pages[page].map((fd, i) => {
       const lvl = fd.type === "grand" ? Number(f.grand) : Number(fd.level) || 0;
       const empty = !fd.type;
@@ -219,7 +208,7 @@
     const s = S(), fd = slot(page, i);
     const fixtures = (s.fixtures || []).filter(f => Number.isFinite(Number(f?.fixtureNumber))).sort((a, b) => a.fixtureNumber - b.fixtureNumber);
     const options = [["", "— Nothing (clear) —"], ["grand:", "Grand master"], ["param:", "A parameter of some lights (pan, tilt, zoom, colour…)…"], ["dmx:", "A DMX channel…"],
-      ...fixtures.map(f => [`fixture:${f.fixtureNumber}`, `Fixture ${f.fixtureNumber}: ${window.fixtureLabel ? window.fixtureLabel(f) : f.name}`]),
+      ...fixtures.map(f => [`fixture:${f.fixtureNumber}`, `Fixture ${f.fixtureNumber}: ${f.name}`]),
       ...(s.groups || []).filter(g => g?.name).map(g => [`group:${g.name}`, `Group: ${g.name}`]),
       ...Object.keys(s.savedEffects || {}).map(n => [`effect:${n}`, `Effect: ${n}`]),
       ...(s.chases || []).filter(c => c?.name).map(c => [`chase:${c.name}`, `Chase: ${c.name}`])];
@@ -266,19 +255,6 @@
       Object.assign(fd, list[i] ? { type: "fixture", number: list[i].fixtureNumber, level: 0 } : { type: "", level: 0 });
     });
     render(); output();
-  }
-
-  // Your groups, a fader each, in order (and the grand master on the last).
-  function fillWithGroups() {
-    const groups = (S().groups || []).filter(g => g?.name).slice(0, PER_PAGE - 1);
-    if (!groups.length) { window.log?.("Make some groups first", "warn"); return; }
-    data().pages[page].forEach((fd, i) => {
-      fd.level = 0; sync(page, i);
-      for (const k of Object.keys(fd)) delete fd[k];
-      Object.assign(fd, groups[i] ? { type: "group", name: groups[i].name, level: 0 } : i === PER_PAGE - 1 ? { type: "grand", name: "", level: 0 } : { type: "", level: 0 });
-    });
-    render(); output();
-    window.log?.(`Faders: ${groups.map(g => g.name).join(", ")}, and the grand master`, "ok");
   }
 
   // The command line's suggestions sit over the bottom of the page while it
@@ -338,28 +314,21 @@
       .fd-page.on{border-color:var(--accent,#19d6a3);color:var(--accent,#19d6a3);background:#132024}
       .fd-bank{flex:1;min-height:300px;display:grid;grid-template-columns:repeat(${PER_PAGE},minmax(64px,1fr));gap:8px;overflow-x:auto}
       .fd{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;padding:8px 6px;border:1px solid #1f2a2f;border-radius:10px;background:#0c1215;user-select:none;-webkit-user-select:none}
-      .fd-num{font:800 13px var(--mono,monospace);color:#99a8a5;text-align:center}
-      .fd-val{font:800 15px var(--mono,monospace);color:#edf4f2;text-align:center;min-height:18px}
+      .fd-num{font:800 10px var(--mono,monospace);color:#53615e;text-align:center}
+      .fd-val{font:800 14px var(--mono,monospace);color:#edf4f2;text-align:center;min-height:18px}
       .fd-track{position:relative;flex:1;min-height:120px;margin:0 auto;width:56px;border-radius:10px;background:#071012;border:1px solid #1d282c;touch-action:none;cursor:ns-resize;overflow:visible}
       .fd-fill{position:absolute;left:0;right:0;bottom:0;border-radius:9px;background:linear-gradient(180deg,var(--accent,#19d6a3),rgba(25,214,163,.25));opacity:.55;pointer-events:none}
       .fd-knob{position:absolute;left:-6px;right:-6px;height:28px;border-radius:7px;background:#dfe9e6;box-shadow:0 2px 8px rgba(0,0,0,.6),inset 0 -3px 0 rgba(0,0,0,.18);pointer-events:none}
-      .fd-add{position:absolute;inset:0;display:grid;place-content:center;text-align:center;color:#93a7a2;font-size:24px;cursor:pointer}
-      .fd-add small{display:block;font-size:13px;font-weight:800;letter-spacing:.06em}
+      .fd-add{position:absolute;inset:0;display:grid;place-content:center;text-align:center;color:#3f4d4a;font-size:24px;cursor:pointer}
+      .fd-add small{display:block;font-size:10px;font-weight:800;letter-spacing:.06em}
       .fd.empty .fd-track{cursor:pointer;border-style:dashed}
-      .fd-name{min-height:38px;padding:4px;border:1px solid #1f2a2f;border-radius:7px;background:#10171b;color:#c6d0ce;font-size:13px;font-weight:800;line-height:1.2;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+      .fd-name{min-height:38px;padding:4px;border:1px solid #1f2a2f;border-radius:7px;background:#10171b;color:#c6d0ce;font-size:11px;font-weight:800;line-height:1.2;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
       .fd.missing .fd-name{color:#f2b84b;border-color:#5a4520}
       .fd-flash{min-height:52px;border:1px solid #2b383f;border-radius:8px;background:#15201f;color:#c6d0ce;font-weight:900;letter-spacing:.06em;cursor:pointer;touch-action:none}
       .fd-flash.down{background:var(--accent,#19d6a3);color:#061210}
       .fd-grand .fd-fill{background:linear-gradient(180deg,#f2b84b,rgba(242,184,75,.25))}
       .fd-grand .fd-flash.down{background:#ff6b6b}
       .fd-fillbtn{margin-left:auto}
-      .fd-start{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 10px;padding:14px 16px;border:1px dashed var(--accent-line,#1f5a4a);border-radius:10px;background:rgba(25,214,163,.05)}
-      .fd-start[hidden]{display:none}
-      .fd-start > div:first-child{flex:1 1 320px;display:flex;flex-direction:column;gap:4px}
-      .fd-start b{color:var(--text);font-size:16px}
-      .fd-start span{color:var(--text-soft,#c9d3d1);font-size:13px;line-height:1.45}
-      .fd-start-buttons{display:flex;flex-wrap:wrap;gap:8px}
-      .fd-start-buttons button{min-height:38px;padding:0 14px}
       .fd-param .fd-fill{background:linear-gradient(180deg,#5ca8ff,rgba(92,168,255,.25))}
       .fd-dmx .fd-fill{background:linear-gradient(180deg,#c6d0ce,rgba(198,208,206,.2))}
       .fd-effect .fd-fill,.fd-chase .fd-fill{background:linear-gradient(180deg,#9b7bff,rgba(155,123,255,.25))}
@@ -377,7 +346,7 @@
     const pageEl = document.createElement("div");
     pageEl.className = "page";
     pageEl.id = "page-faders";
-    pageEl.innerHTML = `<section class="panel" style="height:100%"><div class="panel-header"><div><span class="eyebrow">PLAYBACK</span> Faders</div><span class="panel-meta">GROUPS · EFFECTS · CHASES</span></div><div class="panel-body"><div class="fd-pages" id="fadersPages"></div><div class="fd-start" id="fadersStart" hidden></div><div class="fd-bank" id="fadersBank"></div></div></section>`;
+    pageEl.innerHTML = `<section class="panel" style="height:100%"><div class="panel-header"><div><span class="eyebrow">PLAYBACK</span> Faders</div><span class="panel-meta">GROUPS · EFFECTS · CHASES</span></div><div class="panel-body"><div class="fd-pages" id="fadersPages"></div><div class="fd-bank" id="fadersBank"></div></div></section>`;
     main.appendChild(pageEl);
     const nav = document.createElement("button");
     nav.className = "nav-link";
@@ -397,12 +366,6 @@
       render();
     });
     document.querySelectorAll(".nav-link[data-page]").forEach((b, i) => { const tag = b.querySelector("b"); if (tag) tag.textContent = String(i + 1).padStart(2, "0"); });
-    $("fadersStart").addEventListener("click", e => {
-      const a = e.target.closest("[data-start]")?.dataset.start;
-      if (a === "groups") fillWithGroups();
-      else if (a === "fixtures") fillWithFixtures();
-      else if (a === "one") assign(0);
-    });
     $("fadersPages").addEventListener("click", e => { if (e.target.closest("[data-fill]")) { fillWithFixtures(); return; } const b = e.target.closest("[data-page]"); if (b) { page = Number(b.dataset.page); render(); } });
     wire($("fadersBank"));
     render();

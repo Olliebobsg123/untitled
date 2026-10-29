@@ -1231,7 +1231,7 @@ function createMIDIPanel(){
     <div class="panel-body">
       <!-- The device picker and status are on the MIDI Controller panel
            (#midiDevice, #midiStatus); this panel is the full mapping list. -->
-      <div style="font-size:13px;margin:0 0 12px;color:#a5adac;line-height:1.5">
+      <div style="font-size:11px;margin:0 0 12px;color:#7d8987;line-height:1.5">
         <b>Learn</b> links a knob, pad or joystick on your controller; the dropdown sets what it does.
         By default Pad 8 records the next cue, Pad 10 holds position and Pad 11 releases it.
       </div>

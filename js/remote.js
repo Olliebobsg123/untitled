@@ -103,10 +103,10 @@
   // ---- Console-side pairing panel -------------------------------------
   const style = document.createElement("style");
   style.textContent = `
-    #lxRemoteBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 12px;border-radius:999px;border:1px solid #3a4a5c;background:#131a22;color:#cfe3f7;font:600 14px system-ui;cursor:pointer;opacity:.85}
+    #lxRemoteBtn{position:fixed;right:14px;bottom:14px;z-index:9998;padding:7px 12px;border-radius:999px;border:1px solid #3a4a5c;background:#131a22;color:#cfe3f7;font:600 12px system-ui;cursor:pointer;opacity:.85}
     #lxRemoteBtn.on{border-color:#2fbf71;color:#7be3a6}
-    #lxRemotePanel{position:fixed;right:14px;bottom:52px;z-index:9999;width:280px;padding:14px;border-radius:12px;border:1px solid #3a4a5c;background:#0f151c;color:#dfe9f3;font:14px system-ui;box-shadow:0 10px 30px #000a;display:none}
-    #lxRemotePanel h4{margin:0 0 10px;font-size:14px}
+    #lxRemotePanel{position:fixed;right:14px;bottom:52px;z-index:9999;width:280px;padding:14px;border-radius:12px;border:1px solid #3a4a5c;background:#0f151c;color:#dfe9f3;font:13px system-ui;box-shadow:0 10px 30px #000a;display:none}
+    #lxRemotePanel h4{margin:0 0 10px;font-size:13px}
     #lxRemotePanel .row{display:flex;justify-content:space-between;align-items:center;margin:8px 0}
     #lxRemotePanel .pin{font:700 26px ui-monospace,monospace;letter-spacing:.2em;text-align:center;padding:8px;background:#1a2430;border-radius:8px}
     #lxRemotePanel button{background:#1f2b38;color:#dfe9f3;border:1px solid #3a4a5c;border-radius:8px;padding:5px 10px;cursor:pointer}

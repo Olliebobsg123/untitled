@@ -163,22 +163,22 @@
       #page-magic .magic-panel{min-height:420px}
       .magic-panel .magic-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
       .magic-panel .magic-tools .sep{width:1px;height:22px;background:var(--border);margin:0 4px}
-      .magic-panel .magic-tools button{height:28px;padding:0 11px;font-size:13px}
-      .magic-panel .magic-info{margin-left:auto;color:#a1aca9;font-size:13px;letter-spacing:.3px}
+      .magic-panel .magic-tools button{height:28px;padding:0 11px;font-size:10px}
+      .magic-panel .magic-info{margin-left:auto;color:#6f7d7a;font-size:10px;letter-spacing:.3px}
       .magic-panel .magic-stage{flex:1;overflow:auto;background:#070b0d;position:relative}
       .magic-panel svg{display:block;user-select:none}
       .ms-bar{stroke:#1d272c;stroke-width:3;stroke-linecap:round}
-      .ms-rowname{fill:#5d6b68;font-size:13px;font-weight:800;letter-spacing:1px;cursor:pointer}.ms-rowname:hover{fill:var(--accent,#19d6a3)}
+      .ms-rowname{fill:#5d6b68;font-size:10px;font-weight:800;letter-spacing:1px;cursor:pointer}.ms-rowname:hover{fill:var(--accent,#19d6a3)}
       .ms-edge{stroke:#26333a;stroke-dasharray:6 6}
-      .ms-edgetext{fill:#3f4c50;font-size:12px;font-weight:800;letter-spacing:2px}
+      .ms-edgetext{fill:#3f4c50;font-size:9px;font-weight:800;letter-spacing:2px}
       .ms-body{fill:#141c20;stroke:#3a474d;stroke-width:1.3}
       .ms-lens{stroke-width:1.3}
       .ms-door{fill:#1a2328;stroke:#33424a}
       .ms-ring{fill:none;stroke:rgba(0,0,0,.45);stroke-width:1.2}
       .ms-pods{fill:none;stroke:rgba(0,0,0,.45);stroke-width:2;stroke-dasharray:3 3}
       .ms-tag{fill:#6f7d7a;font-size:8.5px;font-weight:800;text-anchor:middle;letter-spacing:.5px}
-      .ms-num{fill:#aab6b3;font-size:13px;font-weight:800;text-anchor:middle}
-      .ms-lvl{font-size:13px;font-weight:800;text-anchor:middle;fill:#46534f}
+      .ms-num{fill:#aab6b3;font-size:11px;font-weight:800;text-anchor:middle}
+      .ms-lvl{font-size:10px;font-weight:800;text-anchor:middle;fill:#46534f}
       .ms-lvl.on{fill:#ff5d5d}
       .ms-fx{cursor:pointer}
       .ms-fx:hover .ms-body{stroke:#7d8b88}
@@ -186,7 +186,7 @@
       .ms-sel .ms-num{fill:var(--accent)}
       .ms-hit{fill:transparent}
       .ms-lasso{fill:rgba(25,214,163,.08);stroke:var(--accent);stroke-dasharray:4 3}
-      .ms-empty{fill:#53615f;font-size:14px;text-anchor:middle}
+      .ms-empty{fill:#53615f;font-size:12px;text-anchor:middle}
     `;
     document.head.appendChild(style);
   }
@@ -309,7 +309,7 @@
   function rebuild() {
     const width = Math.max(360, panel.querySelector(".magic-stage").clientWidth);
     const state = S();
-    const key = JSON.stringify([width, (state.fixtures || []).map(f => f && [f.id, f.name, f.label, f.fixtureNumber, f.uni, f.addr]), state.visualizer?.positions || {}, Boolean(decode)]);
+    const key = JSON.stringify([width, (state.fixtures || []).map(f => f && [f.id, f.name, f.fixtureNumber, f.uni, f.addr]), state.visualizer?.positions || {}, Boolean(decode)]);
     if (key === layoutKey) return;
     layoutKey = key;
     const layout = buildLayout(width);
@@ -344,7 +344,7 @@
       num.textContent = item.fixture.fixtureNumber ?? "";
       const lvl = el("text", { y: item.kind === "bar" ? 24 : 34, class: "ms-lvl" }, g);
       const title = el("title", {}, g);
-      title.textContent = `${item.fixture.fixtureNumber}. ${window.fixtureLabel ? window.fixtureLabel(item.fixture) : item.fixture.name}${item.fixture.label ? ` (${item.fixture.name})` : ""} — Uni ${item.fixture.uni} Addr ${item.fixture.addr}`;
+      title.textContent = `${item.fixture.fixtureNumber}. ${item.fixture.name} — Uni ${item.fixture.uni} Addr ${item.fixture.addr}`;
       return { ...item, g, glow, lit, lvl, last: "" };
     });
     lasso = el("rect", { class: "ms-lasso", style: "display:none" }, svg);

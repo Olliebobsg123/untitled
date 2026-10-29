@@ -85,14 +85,6 @@
     const state = S();
     const fixture = state.fixtures.find(f => String(f.id) === String(id));
     if (!fixture) return false;
-    // The light's own short name (js/fixture-names.js).
-    if (field === "label") {
-      const name = String(raw || "").trim();
-      if (name) fixture.label = name; else delete fixture.label;
-      window.renderFixtures?.();
-      window.log?.(`#${fixture.fixtureNumber} ${name ? `is “${name}”` : "uses its profile name"}`, "ok");
-      return true;
-    }
     const value = Math.round(Number(raw));
     if (field === "fixtureNumber") {
       if (!Number.isInteger(value) || value < 1) return warn("Fixture numbers start at 1");
@@ -129,31 +121,31 @@
       #patchLibraryPanel .library-list{height:430px;max-height:none;overflow:auto}
       #libList .fixture-item.picked{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent)}
       .patch-picked{display:flex;flex-direction:column;gap:4px;padding:12px 14px;margin-bottom:14px;border:1px solid var(--accent-line);border-radius:8px;background:var(--accent-soft)}
-      .patch-picked b{font-size:14px;color:var(--text)}
-      .patch-picked span{font-size:13px;color:#9aa7a4}
+      .patch-picked b{font-size:13px;color:var(--text)}
+      .patch-picked span{font-size:11px;color:#9aa7a4}
       .patch-picked .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-      .patch-picked .chips i{font-style:normal;font-size:13px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:5px;background:rgba(0,0,0,.25);color:#b9c5c2}
+      .patch-picked .chips i{font-style:normal;font-size:10px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:5px;background:rgba(0,0,0,.25);color:#b9c5c2}
       .patch-picked.empty{border-style:dashed;border-color:var(--border);background:transparent}
       .patch-picked.empty b{color:#9aa7a4}
-      .patch-link{margin-left:8px;padding:0;border:0;background:none;color:var(--accent);font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer}
-      .patch-range{margin:4px 0 12px;font-size:13px;line-height:1.5;color:#8bc5ff}
+      .patch-link{margin-left:8px;padding:0;border:0;background:none;color:var(--accent);font-size:9px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer}
+      .patch-range{margin:4px 0 12px;font-size:11px;line-height:1.5;color:#8bc5ff}
       .patch-range.bad{color:#ff8996}
       .patch-range.clash{color:#f5b03c}
       #patchFormPanel .action-row{flex-wrap:wrap}
-      #patchFormPanel #btnPatch{flex:1;height:40px;font-size:14px}
+      #patchFormPanel #btnPatch{flex:1;height:40px;font-size:12px}
       .patch-tools{margin-top:8px}
       .patch-tools:empty{display:none}
       .patch-tools button{flex:1}
       #tapoSetup{display:block}
       #tapoSetup .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-      #tapoSetup small{font-size:13px;line-height:1.5}
+      #tapoSetup small{font-size:11px;line-height:1.5}
       .patch-table-tools{display:flex;gap:8px;align-items:center;margin-bottom:10px}
       .patch-table-tools .search-box{flex:1;margin:0}
       .patch-table{border:1px solid var(--border);border-radius:8px;overflow:hidden}
-      .pt-row{display:grid;grid-template-columns:34px 70px minmax(130px,.8fr) minmax(160px,1.2fr) 44px 78px 84px 92px 56px 40px;align-items:center;min-height:38px;border-bottom:1px solid var(--border);font-size:14px}
+      .pt-row{display:grid;grid-template-columns:34px 74px minmax(0,1fr) 58px 84px 92px 96px 78px 40px;align-items:center;min-height:38px;border-bottom:1px solid var(--border);font-size:12px}
       .pt-row:last-child{border-bottom:0}
       .pt-row > *{padding:0 8px;min-width:0}
-      .pt-head{min-height:32px;background:rgba(255,255,255,.02);font-size:12px;font-weight:850;letter-spacing:1px;color:#9ca9a6;text-transform:uppercase}
+      .pt-head{min-height:32px;background:rgba(255,255,255,.02);font-size:9px;font-weight:850;letter-spacing:1px;color:#5d6b68;text-transform:uppercase}
       .pt-row:not(.pt-head){cursor:pointer}
       .pt-row:not(.pt-head):hover{background:rgba(255,255,255,.02)}
       .pt-row.sel{background:var(--accent-soft)}
@@ -161,15 +153,13 @@
       .pt-row.clash{background:rgba(255,80,96,.07)}
       .pt-row.clash .pt-range{color:#ff8996;font-weight:800}
       .pt-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
-      .pt-name small{display:block;color:#a1aca9;font-size:13px}
-      .pt-row input[type=number]{width:100%;height:28px;padding:0 6px;background:#0d1418;border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:14px}
-      .pt-row input.pt-label{width:100%;height:28px;padding:0 8px;background:#0d1418;border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:14px;user-select:text}
-      .pt-row input.pt-label::placeholder{color:#7f8c89}
+      .pt-name small{display:block;color:#6f7d7a;font-size:10px}
+      .pt-row input[type=number]{width:100%;height:28px;padding:0 6px;background:#0d1418;border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px}
       .pt-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent)}
       .pt-range,.pt-ch,.pt-beam{color:#9aa7a4;font-variant-numeric:tabular-nums}
-      .pt-del{border:0;background:none;color:#a5adac;font-size:16px;cursor:pointer;padding:4px 8px;border-radius:5px}
+      .pt-del{border:0;background:none;color:#7d8987;font-size:15px;cursor:pointer;padding:4px 8px;border-radius:5px}
       .pt-del:hover{color:#ff8996;background:rgba(255,80,96,.1)}
-      .pt-empty{padding:26px;text-align:center;color:#a1aca9;font-size:14px}
+      .pt-empty{padding:26px;text-align:center;color:#6f7d7a;font-size:12px}
       @media (max-width:1100px){#page-patch .patch-layout{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
@@ -251,15 +241,15 @@
     const filter = String($("patchTableFilter")?.value || "").toLowerCase().trim();
     const selected = state.selected instanceof Set ? state.selected : new Set();
     const clash = clashes();
-    const key = JSON.stringify([fixtures.map(f => [f.id, f.fixtureNumber, f.name, f.label, f.uni, f.addr, f.beamAngle]), [...selected], filter, [...clash.keys()]]);
+    const key = JSON.stringify([fixtures.map(f => [f.id, f.fixtureNumber, f.name, f.uni, f.addr, f.beamAngle]), [...selected], filter, [...clash.keys()]]);
     if (!force && key === tableKey) return;
     // Don't redraw under someone typing in a cell.
     if (!force && box.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
     tableKey = key;
     const meta = $("patchTableMeta");
     if (meta) meta.textContent = `${fixtures.length} FIXTURE${fixtures.length === 1 ? "" : "S"} · ${fixtures.reduce((n, f) => n + (onDmx(f) ? channelsOf(f) : 0), 0)} CH${clash.size ? ` · ${clash.size} CLASHING` : ""}`;
-    const shown = fixtures.filter(f => !filter || `${f.fixtureNumber} ${f.label || ""} ${f.name} ${f.uni}/${f.addr}`.toLowerCase().includes(filter));
-    const head = `<div class="pt-row pt-head"><span></span><span>#</span><span>Name</span><span>Fixture</span><span>Ch</span><span>Universe</span><span>Address</span><span>Range</span><span>Beam</span><span></span></div>`;
+    const shown = fixtures.filter(f => !filter || `${f.fixtureNumber} ${f.name} ${f.uni}/${f.addr}`.toLowerCase().includes(filter));
+    const head = `<div class="pt-row pt-head"><span></span><span>#</span><span>Fixture</span><span>Ch</span><span>Universe</span><span>Address</span><span>Range</span><span>Beam</span><span></span></div>`;
     if (!fixtures.length) { box.innerHTML = head + `<div class="pt-empty">Nothing patched yet — pick a fixture from the library and press Patch.</div>`; return; }
     box.innerHTML = head + shown.map(f => {
       const ch = channelsOf(f), dmx = onDmx(f), c = clash.get(f.id);
@@ -267,8 +257,7 @@
       return `<div class="pt-row ${selected.has(f.id) ? "sel" : ""} ${c ? "clash" : ""}" data-id="${escape(f.id)}" title="${c ? `Overlaps #${c.join(", #")}` : ""}">
         <span><input type="checkbox" data-check></span>
         <span><input type="number" min="1" value="${escape(f.fixtureNumber)}" data-edit="fixtureNumber"></span>
-        <span><input type="text" class="pt-label" value="${escape(f.label || "")}" placeholder="${escape(window.LXFixtureNames?.profileShort(f.name) || "")}" data-edit="label" title="A short name for this light, e.g. Fresnel 1"></span>
-        <span class="pt-name" title="${escape(f.name)}">${escape(f.name)}${known ? "" : "<small>Not in the fixture library</small>"}</span>
+        <span class="pt-name">${escape(f.name)}${known ? "" : "<small>Not in the fixture library</small>"}</span>
         <span class="pt-ch">${dmx ? ch : "—"}</span>
         <span>${dmx ? `<input type="number" min="1" max="${MAX_UNIVERSES}" value="${escape(f.uni)}" data-edit="uni">` : '<span class="pt-ch">Wi-Fi</span>'}</span>
         <span>${dmx ? `<input type="number" min="1" max="512" value="${escape(f.addr)}" data-edit="addr">` : ""}</span>

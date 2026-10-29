@@ -109,13 +109,13 @@
       <div class="panel-header"><div><span class="eyebrow">QLAB CONNECT</span> Lighting Cue Link</div><span class="panel-meta">OSC · ZEROS STYLE</span></div>
       <div class="panel-body">
         ${api ? "" : '<div class="empty-state">Only available in the desktop app.</div>'}
-        <style>.qc-check{display:flex;gap:10px;align-items:center;margin-bottom:10px;font-size:14px;color:#d9e2e0;cursor:pointer}.qc-check input{width:16px;height:16px;flex:none;margin:0;accent-color:var(--accent)}</style>
+        <style>.qc-check{display:flex;gap:10px;align-items:center;margin-bottom:10px;font-size:12px;color:#d9e2e0;cursor:pointer}.qc-check input{width:16px;height:16px;flex:none;margin:0;accent-color:var(--accent)}</style>
         <label class="qc-check"><input type="checkbox" id="qcLinkEnabled"> Accept lighting cues from QLab Connect</label>
         <label class="qc-check"><input type="checkbox" id="qcLinkLocal"> Only from this computer (QLab Connect on the same Mac)</label>
         <div class="form-grid"><div class="form-row"><label>Port</label><input type="number" id="qcLinkPort" min="1024" max="65535" value="8830"></div></div>
-        <div id="qcLinkStatus" style="margin-top:10px;font-size:13px;color:#a5adac"></div>
-        <div id="qcLinkSetup" style="margin-top:10px;font-size:13px;line-height:1.55;color:#9aa7a4"></div>
-        <div style="margin-top:12px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;color:#9aa7a4">
+        <div id="qcLinkStatus" style="margin-top:10px;font-size:11px;color:#7d8987"></div>
+        <div id="qcLinkSetup" style="margin-top:10px;font-size:11px;line-height:1.55;color:#9aa7a4"></div>
+        <div style="margin-top:12px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:11px;color:#9aa7a4">
           <b style="color:#e3ebe9">QLab cue tag</b><b style="color:#e3ebe9">Light Spark does</b>
           <span>LX 5</span><span>GO cue 5</span>
           <span>LXP 2</span><span>Run chase 2</span>

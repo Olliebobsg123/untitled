@@ -389,9 +389,6 @@
       if (window.LXBarGroups?.command?.(c)) return true;
       if (window.LXTrackingSheet?.command?.(c)) return true;
       if (window.LXSong?.command?.(c)) return true;
-      if (window.LXRunShow?.command?.(c)) return true;
-      // "label 1 thru 4 Fresnel" (js/fixture-names.js): keeps the name's capitals.
-      if (window.LXFixtureNames?.command?.(c, raw)) return true;
       if (c === "cue list" || c === "cuelist") { window.LXWindows?.open("cuelist"); return; }
       if (c === "focus" || c === "point and shoot" || c === "point & shoot") { window.LXWindows?.open("focus"); return; }
       if ((m = c.match(/^focus\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/))) { window.LXFocus?.aimAt({ x: Number(m[1]), z: -Number(m[2]) }); return; }
@@ -545,18 +542,18 @@
     const style = document.createElement("style");
     style.id = "lxCmdStyles";
     style.textContent = `
-      .cmd-preview{flex:0 1 auto;min-width:0;max-width:55%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--accent-2);font-family:var(--mono);font-size:13px;padding:0 8px;margin-right:104px;border-left:1px solid var(--border)}
+      .cmd-preview{flex:0 1 auto;min-width:0;max-width:55%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--accent-2);font-family:var(--mono);font-size:10px;padding:0 8px;margin-right:104px;border-left:1px solid var(--border)}
       html[data-remote="off"] .cmd-preview{margin-right:0}
       .cmd-preview:empty{display:none}
       .cmd-preview.bad{color:var(--warning)}
       .cmd-line:has(.cmd-preview:not(:empty)) .cmd-ticker{display:none}
       .lx-cmdref{padding:10px;display:flex;flex-direction:column;gap:6px}
-      .lx-cmdref h5{margin:6px 0 0;color:#9ca9a6;font-size:12px;font-weight:850;letter-spacing:1.2px}
+      .lx-cmdref h5{margin:6px 0 0;color:#5d6b68;font-size:9px;font-weight:850;letter-spacing:1.2px}
       .lx-cmdref-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:3px}
       .lx-cmdref-grid button{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;min-height:26px;padding:3px 8px;border:1px solid var(--border);border-radius:4px;background:#10171b;color:#9aa7a4;font-size:10.5px;text-align:left;cursor:pointer}
       .lx-cmdref-grid button:hover{border-color:var(--accent-line);color:var(--text)}
-      .lx-cmdref code{color:var(--accent-2);font-family:var(--mono);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .lx-cmdref p{margin:8px 0 0;color:#a1aca9;font-size:13px}
+      .lx-cmdref code{color:var(--accent-2);font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .lx-cmdref p{margin:8px 0 0;color:#6f7d7a;font-size:11px}
     `;
     document.head.appendChild(style);
   }

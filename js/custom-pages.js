@@ -52,21 +52,21 @@
     style.textContent = `
       .page.custom-page.active{display:flex;flex-direction:column;gap:6px}
       .cp-bar{flex:none;display:flex;align-items:center;gap:6px;min-height:32px;padding:0 8px;border:1px solid var(--border);border-radius:var(--r-md);background:rgba(11,16,19,.92)}
-      .cp-bar .cp-name{font-size:14px;font-weight:800;letter-spacing:.4px;color:var(--text);margin-right:6px}
-      .cp-bar .cp-hint{margin-left:auto;color:#9ca9a6;font-size:13px}
-      .cp-bar button{height:24px;padding:0 9px;font-size:13px}
+      .cp-bar .cp-name{font-size:12px;font-weight:800;letter-spacing:.4px;color:var(--text);margin-right:6px}
+      .cp-bar .cp-hint{margin-left:auto;color:#5d6b68;font-size:10px}
+      .cp-bar button{height:24px;padding:0 9px;font-size:10px}
       .cp-bar button.on{border-color:var(--accent-line);color:var(--accent-2);background:var(--accent-soft)}
       .cp-canvas{position:relative;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:var(--r-md)}
       .custom-page:not(.cp-locked) .cp-canvas{background-image:radial-gradient(circle,rgba(255,255,255,.06) 1px,transparent 1.2px);background-size:16px 16px;outline:1px dashed var(--border-strong);outline-offset:-1px}
-      .cp-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#a1aca9;font-size:14px;text-align:center;pointer-events:none}
-      .cp-empty b{color:var(--text-soft);font-size:15px}
+      .cp-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#6f7d7a;font-size:12px;text-align:center;pointer-events:none}
+      .cp-empty b{color:var(--text-soft);font-size:14px}
       .cp-empty button{pointer-events:auto}
       .lxw.lxw-docked{box-shadow:0 2px 10px rgba(0,0,0,.35)}
       .cp-locked .lxw.lxw-docked .lxw-bar{cursor:default}
       .cp-locked .lxw.lxw-docked .lxw-grip,.cp-locked .lxw.lxw-docked .lxw-close,.cp-locked .lxw.lxw-docked .lxw-dock{display:none}
       .nav-link.nav-add{opacity:.75}
       .nav-link.nav-add:hover{opacity:1}
-      .nav-link.nav-add .nav-icon{font-size:17px;font-weight:400}
+      .nav-link.nav-add .nav-icon{font-size:16px;font-weight:400}
     `;
     document.head.appendChild(style);
   }

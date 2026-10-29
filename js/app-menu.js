@@ -54,10 +54,10 @@
     style.textContent = `
       .sidebar .brand{cursor:pointer;position:relative}
       .sidebar .brand:hover .brand-mark{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
-      .sidebar .brand::after{content:"▾";position:absolute;left:44px;top:50%;transform:translateY(-50%);color:#9ca9a6;font-size:12px}
+      .sidebar .brand::after{content:"▾";position:absolute;left:44px;top:50%;transform:translateY(-50%);color:#5d6b68;font-size:9px}
       body:has(.sidebar:hover) .sidebar .brand::after,html[data-sidebar="labels"] .sidebar .brand::after{display:none}
-      .lx-app-menu .app-head{padding:8px 8px 6px;color:var(--text);font-size:14px;font-weight:800;letter-spacing:.3px}
-      .lx-app-menu .app-head small{display:block;color:#9ca9a6;font-size:12px;font-weight:600;letter-spacing:.4px;margin-top:2px}
+      .lx-app-menu .app-head{padding:8px 8px 6px;color:var(--text);font-size:12px;font-weight:800;letter-spacing:.3px}
+      .lx-app-menu .app-head small{display:block;color:#5d6b68;font-size:9px;font-weight:600;letter-spacing:.4px;margin-top:2px}
     `;
     document.head.appendChild(style);
   }

@@ -31,7 +31,7 @@
       html[data-license-tier="free"]{--tier-accent:#5ca8ff;--tier-accent-soft:rgba(92,168,255,.14);--tier-accent-glow:rgba(92,168,255,.25)}
       html[data-license-tier="live"]{--tier-accent:#19d6a3;--tier-accent-soft:rgba(25,214,163,.14);--tier-accent-glow:rgba(25,214,163,.25)}
       html[data-license-tier="pro"]{--tier-accent:#c28cff;--tier-accent-soft:rgba(194,140,255,.14);--tier-accent-glow:rgba(194,140,255,.28)}
-      .license-tier-badge{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--tier-accent);border-radius:7px;background:var(--tier-accent-soft);color:var(--tier-accent);font:900 11px/1 var(--mono,monospace);letter-spacing:1.2px;white-space:nowrap;box-shadow:0 0 12px var(--tier-accent-glow)}
+      .license-tier-badge{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--tier-accent);border-radius:7px;background:var(--tier-accent-soft);color:var(--tier-accent);font:900 8px/1 var(--mono,monospace);letter-spacing:1.2px;white-space:nowrap;box-shadow:0 0 12px var(--tier-accent-glow)}
       .license-tier-badge .tier-dot{width:6px;height:6px;border-radius:50%;background:var(--tier-accent);box-shadow:0 0 7px var(--tier-accent)}
       html[data-license-tier="free"] .topbar{border-bottom-color:rgba(92,168,255,.3)}
       html[data-license-tier="live"] .topbar{border-bottom-color:rgba(25,214,163,.3)}
@@ -39,7 +39,7 @@
       html[data-license-tier="free"] .page-kicker{color:#5ca8ff}
       html[data-license-tier="live"] .page-kicker{color:#19d6a3}
       html[data-license-tier="pro"] .page-kicker{color:#c28cff}
-      .license-tier-description{display:none!important;font:700 11px/1 var(--mono,monospace);letter-spacing:.8px;opacity:.65}
+      .license-tier-description{display:none!important;font:700 7px/1 var(--mono,monospace);letter-spacing:.8px;opacity:.65}
       @media(max-width:700px){.license-tier-description{display:none}.license-tier-badge{padding:0 7px}}
     `;
     document.head.appendChild(style);
@@ -85,7 +85,7 @@
   function installQlabLockStyles() {
     if (document.getElementById("qlab-pro-lock-styles")) return;
     const style = document.createElement("style"); style.id = "qlab-pro-lock-styles";
-    style.textContent = `#page-qlab.qlab-pro-locked{position:relative;overflow:hidden}#page-qlab.qlab-pro-locked>.qlab-pro-lock{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(5,9,12,.88);backdrop-filter:blur(5px);border:1px solid rgba(92,168,255,.25);border-radius:12px}.qlab-pro-lock-card{width:min(430px,calc(100% - 40px));padding:30px;text-align:center;border:1px solid rgba(92,168,255,.35);border-radius:14px;background:rgba(12,18,23,.98);box-shadow:0 18px 60px rgba(0,0,0,.4)}.qlab-pro-lock-card .lock-icon{font-size:30px;margin-bottom:12px}.qlab-pro-lock-card .lock-eyebrow{font:800 12px/1 var(--mono,monospace);letter-spacing:2px;color:#5ca8ff;margin-bottom:10px}.qlab-pro-lock-card h2{margin:0 0 10px;font:800 22px/1.2 var(--mono,monospace);color:#e8f0f2}.qlab-pro-lock-card p{margin:0 0 20px;color:#a6b0b3;font:500 14px/1.6 var(--mono,monospace)}.qlab-pro-lock-card button{height:36px;padding:0 16px;border:1px solid #5ca8ff;border-radius:7px;background:#5ca8ff;color:#07111d;cursor:pointer;font:800 12px/1 var(--mono,monospace);letter-spacing:1px}.nav-link.qlab-pro-locked-nav{opacity:.55}`;
+    style.textContent = `#page-qlab.qlab-pro-locked{position:relative;overflow:hidden}#page-qlab.qlab-pro-locked>.qlab-pro-lock{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(5,9,12,.88);backdrop-filter:blur(5px);border:1px solid rgba(92,168,255,.25);border-radius:12px}.qlab-pro-lock-card{width:min(430px,calc(100% - 40px));padding:30px;text-align:center;border:1px solid rgba(92,168,255,.35);border-radius:14px;background:rgba(12,18,23,.98);box-shadow:0 18px 60px rgba(0,0,0,.4)}.qlab-pro-lock-card .lock-icon{font-size:30px;margin-bottom:12px}.qlab-pro-lock-card .lock-eyebrow{font:800 9px/1 var(--mono,monospace);letter-spacing:2px;color:#5ca8ff;margin-bottom:10px}.qlab-pro-lock-card h2{margin:0 0 10px;font:800 22px/1.2 var(--mono,monospace);color:#e8f0f2}.qlab-pro-lock-card p{margin:0 0 20px;color:#8d9a9e;font:500 12px/1.6 var(--mono,monospace)}.qlab-pro-lock-card button{height:36px;padding:0 16px;border:1px solid #5ca8ff;border-radius:7px;background:#5ca8ff;color:#07111d;cursor:pointer;font:800 9px/1 var(--mono,monospace);letter-spacing:1px}.nav-link.qlab-pro-locked-nav{opacity:.55}`;
     document.head.appendChild(style);
   }
 
@@ -126,7 +126,7 @@
 
   function installChangeLicenseButton() {
     if (document.getElementById("changeLicenseButton")) return; const status = document.querySelector(".topbar-status"); if (!status) return;
-    const button = document.createElement("button"); button.id = "changeLicenseButton"; button.type = "button"; button.textContent = "LICENSE"; button.title = "Change license or switch to Free mode"; button.style.cssText = "height:30px;padding:0 10px;border:1px solid var(--border,#202a30);border-radius:7px;background:transparent;color:inherit;cursor:pointer;font:800 11px/1 var(--mono,monospace);letter-spacing:1px;opacity:.8;";
+    const button = document.createElement("button"); button.id = "changeLicenseButton"; button.type = "button"; button.textContent = "LICENSE"; button.title = "Change license or switch to Free mode"; button.style.cssText = "height:30px;padding:0 10px;border:1px solid var(--border,#202a30);border-radius:7px;background:transparent;color:inherit;cursor:pointer;font:800 8px/1 var(--mono,monospace);letter-spacing:1px;opacity:.8;";
     button.onclick = async () => { if (!confirm("Change your Light Spark license? Your current activation will be released from this computer.")) return; button.disabled = true; button.textContent = "..."; await deactivate(); showStartupScreen(); button.remove(); }; status.prepend(button);
   }
 

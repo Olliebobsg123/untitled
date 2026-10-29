@@ -337,7 +337,7 @@
 
     // ---- Layout
     host.appendChild(panel("layout", "prefSidebar", "Sidebar", "LAYOUT",
-      row("Sidebar", "Auto: names under the icons, and beside them on big screens. Wide: always beside them.", seg("sidebar", [["icons", "Auto"], ["labels", "Wide"]])) +
+      row("Sidebar", "Icons only (hover to see names), or always show the page names.", seg("sidebar", [["icons", "Icons"], ["labels", "Icons and names"]])) +
       row("Width when open", "How wide the sidebar is when it shows page names.", slider("sidebarWidth", 150, 280, 2, "px"))));
 
     host.appendChild(panel("layout", "prefTop", "Top Bar", "LAYOUT",
@@ -607,16 +607,16 @@
     style.textContent = `
       .lx-pref-row{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:14px;align-items:center;padding:9px 0;border-bottom:1px solid #161f24}
       .lx-pref-row:last-child{border-bottom:0}
-      .lx-pref-row b{display:block;color:#dfe8e5;font-size:14px;font-weight:650}
-      .lx-pref-row small{display:block;margin-top:3px;color:#a1acaa;font-size:10.5px;line-height:1.45}
+      .lx-pref-row b{display:block;color:#dfe8e5;font-size:12px;font-weight:650}
+      .lx-pref-row small{display:block;margin-top:3px;color:#71807d;font-size:10.5px;line-height:1.45}
       .lx-pref-control{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
       .lx-seg{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
-      .lx-seg button{height:26px;padding:0 10px;border:0;background:#0d1418;color:#a7b2af;font-size:13px;cursor:pointer;white-space:nowrap}
+      .lx-seg button{height:26px;padding:0 10px;border:0;background:#0d1418;color:#8c9a97;font-size:11px;cursor:pointer;white-space:nowrap}
       .lx-seg button + button{border-left:1px solid var(--border)}
       .lx-seg button.on{background:var(--accent-soft);color:var(--accent-2);font-weight:700}
-      .lx-select,.lx-num{height:28px;padding:0 8px;background:#0d1418;border:1px solid var(--border);border-radius:6px;color:#e3ebe9;font-size:14px}
+      .lx-select,.lx-num{height:28px;padding:0 8px;background:#0d1418;border:1px solid var(--border);border-radius:6px;color:#e3ebe9;font-size:12px}
       .lx-num{width:76px;text-align:right;font-family:var(--mono)}
-      .lx-unit{color:#a1acaa;font-size:13px}
+      .lx-unit{color:#71807d;font-size:11px}
       .lx-range{width:150px;accent-color:var(--accent)}
       .lx-range-val{min-width:44px;text-align:right;font-family:var(--mono)}
       .lx-swatches{display:flex;gap:5px}
@@ -630,10 +630,10 @@
       .lx-switch span::after{content:"";position:absolute;left:3px;top:3px;width:13px;height:13px;border-radius:50%;background:#8c9a97;transition:transform .15s,background .15s}
       .lx-switch input:checked + span{background:var(--accent-line)}
       .lx-switch input:checked + span::after{transform:translateX(15px);background:var(--accent-2)}
-      .lx-pref-note{color:#a4aeac;font-size:13px;line-height:1.55;margin-top:8px}
+      .lx-pref-note{color:#7d8b88;font-size:11px;line-height:1.55;margin-top:8px}
       .lx-pref-panel .section-divider{margin:16px 0 12px}
-      .lx-keys{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center;font-size:13px;color:#9aa7a4}
-      .lx-keys kbd{justify-self:start;padding:2px 7px;border:1px solid var(--border-strong);border-radius:4px;background:#0d1418;color:#dfe8e5;font-family:var(--mono);font-size:13px}
+      .lx-keys{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center;font-size:11px;color:#9aa7a4}
+      .lx-keys kbd{justify-self:start;padding:2px 7px;border:1px solid var(--border-strong);border-radius:4px;background:#0d1418;color:#dfe8e5;font-family:var(--mono);font-size:10px}
       .lxw[data-win="prefs"] .lxw-body{overflow:hidden}
     `;
     document.head.appendChild(style);

@@ -214,23 +214,23 @@
 
   const style = document.createElement("style");
   style.textContent = `
-    .fxc{display:flex;flex-direction:column;gap:10px;padding:4px;font-size:14px;color:var(--text,#dfe7e5);outline:none}
+    .fxc{display:flex;flex-direction:column;gap:10px;padding:4px;font-size:12px;color:var(--text,#dfe7e5);outline:none}
     .fxc-head{display:flex;align-items:center;gap:14px}
     .fxc-num{font:800 34px/1 system-ui;color:#ffd98a;min-width:70px}
     .fxc-info{display:flex;flex-direction:column;gap:2px;min-width:0}
-    .fxc-info b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .fxc-info span{color:#a4b0b5;font-size:13px}
-    .fxc-state{margin-left:auto;font-weight:800;font-size:13px;letter-spacing:.06em}
+    .fxc-info b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .fxc-info span{color:#8b9aa1;font-size:11px}
+    .fxc-state{margin-left:auto;font-weight:800;font-size:11px;letter-spacing:.06em}
     .fxc-state.bad{color:#ff98a3}
     .fxc-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-    .fxc-row button{height:28px;font-size:13px}
+    .fxc-row button{height:28px;font-size:11px}
     .fxc-next{min-width:110px}
     .fxc-on{border-color:#ffd98a !important;color:#ffd98a !important}
     .fxc-col i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
-    .fxc-label{color:#a4b0b5;font-size:13px;margin-right:2px}
+    .fxc-label{color:#8b9aa1;font-size:11px;margin-right:2px}
     .fxc-grow{flex:1}
     .fxc-note{margin:0;color:#b6c3c8}
-    .fxc-faulty{color:#a4b0b5;font-size:13px}`;
+    .fxc-faulty{color:#8b9aa1;font-size:11px}`;
   document.head.appendChild(style);
 
   window.LXFixtureCheck = Object.freeze({ start, next: () => step(1), back: () => step(-1), fault: toggleFault, finish, colour: setColour, running: () => Boolean(run), current: () => run?.list[run.index]?.fixtureNumber ?? null, faulty: () => (run ? run.list.filter(f => run.faulty.has(f.id)).map(f => f.fixtureNumber) : []) });

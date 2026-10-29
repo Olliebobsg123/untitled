@@ -722,13 +722,13 @@
       .lx-session-pill[data-tone="bad"]{color:#ff98a3;border-color:rgba(255,79,98,.55)}
       .splash-role{margin-bottom:14px}
       .splash-role-seg{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin:6px 0}
-      .splash-role-seg button{min-width:0;height:32px;padding:0 4px;border:1px solid #2b383f;border-radius:6px;background:#0e1519;color:#a7b2af;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .splash-role-seg button{min-width:0;height:32px;padding:0 4px;border:1px solid #2b383f;border-radius:6px;background:#0e1519;color:#8c9a97;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .splash-role-seg button.on{background:var(--accent,#19d6a3);border-color:var(--accent-2,#54f2c8);color:#04140e}
-      .splash-role-help{color:#a7b2af;font-size:14px;min-height:16px}
+      .splash-role-help{color:#8c9a97;font-size:12px;min-height:16px}
       .splash-connect{margin-top:12px}
       .splash-found{display:flex;flex-direction:column;gap:4px;margin:6px 0 10px}
       .splash-connect-row{display:flex;gap:6px;width:100%}
-      .splash-connect-row input{flex:1;min-width:0;height:34px;padding:0 10px;background:#0a1013;border:1px solid #2b383f;border-radius:6px;color:#e7f0ee;font-size:14px}
+      .splash-connect-row input{flex:1;min-width:0;height:34px;padding:0 10px;background:#0a1013;border:1px solid #2b383f;border-radius:6px;color:#e7f0ee;font-size:13px}
       .splash-connect-row .splash-new-show{flex:none;width:auto;padding:0 16px;margin:0}
       .splash-connect-row #splashPin{flex:none;width:80px!important}
       html[data-session="mirror"] #controlPanel,html[data-session="backup"][data-session-held="on"] #controlPanel{opacity:.75}

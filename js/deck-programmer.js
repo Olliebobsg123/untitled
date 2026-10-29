@@ -308,7 +308,7 @@
     const style = document.createElement("style");
     style.id = "lxDeckStyles";
     style.textContent = `
-      .lx-notset-tag{display:none;margin-left:auto;padding:1px 6px;border:1px dashed #3a474d;border-radius:4px;color:#a1aca9;font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;white-space:nowrap}
+      .lx-notset-tag{display:none;margin-left:auto;padding:1px 6px;border:1px dashed #3a474d;border-radius:4px;color:#6f7d7a;font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;white-space:nowrap}
       .lx-notset > .lx-notset-tag,.lx-notset > .control-heading > .lx-notset-tag{display:inline-block}
       .lx-notset > .control-heading .fader-val,.lx-notset > .dynamic-field-val{display:none}
       .lx-notset input[type="range"]{opacity:.35}
@@ -316,7 +316,7 @@
       .lx-notset .colour-wheel{opacity:.4;filter:saturate(.35)}
       .lx-notset .colour-swatch{background:repeating-linear-gradient(135deg,#141c20 0 6px,#0e1519 6px 12px)!important;box-shadow:none!important}
       .lx-notset .xy-pad{opacity:.55}
-      .dynamic-field.lx-notset .dynamic-field-label{color:#a1aca9}
+      .dynamic-field.lx-notset .dynamic-field-label{color:#6f7d7a}
       #rgbwGroup .dynamic-field{display:grid;grid-template-columns:52px minmax(0,1fr) 34px;align-items:center;gap:8px}
       #rgbwGroup .dynamic-field.lx-notset{grid-template-columns:52px minmax(0,1fr) auto}
     `;

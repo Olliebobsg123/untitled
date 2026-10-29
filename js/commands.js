@@ -15,7 +15,7 @@ function ensureCommandConsoleStyles() {
 
    #termLog {
   font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
-  font-size: 12px !important;
+  font-size: 9px !important;
   line-height: 1.5 !important;
   letter-spacing: .025em;
   font-weight: 800;
@@ -34,16 +34,16 @@ function ensureCommandConsoleStyles() {
 }
 
 #termLog .lx-log-time {
-  color: #99a8a5;
+  color: #53615e;
   font-family: var(--mono, monospace);
-  font-size: 11px;
+  font-size: 8px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 #termLog .lx-log-level {
   font-family: var(--mono, monospace);
-  font-size: 11px;
+  font-size: 8px;
   font-weight: 900;
   letter-spacing: .08em;
   white-space: nowrap;
@@ -155,7 +155,7 @@ function ensureCommandConsoleStyles() {
 
   font-family: var(--mono, monospace);
 
-  font-size: 11px;
+  font-size: 8px;
   font-weight: 900;
 
   letter-spacing: .04em;
@@ -385,10 +385,9 @@ function setIntensityUI(v){
   const intEl=document.getElementById('intensity'), valEl=document.getElementById('intVal') || document.getElementById('intensityVal');
   if(intEl)intEl.value=v; if(valEl)valEl.textContent=v+'%';
 }
-// Members are fixture ids (bar groups, Auto Create) or fixture numbers (typed).
 function selectGroup(grp){
   State.selected.clear(); let found=0;
-  (grp.members||[]).forEach(n=>{const f=State.fixtures.find(x=>x&&String(x.id)===String(n))||getFixtureByNumber(n);if(f){State.selected.add(f.id);found++;}});
+  (grp.members||[]).forEach(n=>{const f=getFixtureByNumber(n);if(f){State.selected.add(f.id);found++;}});
   renderFixtures?.(); updateControlsForSelection(); updateDMX?.();
   return found;
 }

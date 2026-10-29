@@ -3555,7 +3555,7 @@ function renderLibrary(filter = "") {
                     <span>${name}</span>
 
                     <span style="
-                        font-size:13px;
+                        font-size:10px;
                         color:var(--text-muted);
                     ">
                         ${def.channels}ch
@@ -3799,11 +3799,20 @@ function renderFixtures() {
             }
 
             const html = `
-<span class="fx-line"><b class="fx-num">${f.fixtureNumber ?? idx + 1}</b><span class="fx-name">${String(window.fixtureLabel ? window.fixtureLabel(f) : f.name).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]))}</span><span class="fx-level">${Math.round(intensity)}%</span></span>
-<span class="fx-meta">
-Uni ${f.uni} · Addr ${f.addr}${typeof p.ratedLumens === "number" ? ` · ${outputText}` : ""}
-</span>
-`;
+                <span>
+                    ${idx + 1}. ${f.name}
+                </span>
+
+                <span style="
+                    font-size:10px;
+                    color:var(--text-muted);
+                ">
+                    Uni ${f.uni}
+                    · Addr ${f.addr}
+                    · ${Math.round(intensity)}%
+                    · ${outputText}
+                </span>
+            `;
 
             const idKey =
                 String(f.id);
@@ -3838,10 +3847,6 @@ Uni ${f.uni} · Addr ${f.addr}${typeof p.ratedLumens === "number" ? ` · ${outpu
                 el.className =
                     className;
             }
-
-            // The full profile and address on hover (js/fixture-names.js).
-            const tip = window.fixtureDetails ? window.fixtureDetails(f) : f.name;
-            if (el.title !== tip) el.title = tip;
 
             if (el.__fixtureListHTML !== html) {
 

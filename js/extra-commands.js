@@ -155,14 +155,14 @@
     if (!W.list().includes("check")) W.register({ id: "check", title: "Show Check", build: host => { checkBody = host; renderCheck(); }, onClose: () => { checkBody = null; }, w: 620, h: 460 });
     const style = document.createElement("style");
     style.textContent = `
-      .lxx{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--text,#dfe7e5)}
+      .lxx{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--text,#dfe7e5)}
       .lxx-sum{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-      .lxx-sum b{font-size:14px}.lxx-sum span{color:#a2acb2;font-size:13px}.lxx-sum button{margin-left:auto;height:24px;font-size:13px}
+      .lxx-sum b{font-size:13px}.lxx-sum span{color:#7c8a92;font-size:11px}.lxx-sum button{margin-left:auto;height:24px;font-size:10px}
       .lxx .ok{color:#6fe08e}.lxx .warn,.lxx tr.warn td:first-child{color:#ffd27a}.lxx .bad,.lxx tr.error td:nth-child(2){color:#ff98a3}
       .lxx table{border-collapse:collapse;width:100%}
       .lxx td{padding:4px 6px;border-top:1px solid rgba(255,255,255,.06);vertical-align:top}
-      .lxx td:first-child{white-space:nowrap;color:#a2acb2;font-variant-numeric:tabular-nums}
-      .lxx small{color:#a2acb2}.lxx-empty{color:#a2acb2}
+      .lxx td:first-child{white-space:nowrap;color:#7c8a92;font-variant-numeric:tabular-nums}
+      .lxx small{color:#7c8a92}.lxx-empty{color:#7c8a92}
     `;
     document.head.appendChild(style);
   }

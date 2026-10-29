@@ -93,10 +93,10 @@
       #lxScreenMirror{position:fixed;inset:0;z-index:2147483000;background:#000;display:flex;align-items:center;justify-content:center}
       #lxScreenMirror[hidden]{display:none}
       #lxScreenMirror video{width:100%;height:100%;object-fit:contain;background:#000}
-      #lxScreenMirror .bar{position:absolute;top:8px;right:8px;display:flex;gap:6px;align-items:center;padding:4px 6px 4px 10px;border-radius:8px;background:rgba(10,14,16,.72);color:#9fe0c0;font:700 13px/1 system-ui;letter-spacing:.06em;opacity:.35;transition:opacity .2s}
+      #lxScreenMirror .bar{position:absolute;top:8px;right:8px;display:flex;gap:6px;align-items:center;padding:4px 6px 4px 10px;border-radius:8px;background:rgba(10,14,16,.72);color:#9fe0c0;font:700 10px/1 system-ui;letter-spacing:.06em;opacity:.35;transition:opacity .2s}
       #lxScreenMirror .bar:hover{opacity:1}
-      #lxScreenMirror .bar button{height:22px;padding:0 8px;font-size:13px}
-      #lxScreenMirror .wait{position:absolute;color:#a4aeac;font:600 14px system-ui}
+      #lxScreenMirror .bar button{height:22px;padding:0 8px;font-size:10px}
+      #lxScreenMirror .wait{position:absolute;color:#7d8b88;font:600 13px system-ui}
       #lxMirrorBack{position:fixed;right:10px;bottom:10px;z-index:2147483000}
     `;
     document.head.appendChild(style);

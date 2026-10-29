@@ -178,17 +178,13 @@ function stopCueEffect() {
     if (typeof window.stopEffect === "function") window.stopEffect(true);
 }
 
+// One effect (cue.effect) or several (cue.effects). Each light runs at its
+// level in this cue, so turning a light down in the cue turns its effect
+// down too. Lights the cue has no level for use the level saved with the
+// effect, then the intensity fader.
 function startCueEffectIfNeeded(cue) {
-    // A cue recorded with several effects running brings them all back.
-    if (cue && Array.isArray(cue.effects) && cue.effects.length > 1 && typeof window.startEffect === "function") {
-        stopCueEffect();
-        cue.effects.forEach(saved => {
-            const ok = window.startEffect(String(saved.type), { ...saved, fixtureMode: "custom", fixtureIds: normaliseEffectFixtureIds(saved.fixtureIds) });
-            if (!ok) cueLog("Cue effect could not be started: " + saved.type, "warn");
-        });
-        return;
-    }
-    if (!cue || !cue.effect || !cue.effect.type) {
+    const list = cue && Array.isArray(cue.effects) && cue.effects.length ? cue.effects : (cue?.effect?.type ? [cue.effect] : []);
+    if (!list.length) {
         stopCueEffect();
         return;
     }
@@ -196,33 +192,36 @@ function startCueEffectIfNeeded(cue) {
         cueLog("Cue contains an effect but the Effects Engine is unavailable", "warn");
         return;
     }
-
-    const saved = cue.effect;
-    const fixtureIds = normaliseEffectFixtureIds(saved.fixtureIds);
-    const effect = {
-        type: String(saved.type),
-        speed: num(saved.speed, 1)
-    };
-
-    // If the cue recorded a target list, replay that exact list. This is the
-    // crucial distinction between two effects such as "Rainbow" and
-    // "PAR Rainbow": both may have type="rainbow", but their fixtureIds are
-    // different and must remain different when a cue is played.
-    if (fixtureIds.length) {
-        effect.fixtureMode = "custom";
-        effect.fixtureIds = fixtureIds;
-    } else if (saved.fixtureMode === "all") {
-        effect.fixtureMode = "all";
-    } else {
-        // Older cues did not store effect targets. Keep their old behaviour
-        // rather than inventing a fixture list that could be wrong.
-        effect.fixtureMode = saved.fixtureMode || "selected";
-    }
-
-    if (saved.name) effect.name = String(saved.name);
-
-    const started = window.startEffect(effect.type, effect);
-    if (!started) cueLog("Cue effect could not be started: " + effect.type, "warn");
+    stopCueEffect();
+    const index = (State.cues || []).indexOf(cue);
+    const look = index >= 0 ? cueLook(index).fixtureMap : new Map();
+    list.forEach(saved => {
+        if (!saved || !saved.type) return;
+        const fixtureIds = normaliseEffectFixtureIds(saved.fixtureIds);
+        const effect = { type: String(saved.type), speed: num(saved.speed, 1) };
+        if (saved.name) effect.name = String(saved.name);
+        // If the cue recorded a target list, replay that exact list: two
+        // effects such as "Rainbow" and "PAR Rainbow" share a type but not
+        // their fixtures.
+        if (fixtureIds.length) {
+            effect.fixtureMode = "custom";
+            effect.fixtureIds = fixtureIds;
+        } else if (saved.fixtureMode === "all") {
+            effect.fixtureMode = "all";
+        } else {
+            // Older cues did not store effect targets. Keep their old behaviour
+            // rather than inventing a fixture list that could be wrong.
+            effect.fixtureMode = saved.fixtureMode || "selected";
+        }
+        const ids = fixtureIds.length ? fixtureIds : (saved.fixtureMode === "all" ? (State.fixtures || []).map(f => f.id) : []);
+        const levels = { ...(saved.levels || {}) };
+        ids.forEach(id => {
+            const level = Number(look.get(id)?.intensity);
+            if (Number.isFinite(level)) levels[id] = level;
+        });
+        if (Object.keys(levels).length) effect.levels = levels;
+        if (!window.startEffect(effect.type, effect)) cueLog("Cue effect could not be started: " + effect.type, "warn");
+    });
 }
 
 function stopCueFade() {
@@ -259,7 +258,22 @@ function pushLightingUpdate() {
 
 function snapshotFixtureStates() {
     const result = [];
-    State.fixtureStates.forEach((state, id) => result.push([id, clone(state)]));
+    const fxLevel = new Map();
+    (Array.isArray(State.effects) ? State.effects : []).forEach(e => {
+        if (!(e?.ids instanceof Set)) return;
+        e.ids.forEach(id => {
+            const level = e.levels instanceof Map ? Number(e.levels.get(String(id)) ?? e.levels.get(id)) : NaN;
+            fxLevel.set(String(id), Number.isFinite(level) ? level : Number(e.level));
+        });
+    });
+    State.fixtureStates.forEach((state, id) => {
+        const copy = clone(state);
+        // A light an effect is running on: store the effect's level, not
+        // wherever the effect had it this instant.
+        const level = fxLevel.get(String(id));
+        if (Number.isFinite(level)) copy.intensity = level;
+        result.push([id, copy]);
+    });
     return result;
 }
 

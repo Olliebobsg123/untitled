@@ -196,7 +196,12 @@
     const list = cueEffects(cue);
     list.push(effect);
     cue.effects = list; cue.effect = list[0];
-    return changed(cue, `${effect.name || effect.type} on ${ids.length} light${ids.length === 1 ? "" : "s"} while this cue runs`);
+    const result = changed(cue, `${effect.name || effect.type} on ${ids.length} light${ids.length === 1 ? "" : "s"} while this cue runs`);
+    // Effects run at each light's level in the cue, so a light at 0 stays dark.
+    const look = window.cueLook?.(s.cues.indexOf(cue))?.fixtureMap;
+    const dark = look ? ids.filter(id => Number(look.get(id)?.intensity) === 0).length : 0;
+    if (dark) say(`${dark} of those light${dark === 1 ? " is" : "s are"} at 0 in this cue, so the effect is dark on ${dark === 1 ? "it" : "them"} — bring ${dark === 1 ? "it" : "them"} up in the cue to see it`, "warn");
+    return result;
   }
 
   // Sweep: groups in order, each a step later than the one before.

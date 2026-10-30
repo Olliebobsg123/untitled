@@ -16,6 +16,24 @@
   html, body, #viz { width: 100%; height: 100%; overflow: hidden; }
   #saveViewName { width: 130px; height: 28px; padding: 0 8px; border: 1px solid #2b383f; border-radius: 6px; background: #0b1114; color: #edf4f2; font-size: 13px; }
   #myViews { display: contents; }
+  #lightsTable { position: fixed; right: 12px; top: 120px; bottom: 12px; z-index: 5; width: min(760px, calc(100vw - 24px)); display: flex; flex-direction: column; border: 1px solid #22303a; border-radius: 12px; background: rgba(9, 13, 16, .96); box-shadow: 0 18px 40px rgba(0,0,0,.5); color: #d6dfdd; font: 13px system-ui, sans-serif; }
+  #lightsTable[hidden] { display: none; }
+  .lt-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #1d272c; }
+  .lt-head b { font-size: 14px; margin-right: auto; }
+  .lt-filter { width: 160px; height: 28px; padding: 0 8px; border: 1px solid #2b383f; border-radius: 6px; background: #0b1114; color: #edf4f2; }
+  .lt-head button { height: 28px; padding: 0 10px; border: 1px solid #2b383f; border-radius: 6px; background: #121a1e; color: #d6dfdd; cursor: pointer; }
+  .lt-scroll { flex: 1; overflow: auto; }
+  #lightsTable table { width: 100%; border-collapse: collapse; }
+  #lightsTable th { position: sticky; top: 0; background: #0e1519; color: #9aa7a4; font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; text-align: left; padding: 6px 8px; }
+  #lightsTable td { padding: 4px 8px; border-top: 1px solid #141c20; white-space: nowrap; }
+  #lightsTable tr[data-id] { cursor: pointer; }
+  #lightsTable tr[data-id]:hover { background: #111a1e; }
+  #lightsTable tr.on { background: rgba(25, 214, 163, .12); }
+  #lightsTable .lt-num { color: #19d6a3; font-family: ui-monospace, Menlo, monospace; }
+  #lightsTable .lt-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+  #lightsTable .lt-mono { font-family: ui-monospace, Menlo, monospace; }
+  #lightsTable input { width: 64px; height: 24px; padding: 0 4px; border: 1px solid #2b383f; border-radius: 4px; background: #0b1114; color: #edf4f2; font: 12px ui-monospace, Menlo, monospace; }
+  .lt-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid #2b383f; }
   .viz-flat { position: fixed; z-index: 2; border: 1px solid rgba(255,255,255,.08); cursor: grab; touch-action: none; }
   .viz-flat:active { cursor: grabbing; }
   .viz-flat-label { position: absolute; left: 8px; top: 6px; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.55); color: #c9d3d1; font: 600 12px system-ui, sans-serif; letter-spacing: .5px; pointer-events: none; }
@@ -166,6 +184,7 @@
     </select>
   </div>
   <button id="buildMode" title="Build the stage: bars, trusses, drapes, scenery, speakers, seating, 3D models">🏗 Build</button>
+  <button id="lightsButton" title="Every light in a table: patch, where it hangs, level and colour — and Save CSV for paperwork">📋 Lights</button>
   <button id="plotButton" title="A lighting plot of the rig to print or save">🖨 Plot</button>
   <button id="measureMode" title="M — click two points to measure between them">📏 Measure</button>
   <button id="aimMode" title="P — click or drag on stage to aim the moving heads selected in the console">🎯 Point &amp; shoot</button>

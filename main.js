@@ -642,6 +642,17 @@ function createWindow() {
 app.on('before-quit', () => step('quitting'));
 app.on('child-process-gone', (_e, d) => mark(`${d.type} process gone: ${d.reason}${d.name ? ` (${d.name})` : ''}`));
 app.whenReady().then(() => {
+  // Files the app saves (the visualiser's Lights CSV, pictures and videos of
+  // a cue) go straight to Downloads, as a browser does: no dialog, and a
+  // number added if the name is taken.
+  require('electron').session.defaultSession.on('will-download', (_event, item) => {
+    const dir = app.getPath('downloads');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    const ext = path.extname(item.getFilename()), base = path.basename(item.getFilename(), ext);
+    let file = path.join(dir, item.getFilename());
+    for (let n = 2; fs.existsSync(file) && n < 1000; n++) file = path.join(dir, `${base} ${n}${ext}`);
+    item.setSavePath(file);
+  });
   // A lighting console must keep full speed when it isn't the front app
   // (the operator is in QLab): macOS "App Nap" would otherwise slow its
   // timers to a crawl — late fades, late GOs, a backup that seems frozen.

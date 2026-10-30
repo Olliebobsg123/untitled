@@ -33,6 +33,7 @@ import { MirrorBall } from "./mirror-ball.js";
 import { Atmosphere } from "./atmosphere.js";
 import { archetype, baseAddress, decodeFixture } from "./decode.js";
 import { createViews } from "./views.js";
+import { createLightsTable } from "./lights-table.js";
 
 const $ = id => document.getElementById(id);
 const consoleWindow = window.opener;
@@ -905,6 +906,26 @@ for (const field of ["selX", "selY", "selZ"]) {
   $(field).addEventListener("keydown", event => event.stopPropagation());
 }
 
+// The lights as a table (lights-table.js).
+const lightsTable = createLightsTable({
+  fixtures,
+  typeOf: fixture => archetype(definitionOf(fixture), fixture.name),
+  patchOf: fixture => (baseAddress(fixture) >= 0 ? `${fixture.uni ?? 1}/${fixture.addr}` : "—"),
+  select: id => select(id),
+  selected: () => selected,
+  place: (id, position) => {
+    const model = modelFor(id);
+    if (!model) return;
+    const p = { x: Math.max(ROOM.minX + 0.5, Math.min(ROOM.maxX - 0.5, position.x)), y: Math.max(0, Math.min(ROOM.maxY - 0.5, position.y)), z: Math.max(ROOM.minZ + 0.5, Math.min(ROOM.maxZ - 0.5, position.z)) };
+    model.place(p);
+    if (id === selected) showSelection();
+    saveLayout();
+  },
+  wake: () => wake(),
+  say: text => setStatus(text)
+});
+$("lightsButton")?.addEventListener("click", () => lightsTable.toggle());
+
 // --- Toolbar and keys -------------------------------------------------------
 
 function setView(name) {
@@ -1156,4 +1177,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { views, timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { views, lightsTable, timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

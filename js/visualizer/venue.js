@@ -16,6 +16,7 @@ import { liveTexture } from "./live-video.js";
 
 // fields: the sizes the Build panel shows, as [key, label, step, min, max] or
 // [key, label, options] for a choice.
+const POSES = [["stand", "Standing"], ["arms", "Arms up"], ["sit", "Sitting"], ["walk", "Walking"]];
 export const KINDS = {
   bar: { label: "Lighting bar", group: "Rigging", icon: "━", hang: true, defaults: { w: 10, y: 7, color: "#55585e", material: "metal" }, fields: [["w", "Length", 0.1, 0.5, 40]] },
   truss: { label: "Truss", group: "Rigging", icon: "▦", hang: true, defaults: { w: 8, size: 0.29, y: 7, color: "#c9cdd2", material: "metal" }, fields: [["w", "Length", 0.1, 0.5, 40], ["size", "Truss size", 0.01, 0.2, 0.6]] },
@@ -29,15 +30,24 @@ export const KINDS = {
   steps: { label: "Steps", group: "Scenery", icon: "▟", defaults: { w: 1.2, d: 1.2, h: 0.6, y: 1, count: 3, color: "#232327", material: "satin" }, fields: [["w", "Width", 0.05, 0.3, 10], ["d", "Depth", 0.05, 0.3, 10], ["h", "Height", 0.05, 0.1, 5], ["count", "Treads", 1, 1, 20]] },
   box: { label: "Box", group: "Scenery", icon: "■", defaults: { w: 1, h: 1, d: 1, y: 1, color: "#7a7a80", material: "matte" }, fields: [["w", "Width", 0.05, 0.05, 20], ["h", "Height", 0.05, 0.05, 15], ["d", "Depth", 0.05, 0.05, 20]] },
   pillar: { label: "Pillar", group: "Scenery", icon: "●", defaults: { w: 0.6, h: 4, y: 1, color: "#9c9ca3", material: "satin" }, fields: [["w", "Diameter", 0.05, 0.05, 5], ["h", "Height", 0.05, 0.1, 15]] },
+  door: { label: "Door", group: "Scenery", icon: "▯", defaults: { w: 0.9, h: 2.1, y: 1, open: 0, color: "#6b4f3a", material: "satin" }, fields: [["w", "Width", 0.05, 0.5, 3], ["h", "Height", 0.05, 1.5, 4], ["open", "Open (°)", 5, 0, 110]] },
+  arch: { label: "Arch", group: "Scenery", icon: "∩", defaults: { w: 3, h: 3.5, d: 0.3, t: 0.4, y: 1, color: "#b9b2a6", material: "matte" }, fields: [["w", "Width", 0.05, 1, 15], ["h", "Height", 0.05, 1, 12], ["d", "Thickness", 0.05, 0.05, 2], ["t", "Side width", 0.05, 0.1, 3]] },
+  window: { label: "Window flat", group: "Scenery", icon: "⊞", defaults: { w: 2.4, h: 3, d: 0.08, ww: 1.2, wh: 1.4, y: 1, color: "#8c7d6a", material: "matte" }, fields: [["w", "Width", 0.05, 0.5, 20], ["h", "Height", 0.05, 0.5, 12], ["ww", "Window width", 0.05, 0.2, 10], ["wh", "Window height", 0.05, 0.2, 10]] },
+  rock: { label: "Rock / ice", group: "Scenery", icon: "◭", defaults: { w: 1.4, h: 1, d: 1.1, y: 1, style: "ice", color: "#cfe6ff", material: "gloss" }, fields: [["w", "Width", 0.05, 0.1, 10], ["h", "Height", 0.05, 0.1, 8], ["d", "Depth", 0.05, 0.1, 10], ["style", "Kind", [["ice", "Ice"], ["rock", "Rock"]]]] },
   tree: { label: "Tree", group: "Scenery", icon: "▲", defaults: { w: 1.6, h: 3, y: 1, color: "#2c5a3c", material: "matte" }, fields: [["w", "Width", 0.05, 0.3, 6], ["h", "Height", 0.05, 0.5, 10]] },
   model: { label: "3D model…", group: "Scenery", icon: "◆", defaults: { y: 1, scale: 1, color: "#9a9aa2", material: "matte" }, fields: [["scale", "Scale", 0.01, 0.001, 100]] },
+  table: { label: "Table", group: "Furniture", icon: "╥", defaults: { w: 1.6, d: 0.8, h: 0.75, y: 1, color: "#7a5a40", material: "satin" }, fields: [["w", "Width", 0.05, 0.3, 6], ["d", "Depth", 0.05, 0.3, 3], ["h", "Height", 0.05, 0.3, 1.5]] },
+  chair: { label: "Chair", group: "Furniture", icon: "╓", defaults: { y: 1, color: "#6b4f3a", material: "satin" }, fields: [] },
+  bench: { label: "Bench", group: "Furniture", icon: "▭", defaults: { w: 1.8, y: 1, color: "#6b4f3a", material: "satin" }, fields: [["w", "Length", 0.05, 0.6, 6]] },
+  bed: { label: "Bed", group: "Furniture", icon: "▬", defaults: { w: 1.5, d: 2.1, y: 1, color: "#5a4636", material: "satin" }, fields: [["w", "Width", 0.05, 0.8, 3], ["d", "Length", 0.05, 1.5, 3]] },
   speaker: { label: "Speaker", group: "Sound", icon: "◘", defaults: { y: 0, model: "point", mount: "stand", color: "#1b1b1e", material: "satin" }, fields: [["model", "Type", [["point", "Point source"], ["array", "Line array"], ["sub", "Subwoofer"], ["wedge", "Monitor wedge"], ["column", "Column"]]], ["mount", "Mounted", [["stand", "On a stand"], ["floor", "On the floor"], ["flown", "Flown"]]]] },
   seating: { label: "Seating", group: "Audience", icon: "⑉", defaults: { y: 0, rows: 8, perRow: 14, rise: 0.26, aisle: 1, color: "#3c1216", material: "matte" }, fields: [["rows", "Rows", 1, 1, 40], ["perRow", "Seats a row", 1, 1, 60], ["rise", "Rake (per row)", 0.01, 0, 0.6], ["aisle", "Centre aisle", [["1", "Yes"], ["0", "No"]]]] },
-  person: { label: "Person (for scale)", group: "Audience", icon: "♙", defaults: { y: 1, h: 1.75, color: "#bfae9c", material: "matte" }, fields: [["h", "Height", 0.05, 0.5, 2.4]] }
+  person: { label: "Person", group: "People", icon: "♙", defaults: { y: 1, h: 1.75, pose: "stand", color: "#bfae9c", material: "matte" }, fields: [["h", "Height", 0.05, 0.5, 2.4], ["pose", "Pose", POSES]] },
+  crowd: { label: "Group of people", group: "People", icon: "♙♙", defaults: { y: 1, count: 6, spacing: 0.8, h: 1.7, color: "#bfae9c", material: "matte" }, fields: [["count", "People", 1, 1, 40], ["spacing", "Apart (m)", 0.05, 0.4, 3], ["h", "Height", 0.05, 0.5, 2.4]] }
 };
 // Kinds that can show a picture (a painted cloth, a backdrop, a photo of the set).
 export const PICTURE_KINDS = new Set(["flat", "cyc", "drape", "gauze", "screen", "box"]);
-export const KIND_GROUPS = ["Rigging", "Drapes & surfaces", "Scenery", "Sound", "Audience"];
+export const KIND_GROUPS = ["Rigging", "Drapes & surfaces", "Scenery", "Furniture", "People", "Sound", "Audience"];
 export const MATERIALS = [["matte", "Matte"], ["satin", "Satin"], ["gloss", "Gloss"], ["metal", "Metal"], ["velvet", "Velvet"], ["mirror", "Mirror"]];
 
 // --- The default venue: the theatre the visualiser always had --------------
@@ -267,17 +277,101 @@ function stepsGeometry(w, d, h, count) {
   return merged;
 }
 
-function personGeometry(height) {
+// A figure 1.75 m tall (scaled to height), facing the audience (+z).
+// Poses: stand, arms (up), sit (on something 0.45 m high), walk.
+function personGeometry(height, pose = "stand") {
   const k = height / 1.75;
   const parts = [];
-  const add = (g, x, y, z) => { g.translate(x * k, y * k, z * k); parts.push(g); };
-  add(new THREE.CapsuleGeometry(0.075 * k, 0.72 * k, 4, 10), -0.1, 0.45, 0);  // legs
-  add(new THREE.CapsuleGeometry(0.075 * k, 0.72 * k, 4, 10), 0.1, 0.45, 0);
-  add(new THREE.CapsuleGeometry(0.18 * k, 0.42 * k, 4, 12), 0, 1.15, 0);     // body
-  add(new THREE.CapsuleGeometry(0.05 * k, 0.55 * k, 4, 8), -0.26, 1.08, 0);  // arms
-  add(new THREE.CapsuleGeometry(0.05 * k, 0.55 * k, 4, 8), 0.26, 1.08, 0);
-  add(new THREE.SphereGeometry(0.115 * k, 16, 12), 0, 1.6, 0);              // head
+  // A part: made, tilted (about x, then z), then put in place.
+  const add = (g, x, y, z, rx = 0, rz = 0) => { if (rx) g.rotateX(rx); if (rz) g.rotateZ(rz); g.translate(x * k, y * k, z * k); parts.push(g); };
+  const limb = (r, len) => new THREE.CapsuleGeometry(r * k, len * k, 4, 10);
+  const head = () => new THREE.SphereGeometry(0.115 * k, 16, 12);
+  if (pose === "sit") {
+    add(limb(0.075, 0.34), -0.1, 0.47, 0.2, Math.PI / 2);   // thighs, forward
+    add(limb(0.075, 0.34), 0.1, 0.47, 0.2, Math.PI / 2);
+    add(limb(0.07, 0.36), -0.1, 0.24, 0.4);                  // shins, down
+    add(limb(0.07, 0.36), 0.1, 0.24, 0.4);
+    add(limb(0.18, 0.42), 0, 0.87, 0);                       // body
+    add(limb(0.05, 0.5), -0.26, 0.82, 0.05, 0.25);           // arms, on the lap
+    add(limb(0.05, 0.5), 0.26, 0.82, 0.05, 0.25);
+    add(head(), 0, 1.32, 0);
+  } else {
+    const swing = pose === "walk" ? 0.32 : 0;
+    add(limb(0.075, 0.72), -0.1, 0.45, 0, swing);           // legs
+    add(limb(0.075, 0.72), 0.1, 0.45, 0, -swing);
+    add(limb(0.18, 0.42), 0, 1.15, 0);                       // body
+    if (pose === "arms") {
+      add(limb(0.05, 0.55), -0.3, 1.66, 0, 0, 0.35);         // arms up
+      add(limb(0.05, 0.55), 0.3, 1.66, 0, 0, -0.35);
+    } else {
+      add(limb(0.05, 0.55), -0.26, 1.08, 0, -swing);         // arms
+      add(limb(0.05, 0.55), 0.26, 1.08, 0, swing);
+    }
+    add(head(), 0, 1.6, 0);
+  }
   return mergeGeometries(parts.map(g => g.toNonIndexed()));
+}
+
+// Simple furniture, built from boxes and legs, sitting on y = 0.
+function legsAt(points, height, radius = 0.022) {
+  return points.map(([x, z]) => new THREE.CylinderGeometry(radius, radius, height, 8).translate(x, height / 2, z));
+}
+function furnitureGeometry(item) {
+  const parts = [];
+  if (item.kind === "table") {
+    const { w, d, h } = item, ix = w / 2 - 0.06, iz = d / 2 - 0.06;
+    parts.push(new THREE.BoxGeometry(w, 0.04, d).translate(0, h - 0.02, 0), ...legsAt([[-ix, -iz], [ix, -iz], [-ix, iz], [ix, iz]], h - 0.04));
+  } else if (item.kind === "chair") {
+    parts.push(new THREE.BoxGeometry(0.45, 0.04, 0.44).translate(0, 0.45, 0), new THREE.BoxGeometry(0.45, 0.48, 0.03).translate(0, 0.71, -0.205), ...legsAt([[-0.2, -0.19], [0.2, -0.19], [-0.2, 0.19], [0.2, 0.19]], 0.43, 0.018));
+  } else if (item.kind === "bench") {
+    const w = item.w;
+    parts.push(new THREE.BoxGeometry(w, 0.05, 0.38).translate(0, 0.45, 0), new THREE.BoxGeometry(0.05, 0.43, 0.34).translate(-w / 2 + 0.12, 0.215, 0), new THREE.BoxGeometry(0.05, 0.43, 0.34).translate(w / 2 - 0.12, 0.215, 0));
+  }
+  return mergeGeometries(parts.map(g => g.toNonIndexed()));
+}
+
+// A wall piece with an opening: an arch (round top) or a window (square, with bars).
+function openingGeometry(item) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-item.w / 2, 0); shape.lineTo(item.w / 2, 0); shape.lineTo(item.w / 2, item.h); shape.lineTo(-item.w / 2, item.h); shape.closePath();
+  const hole = new THREE.Path();
+  if (item.kind === "arch") {
+    const r = Math.max(0.1, item.w / 2 - item.t), top = Math.max(r + 0.1, item.h - item.t);
+    hole.moveTo(-r, 0); hole.lineTo(r, 0); hole.lineTo(r, top - r);
+    hole.absarc(0, top - r, r, 0, Math.PI, false);
+    hole.lineTo(-r, 0);
+  } else {
+    const hw = Math.min(item.ww, item.w - 0.2) / 2, hh = Math.min(item.wh, item.h - 0.2), y0 = Math.max(0.1, (item.h - hh) * 0.55);
+    hole.moveTo(-hw, y0); hole.lineTo(hw, y0); hole.lineTo(hw, y0 + hh); hole.lineTo(-hw, y0 + hh); hole.closePath();
+  }
+  shape.holes.push(hole);
+  const depth = item.d;
+  const wall = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 24 }).translate(0, 0, -depth / 2);
+  if (item.kind !== "window") return wall;
+  // Glazing bars across the window.
+  const hw = Math.min(item.ww, item.w - 0.2) / 2, hh = Math.min(item.wh, item.h - 0.2), y0 = Math.max(0.1, (item.h - hh) * 0.55);
+  const bars = [new THREE.BoxGeometry(0.04, hh, 0.04).translate(0, y0 + hh / 2, 0), new THREE.BoxGeometry(hw * 2, 0.04, 0.04).translate(0, y0 + hh / 2, 0)];
+  return mergeGeometries([wall, ...bars.map(b => b.toNonIndexed())].map(g => { g.clearGroups(); return g; }));
+}
+
+// A rock or a block of ice: a lumpy, faceted stone, the same shape every
+// time for the same piece.
+function rockGeometry(item) {
+  const g = new THREE.IcosahedronGeometry(0.5, 1);
+  let seed = 0;
+  for (const ch of String(item.id || "rock")) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const pos = g.attributes.position, seen = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    const key = `${pos.getX(i).toFixed(4)},${pos.getY(i).toFixed(4)},${pos.getZ(i).toFixed(4)}`;
+    if (!seen.has(key)) seen.set(key, 0.82 + rand() * (item.style === "ice" ? 0.45 : 0.3));
+    const f = seen.get(key);
+    pos.setXYZ(i, pos.getX(i) * f, Math.max(-0.5, pos.getY(i) * f), pos.getZ(i) * f);
+  }
+  g.scale(item.w, item.h, item.d);
+  g.translate(0, item.h / 2, 0);
+  g.computeVertexNormals();
+  return g;
 }
 
 // Speaker cabinets: a dark box with a grille on the audience side (+z).
@@ -451,8 +545,53 @@ export function buildItem(item, venue, loadModel) {
       break;
     }
     case "person":
-      mesh(personGeometry(item.h));
+      mesh(personGeometry(item.h, item.pose));
       break;
+    case "crowd": {
+      // In a loose line across, every other one a step back, different poses.
+      const poses = ["stand", "arms", "walk", "stand"];
+      for (let i = 0; i < item.count; i++) {
+        const x = (i - (item.count - 1) / 2) * item.spacing;
+        const g = personGeometry(item.h * (0.92 + ((i * 37) % 9) / 100), poses[i % poses.length]);
+        g.translate(x, 0, i % 2 ? -0.45 : 0);
+        mesh(g);
+      }
+      break;
+    }
+    case "table": case "chair": case "bench":
+      mesh(furnitureGeometry(item));
+      break;
+    case "bed": {
+      mesh(new THREE.BoxGeometry(item.w, 0.32, item.d).translate(0, 0.16, 0));
+      mesh(new THREE.BoxGeometry(item.w - 0.06, 0.16, item.d - 0.1).translate(0, 0.4, 0.03), surface("#e4e0d8", "matte"));
+      mesh(new THREE.BoxGeometry(item.w, 0.95, 0.06).translate(0, 0.475, -item.d / 2 + 0.03));
+      mesh(new THREE.BoxGeometry(item.w * 0.32, 0.1, 0.36).translate(-item.w * 0.22, 0.53, -item.d / 2 + 0.3), surface("#f2efe8", "matte"));
+      mesh(new THREE.BoxGeometry(item.w * 0.32, 0.1, 0.36).translate(item.w * 0.22, 0.53, -item.d / 2 + 0.3), surface("#f2efe8", "matte"));
+      break;
+    }
+    case "door": {
+      const t = 0.07;
+      mesh(new THREE.BoxGeometry(t, item.h + t, 0.12).translate(-item.w / 2 - t / 2, (item.h + t) / 2, 0));   // frame
+      mesh(new THREE.BoxGeometry(t, item.h + t, 0.12).translate(item.w / 2 + t / 2, (item.h + t) / 2, 0));
+      mesh(new THREE.BoxGeometry(item.w + t * 2, t, 0.12).translate(0, item.h + t / 2, 0));
+      // The door, hinged on the left, opening upstage.
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(item.w - 0.01, item.h - 0.01, 0.045).translate((item.w - 0.01) / 2, (item.h - 0.01) / 2, 0), mat);
+      const hinge = new THREE.Group();
+      hinge.position.set(-item.w / 2, 0, 0);
+      hinge.rotation.y = -(Number(item.open) || 0) * Math.PI / 180;
+      hinge.add(leaf);
+      add(hinge);
+      break;
+    }
+    case "arch": case "window":
+      mesh(openingGeometry(item), item.kind === "window" ? facePicture(item, venue, mat) : mat);
+      break;
+    case "rock": {
+      const ice = item.style === "ice";
+      const material = ice ? new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.12, metalness: 0, transparent: true, opacity: 0.82, emissive: new THREE.Color(item.color), emissiveIntensity: 0.02 }) : mat;
+      mesh(rockGeometry(item), material, { solid: true, cast: !ice });
+      break;
+    }
     case "speaker":
       speakerParts(item, object => add(object), mat);
       break;

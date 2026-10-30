@@ -23,7 +23,7 @@ export const KINDS = {
   drape: { label: "Drape (leg, border, blacks)", group: "Drapes & surfaces", icon: "▥", defaults: { w: 2, h: 7, y: 1, color: "#08080a", material: "velvet", folds: 1 }, fields: [["w", "Width", 0.1, 0.2, 30], ["h", "Height", 0.1, 0.2, 15], ["folds", "Folds", [["1", "Pleated"], ["0", "Flat"]]]] },
   cyc: { label: "Cyclorama", group: "Drapes & surfaces", icon: "▭", defaults: { w: 11, h: 7, y: 1, color: "#e8eaee", material: "matte" }, fields: [["w", "Width", 0.1, 1, 30], ["h", "Height", 0.1, 1, 15]] },
   gauze: { label: "Gauze (scrim)", group: "Drapes & surfaces", icon: "░", defaults: { w: 11, h: 7, y: 1, color: "#1d1d20", material: "matte", opacity: 0.3 }, fields: [["w", "Width", 0.1, 1, 30], ["h", "Height", 0.1, 1, 15], ["opacity", "See-through", 0.05, 0.05, 0.95]] },
-  screen: { label: "Video screen", group: "Drapes & surfaces", icon: "▣", defaults: { w: 4, h: 2.25, y: 3, color: "#4f7bd9", material: "matte", glow: 0.5 }, fields: [["w", "Width", 0.1, 0.3, 20], ["h", "Height", 0.1, 0.3, 12], ["glow", "Brightness", 0.05, 0, 3]] },
+  screen: { label: "Video screen", group: "Drapes & surfaces", icon: "▣", defaults: { w: 4, h: 2.25, y: 3, color: "#4f7bd9", material: "matte", glow: 0.5 }, fields: [["w", "Width", 0.1, 0.3, 20], ["h", "Height", 0.1, 0.3, 12], ["glow", "Picture brightness", 0.05, 0, 3]] },
   flat: { label: "Flat", group: "Scenery", icon: "▯", defaults: { w: 2.4, h: 3.6, d: 0.08, y: 1, color: "#8c7d6a", material: "matte" }, fields: [["w", "Width", 0.05, 0.1, 20], ["h", "Height", 0.05, 0.1, 12], ["d", "Thickness", 0.01, 0.01, 1]] },
   platform: { label: "Rostrum", group: "Scenery", icon: "▬", defaults: { w: 2.4, d: 1.2, h: 0.6, y: 1, color: "#232327", material: "satin" }, fields: [["w", "Width", 0.05, 0.2, 20], ["d", "Depth", 0.05, 0.2, 20], ["h", "Height", 0.05, 0.05, 5]] },
   steps: { label: "Steps", group: "Scenery", icon: "▟", defaults: { w: 1.2, d: 1.2, h: 0.6, y: 1, count: 3, color: "#232327", material: "satin" }, fields: [["w", "Width", 0.05, 0.3, 10], ["d", "Depth", 0.05, 0.3, 10], ["h", "Height", 0.05, 0.1, 5], ["count", "Treads", 1, 1, 20]] },
@@ -418,10 +418,13 @@ export function buildItem(item, venue, loadModel) {
     }
     case "screen": {
       mesh(new THREE.BoxGeometry(item.w + 0.08, item.h + 0.08, 0.1).translate(0, item.h / 2, -0.05), surface("#111114", "satin"));
-      // Showing live video (QLab's output…) or a picture: the screen glows with it.
+      // Showing live video (QLab's output…) or a picture: the screen glows with
+      // it. Nothing on it: a switched-off screen, dark, that stage light lands on.
       const shown = item.live ? liveTexture(item.live) : item.picture ? pictureTexture(item.picture, venue?.assets?.[item.picture]) : null;
-      const glow = new THREE.MeshStandardMaterial({ color: 0x050505, emissive: shown ? 0xffffff : new THREE.Color(item.color), emissiveMap: shown, emissiveIntensity: item.glow, roughness: 0.3 });
-      mesh(new THREE.PlaneGeometry(item.w, item.h).translate(0, item.h / 2, 0.001), glow);
+      const face = shown
+        ? new THREE.MeshStandardMaterial({ color: 0x050505, emissive: 0xffffff, emissiveMap: shown, emissiveIntensity: item.glow, roughness: 0.3 })
+        : new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.55, metalness: 0 });
+      mesh(new THREE.PlaneGeometry(item.w, item.h).translate(0, item.h / 2, 0.001), face);
       break;
     }
     case "flat":

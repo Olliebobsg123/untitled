@@ -142,14 +142,39 @@ let shownMachineHaze = -1;
 
 const composer = new EffectComposer(renderer);
 const composite = new ShaderPass({
-  uniforms: { tScene: { value: null }, tBeams: { value: null } },
+  uniforms: { tScene: { value: null }, tBeams: { value: null }, tDepth: { value: null }, beamSize: { value: new THREE.Vector2(1, 1) }, cameraNear: { value: 0.1 }, cameraFar: { value: 120 } },
   vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
   // Beams pass through unchanged up to a knee, then roll off smoothly
   // (never quite flat), so a beam light that's far brighter than a wash -
   // as it really is - still shows its falloff instead of a flat bar.
-  fragmentShader: `uniform sampler2D tScene; uniform sampler2D tBeams; varying vec2 vUv;
+  // The beams are drawn at a fraction of the resolution. Where a beam meets
+  // the edge of something in front (a fixture, a leg), a plain stretch gives
+  // stair-steps and a halo, so there each pixel takes the beam from the
+  // nearby low-resolution pixel at the same depth as itself.
+  fragmentShader: `uniform sampler2D tScene; uniform sampler2D tBeams; uniform sampler2D tDepth;
+    uniform vec2 beamSize; uniform float cameraNear; uniform float cameraFar; varying vec2 vUv;
+    float linearDepth(vec2 uv) {
+      float z = texture2D(tDepth, uv).x * 2.0 - 1.0;
+      return (2.0 * cameraNear * cameraFar) / (cameraFar + cameraNear - z * (cameraFar - cameraNear));
+    }
+    vec3 upsampledBeams() {
+      vec2 texel = 1.0 / beamSize;
+      vec2 base = (floor(vUv * beamSize - 0.5) + 0.5) * texel;
+      float here = linearDepth(vUv);
+      float best = 1e9, spread = 0.0;
+      vec2 bestUv = vUv;
+      for (int i = 0; i < 4; i++) {
+        vec2 c = base + vec2(float(i - (i / 2) * 2), float(i / 2)) * texel;
+        float diff = abs(linearDepth(c) - here);
+        spread = max(spread, diff);
+        if (diff < best) { best = diff; bestUv = c; }
+      }
+      // No edge here: the smooth stretch.
+      if (spread < 0.04 * here) return texture2D(tBeams, vUv).rgb;
+      return texture2D(tBeams, bestUv).rgb;
+    }
     void main() {
-      vec3 beams = texture2D(tBeams, vUv).rgb;
+      vec3 beams = upsampledBeams();
       float l = max(max(beams.r, beams.g), beams.b);
       float knee = 0.6;
       float over = l - knee;
@@ -165,6 +190,9 @@ const composite = new ShaderPass({
 // textures can't be copied.
 composite.uniforms.tScene.value = sceneTarget.texture;
 composite.uniforms.tBeams.value = beamTarget.texture;
+composite.uniforms.tDepth.value = sceneTarget.depthTexture;
+composite.uniforms.cameraNear.value = camera.near;
+composite.uniforms.cameraFar.value = camera.far;
 // Only genuinely hot things (lenses, the hottest part of a pool) glow.
 const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.3, 1.4);
 // Tone mapping, as a camera: a filmic curve on the brightest of R, G and B,
@@ -206,6 +234,7 @@ function resize() {
   const bx = Math.max(1, Math.round(x * beamResolution));
   const by = Math.max(1, Math.round(y * beamResolution));
   beamTarget.setSize(bx, by);
+  composite.uniforms.beamSize.value.set(bx, by);
   shared.uniforms.resolution.value.set(bx, by);
   composer.setSize(m.w, m.h);
   bloom.setSize(x, y);

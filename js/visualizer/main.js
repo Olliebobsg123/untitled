@@ -34,6 +34,7 @@ import { Atmosphere } from "./atmosphere.js";
 import { archetype, baseAddress, decodeFixture } from "./decode.js";
 import { createViews } from "./views.js";
 import { createLightsTable } from "./lights-table.js";
+import { createCapture } from "./capture.js";
 
 const $ = id => document.getElementById(id);
 const consoleWindow = window.opener;
@@ -482,7 +483,10 @@ function update() {
   if (selected) showSelection();
 }
 
+// Recording a video: draw every frame, not only when something changes.
+let keepDrawing = false;
 function animating() {
+  if (keepDrawing) return true;
   for (const model of fixtures.values()) if (model.animating) return true;
   return Boolean((ball && (ball.model.spots.count > 0 || ball.model.spinning)) || atmosphere.busy || drag || curtain.now !== curtain.target || liveActive());
 }
@@ -540,6 +544,7 @@ function render() {
   renderer.setViewport(m.x, innerHeight - m.y - m.h, m.w, m.h);
   composer.render();
   renderer.setViewport(0, 0, innerWidth, innerHeight);
+  capture?.afterRender(); // a video being recorded takes the 3D view now
   views.draw();
   // How long the CPU spends per frame (for tests and the Show Log).
   const t2 = performance.now();
@@ -926,6 +931,15 @@ const lightsTable = createLightsTable({
 });
 $("lightsButton")?.addEventListener("click", () => lightsTable.toggle());
 
+// Pictures and videos of the stage (capture.js).
+const capture = createCapture({
+  renderer,
+  renderNow: () => { activeUntil = performance.now() + 500; lastFrame = 0; render(); },
+  mainRect: () => mainRect(),
+  keepDrawing: on => { keepDrawing = on; wake(); },
+  say: text => setStatus(text)
+});
+
 // --- Toolbar and keys -------------------------------------------------------
 
 function setView(name) {
@@ -1177,4 +1191,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { views, lightsTable, timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { views, lightsTable, capture, timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

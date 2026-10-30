@@ -14,6 +14,12 @@
   }
   * { box-sizing: border-box; margin: 0; }
   html, body, #viz { width: 100%; height: 100%; overflow: hidden; }
+  #saveViewName { width: 130px; height: 28px; padding: 0 8px; border: 1px solid #2b383f; border-radius: 6px; background: #0b1114; color: #edf4f2; font-size: 13px; }
+  #myViews { display: contents; }
+  .viz-flat { position: fixed; z-index: 2; border: 1px solid rgba(255,255,255,.08); cursor: grab; touch-action: none; }
+  .viz-flat:active { cursor: grabbing; }
+  .viz-flat-label { position: absolute; left: 8px; top: 6px; padding: 2px 8px; border-radius: 5px; background: rgba(0,0,0,.55); color: #c9d3d1; font: 600 12px system-ui, sans-serif; letter-spacing: .5px; pointer-events: none; }
+  .viz-flat-home { position: absolute; right: 6px; top: 6px; width: 26px; height: 24px; border: 1px solid rgba(255,255,255,.15); border-radius: 5px; background: rgba(0,0,0,.55); color: #c9d3d1; cursor: pointer; }
   body { background: #000; color: var(--text); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; user-select: none; }
   canvas { display: block; }
 
@@ -126,6 +132,15 @@
     <button data-view="close" title="Key 2">Front row</button>
     <button data-view="top" title="Key 3">Plan</button>
     <button data-view="side" title="Key 4">Side</button>
+    <span id="myViews"></span>
+    <button id="saveView" title="Save where the camera is now as a view of your own (saved with the show)">＋ Save view</button>
+    <input id="saveViewName" type="text" hidden placeholder="Name this view" maxlength="40">
+    <button id="fromLight" title="Look from the selected light, down its beam (click a light first)">👁 From light</button>
+  </div>
+  <div class="group" title="More than one view at once: the 3D view with Plan, Front and Side"><span class="label">Views</span>
+    <button data-split="1" title="Just the 3D view">▢ 1</button>
+    <button data-split="2" title="3D and Plan side by side">◫ 2</button>
+    <button data-split="4" title="3D, Plan, Front and Side">⊞ 4</button>
   </div>
   <div class="group"><span class="label">Room</span>
     <button id="house" title="H">House lights</button>

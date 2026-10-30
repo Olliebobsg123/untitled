@@ -32,6 +32,7 @@ import { hazeNoiseTexture } from "./beam.js";
 import { MirrorBall } from "./mirror-ball.js";
 import { Atmosphere } from "./atmosphere.js";
 import { archetype, baseAddress, decodeFixture } from "./decode.js";
+import { createViews } from "./views.js";
 
 const $ = id => document.getElementById(id);
 const consoleWindow = window.opener;
@@ -102,7 +103,6 @@ controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, R
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
-const size = () => renderer.getDrawingBufferSize(new THREE.Vector2());
 const sceneTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthTexture: new THREE.DepthTexture(1, 1) });
 const beamTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
 
@@ -190,17 +190,24 @@ composer.addPass(bloom);
 composer.addPass(toneMap);
 composer.addPass(new OutputPass());
 
+// The 3D view's part of the window: all of it, or a half or quarter when
+// the flat views are showing too (views.js).
+let views = null;
+const mainRect = () => views ? views.rects().main : { x: 0, y: 0, w: innerWidth, h: innerHeight };
+
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
-  camera.aspect = innerWidth / innerHeight;
+  const m = mainRect();
+  camera.aspect = m.w / Math.max(1, m.h);
   camera.updateProjectionMatrix();
-  const { x, y } = size();
+  const pr = renderer.getPixelRatio();
+  const x = Math.max(1, Math.round(m.w * pr)), y = Math.max(1, Math.round(m.h * pr));
   sceneTarget.setSize(x, y);
   const bx = Math.max(1, Math.round(x * beamResolution));
   const by = Math.max(1, Math.round(y * beamResolution));
   beamTarget.setSize(bx, by);
   shared.uniforms.resolution.value.set(bx, by);
-  composer.setSize(innerWidth, innerHeight);
+  composer.setSize(m.w, m.h);
   bloom.setSize(x, y);
   atmosphere.setViewportHeight(by, camera.fov); // drawn in the beams' layer
 }
@@ -240,6 +247,7 @@ let patch = [];
 let patchSignature = "";
 // venue: the stage design (venue.js), or null for the default theatre.
 let layout = { version: 2, positions: {}, aims: {}, settings: { ...DEFAULT_SETTINGS }, venue: null };
+views = createViews({ renderer, scene, venue: () => layout.venue || theatre.venue(), wake: ms => wake(ms), onLayout: () => resize() });
 let dmx = new Uint8Array(5120);
 const fixtures = new Map(); // id → Fixture
 let ball = null; // { model: MirrorBall, fixture }
@@ -281,6 +289,7 @@ function moveCurtain(target, seconds = CURTAIN_SECONDS, save = true) {
 }
 
 function applySettings() {
+  renderSavedViews();
   const s = settings();
   theatre.setHouse(s.house);
   theatre.setWork(s.work);
@@ -495,7 +504,13 @@ function render() {
   renderer.setRenderTarget(beamTarget);
   renderer.render(beamScene, camera);
   renderer.setRenderTarget(null);
+  // The 3D view in its part of the window, then the flat views beside it.
+  views.setForcedSingle(Boolean(builder.active)); // Build mode works in one view
+  const m = mainRect();
+  renderer.setViewport(m.x, innerHeight - m.y - m.h, m.w, m.h);
   composer.render();
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  views.draw();
   // How long the CPU spends per frame (for tests and the Show Log).
   const t2 = performance.now();
   timing.update = timing.update * 0.9 + (t1 - t0) * 0.1;
@@ -522,8 +537,9 @@ aimLine.visible = false;
 scene.add(aimLine);
 
 function setPointer(event) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+  const canvas = renderer.domElement.getBoundingClientRect(), m = mainRect();
+  const x = event.clientX - canvas.left - m.x, y = event.clientY - canvas.top - m.y;
+  pointer.set((x / m.w) * 2 - 1, -(y / m.h) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
 }
 
@@ -870,6 +886,72 @@ function setView(name) {
   document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("on", b.dataset.view === name));
 }
 
+// Your own camera views, saved with the show: ＋ Save view, then a button
+// each (right-click one to delete it).
+const savedViews = () => (Array.isArray(layout.settings?.views) ? layout.settings.views : []);
+function renderSavedViews() {
+  const host = $("myViews");
+  if (!host) return;
+  host.innerHTML = savedViews().map((v, i) => `<button data-myview="${i}" title="Your view — right-click to delete">${String(v.name).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]))}</button>`).join("");
+}
+function saveView(name) {
+  const clean = String(name || "").trim().slice(0, 40);
+  if (!clean) return;
+  const list = savedViews().filter(v => v.name !== clean);
+  list.push({ name: clean, position: camera.position.toArray().map(n => +n.toFixed(3)), target: controls.target.toArray().map(n => +n.toFixed(3)) });
+  layout.settings = { ...settings(), views: list };
+  saveLayout();
+  renderSavedViews();
+  setStatus(`View “${clean}” saved with the show`);
+}
+function goToSavedView(i) {
+  const v = savedViews()[i];
+  if (!v) return;
+  camera.position.fromArray(v.position);
+  controls.target.fromArray(v.target);
+  controls.update();
+  document.querySelectorAll("[data-view]").forEach(b => b.classList.remove("on"));
+  wake();
+}
+// Look from the selected light, down its beam.
+function viewFromLight() {
+  const model = selected != null ? modelFor(selected) : null;
+  if (!model) { setStatus("Click a light first, then From light"); return; }
+  const axis = model.head.getWorldDirection(new THREE.Vector3());
+  const lens = model.head.localToWorld(model.lensLocal ? model.lensLocal.clone() : new THREE.Vector3());
+  camera.position.copy(lens).addScaledVector(axis, 0.35);
+  controls.target.copy(lens).addScaledVector(axis, 8);
+  controls.update();
+  document.querySelectorAll("[data-view]").forEach(b => b.classList.remove("on"));
+  wake();
+}
+$("saveView")?.addEventListener("click", () => {
+  const box = $("saveViewName");
+  box.hidden = false;
+  box.value = `View ${savedViews().length + 1}`;
+  box.focus(); box.select();
+});
+$("saveViewName")?.addEventListener("keydown", e => {
+  e.stopPropagation();
+  if (e.key === "Enter") { saveView(e.target.value); e.target.hidden = true; }
+  if (e.key === "Escape") e.target.hidden = true;
+});
+$("saveViewName")?.addEventListener("blur", e => { e.target.hidden = true; });
+$("myViews")?.addEventListener("click", e => { const b = e.target.closest("[data-myview]"); if (b) goToSavedView(Number(b.dataset.myview)); });
+$("myViews")?.addEventListener("contextmenu", e => {
+  const b = e.target.closest("[data-myview]");
+  if (!b) return;
+  e.preventDefault();
+  const v = savedViews()[Number(b.dataset.myview)];
+  if (!v || !confirm(`Delete the view “${v.name}”?`)) return;
+  layout.settings = { ...settings(), views: savedViews().filter(x => x !== v) };
+  saveLayout();
+  renderSavedViews();
+});
+$("fromLight")?.addEventListener("click", viewFromLight);
+// Build mode works in one view: switch as soon as it's turned on or off.
+$("buildMode")?.addEventListener("click", () => setTimeout(() => { views.setForcedSingle(Boolean(builder.active)); wake(); }, 0));
+
 function toggle(key) {
   layout.settings = { ...settings(), [key]: !settings()[key] };
   applySettings();
@@ -1045,4 +1127,4 @@ applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { views, timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

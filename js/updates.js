@@ -21,7 +21,7 @@
       case "none": return `Light Spark ${esc(s.version)} is the newest version.`;
       case "downloading": return `Downloading Light Spark ${esc(s.latest || "")}… ${s.percent || 0}%`;
       case "ready": return `Light Spark ${esc(s.latest || "")} is ready. It installs when you quit Light Spark, or restart now.`;
-      case "available": return `Light Spark ${esc(s.latest || "")} is out (you have ${esc(s.version)}).${s.download ? " Download it and run it to update." : ""}`;
+      case "available": return `Light Spark ${esc(s.latest || "")} is out (you have ${esc(s.version)}).${s.download ? " Download it and run it to update." : ""}${s.packaged && /Mac/.test(navigator.platform) && !s.canInstall ? " To update by itself, Light Spark needs to be in your Applications folder (drag it there from the disk image, then open it from Applications)." : ""}`;
       case "error": return `Couldn't check for updates: ${esc(s.error || "unknown error")}`;
       default: return `Version ${esc(s.version)}.`;
     }

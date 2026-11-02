@@ -325,7 +325,7 @@
       case "onoff": return [["on", "", "ON"], ["off", "", "OFF"]];
       case "split": return [["1", "just the 3D view", "VIEWS"], ["2", "3D + plan", "VIEWS"], ["4", "3D, plan, front, side", "VIEWS"]];
       case "vizview": return [["front", "front of house", "VIEW"], ["close", "front row", "VIEW"], ["plan", "from above", "VIEW"], ["side", "from the side", "VIEW"], ...((S().visualizer?.settings?.views || []).map(v => [v.name, "your view", "VIEW"]))];
-      case "quality": return [["low", "", "QUALITY"], ["medium", "", "QUALITY"], ["high", "", "QUALITY"], ["auto", "", "QUALITY"]];
+      case "quality": return [["ultra", "sharpest, for a fast Mac", "QUALITY"], ["high", "", "QUALITY"], ["medium", "", "QUALITY"], ["low", "", "QUALITY"], ["auto", "goes with the frame rate", "QUALITY"]];
       default: return null;
     }
   }

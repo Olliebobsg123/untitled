@@ -55,15 +55,26 @@ const BEAM_SCALE = LIGHT_SCALE * 0.045 / (4 * Math.PI);
 const ROOM_AREA = 500;
 const ROOM_REFLECTANCE = 0.15;
 
-// Quality presets. "Auto" starts at Medium and moves down (or up) with the
-// frame rate. The big costs are pixels (resolution), real stage lights and
-// their shadows, and steps through the haze per beam pixel.
+// Quality presets. "Auto" starts at High on a Mac (Medium elsewhere) and moves
+// down (or up) with the frame rate. The big costs are pixels (resolution),
+// steps through the haze per beam pixel, and shadows.
+//
+// pool "all": every light that's on gets a real spotlight of its own, so
+// lights never swap a real light for a painted-on pool as others come on
+// (which made the light on stage jump about). From Medium up the pool is the
+// same, so Auto changing level only changes sharpness, never which lights
+// light the stage. Ultra draws every frame at the screen's full resolution
+// (Retina), with beams at near full resolution and soft shadows.
+const IS_MAC = /Mac/.test(navigator.platform || navigator.userAgent || "");
+const DPR = window.devicePixelRatio || 1;
 const QUALITY = {
-  low: { label: "Low", pixelRatio: 0.75, beamResolution: 0.25, steps: 10, pool: 6, shadows: 1, shadowSize: 512, bloom: false },
-  medium: { label: "Medium", pixelRatio: 1, beamResolution: 0.35, steps: 14, pool: 10, shadows: 3, shadowSize: 512, bloom: true },
-  high: { label: "High", pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5), beamResolution: 0.5, steps: 22, pool: 16, shadows: 6, shadowSize: 1024, bloom: true }
+  low: { label: "Low", pixelRatio: 0.75, beamResolution: 0.25, steps: 10, pool: 8, shadows: 1, shadowSize: 512, bloom: false },
+  medium: { label: "Medium", pixelRatio: 1, beamResolution: 0.4, steps: 16, pool: "all", shadows: 3, shadowSize: 1024, bloom: true },
+  high: { label: "High", pixelRatio: Math.min(DPR, 1.5), beamResolution: 0.55, steps: 26, pool: "all", shadows: 6, shadowSize: 1024, bloom: true, softShadows: true },
+  ultra: { label: "Ultra", pixelRatio: Math.min(DPR, 2), beamResolution: 0.7, steps: 40, pool: "all", shadows: 6, shadowSize: 2048, bloom: true, softShadows: true, everyFrame: true }
 };
-const LEVELS = ["low", "medium", "high"];
+const LEVELS = ["low", "medium", "high", "ultra"];
+const AUTO_START = IS_MAC ? "high" : "medium";
 let quality = "medium";
 let beamResolution = QUALITY.medium.beamResolution;
 
@@ -75,7 +86,7 @@ const VIEWS = {
 };
 // Beams only show in haze, as in a real room: with no hazer, fog machine or
 // room haze there are no beams, just the light landing on stage.
-const DEFAULT_SETTINGS = { house: false, work: false, grid: false, targets: true, haze: 0, exposure: 0, curtain: 1, quality: "auto" };
+const DEFAULT_SETTINGS = { house: false, work: false, grid: false, targets: true, haze: 0, exposure: 0, curtain: 1, quality: IS_MAC ? "ultra" : "auto" };
 
 // --- Renderer and scene -------------------------------------------------
 
@@ -244,14 +255,32 @@ function resize() {
 }
 window.addEventListener("resize", () => { resize(); wake(); });
 
+// How many real spotlights: one per light (not fog machines), for "all",
+// within what a GPU's shaders can hold.
+function poolSize(q = QUALITY[quality]) {
+  if (q.pool !== "all") return q.pool;
+  let n = 0;
+  for (const model of fixtures.values()) if (!model.onFloor) n++;
+  return Math.max(8, Math.min(64, n));
+}
+function configurePool() {
+  const q = QUALITY[quality];
+  lightPool.configure({ ...q, pool: poolSize(q) });
+}
+
 function applyQuality(level) {
-  const q = QUALITY[level];
+  const q = QUALITY[level] ? QUALITY[level] : QUALITY[level = AUTO_START];
   quality = level;
   renderer.setPixelRatio(q.pixelRatio);
   beamResolution = q.beamResolution;
   shared.beamSteps = q.steps;
   for (const model of fixtures.values()) model.setBeamSteps(q.steps);
-  lightPool.configure(q);
+  const shadowType = q.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  if (renderer.shadowMap.type !== shadowType) {
+    renderer.shadowMap.type = shadowType;
+    scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
+  }
+  configurePool();
   bloom.enabled = q.bloom;
   shared.shadowsDirty = true;
   resize();
@@ -294,6 +323,8 @@ const settings = () => {
   // Layouts from before beams came from haze kept 55% room haze and a Beams switch.
   if (saved.hazeFromMachines !== true) { saved.haze = 0; saved.hazeFromMachines = true; if (layout.settings) layout.settings = { ...layout.settings, haze: 0, hazeFromMachines: true }; }
   delete saved.beams;
+  // Shows from before Ultra: on a Mac, Ultra once (pick another and it sticks).
+  if (IS_MAC && saved.qualityUltra !== true) { saved.quality = "ultra"; saved.qualityUltra = true; if (layout.settings) layout.settings = { ...layout.settings, quality: "ultra", qualityUltra: true }; }
   return { ...DEFAULT_SETTINGS, ...saved, beams: true };
 };
 const definitionOf = fixture => library[fixture?.name] || fixture?.definition || null;
@@ -375,6 +406,8 @@ function rebuild() {
     model.place(position);
     fixtures.set(id, model);
   }
+  // A light each: more (or fewer) lights patched, a bigger (smaller) pool.
+  if (lightPool.lights.length !== poolSize()) configurePool();
   shared.shadowsDirty = true;
   wake(1000);
   const missing = patch.length - entries.length;
@@ -496,7 +529,12 @@ function animating() {
 let slowSeconds = 0;
 let fastSeconds = 0;
 function adjustQuality(fps) {
-  if (settings().quality !== "auto") return;
+  if (settings().quality !== "auto") {
+    // Chosen by hand: never changed behind your back, but say if it's struggling.
+    slowSeconds = fps < 20 ? slowSeconds + 1 : 0;
+    if (slowSeconds === 5 && quality !== "low") setStatus(`${QUALITY[quality].label} is running slowly on this computer (${Math.round(fps)} fps) — try ${QUALITY[LEVELS[LEVELS.indexOf(quality) - 1]].label} or Auto in Quality`);
+    return;
+  }
   slowSeconds = fps < 26 ? slowSeconds + 1 : 0;
   fastSeconds = fps > 55 ? fastSeconds + 1 : 0;
   const index = LEVELS.indexOf(quality);
@@ -520,7 +558,7 @@ function countFrame(now) {
 function render() {
   const now = performance.now();
   controls.update();
-  if (now > activeUntil && !animating() && now - lastFrame < 100) {
+  if (!QUALITY[quality].everyFrame && now > activeUntil && !animating() && now - lastFrame < 100) {
     skippedThisSecond = true;
     return;
   }
@@ -1039,7 +1077,7 @@ document.querySelectorAll("[data-view]").forEach(button => button.addEventListen
 $("quality").addEventListener("change", () => {
   const choice = $("quality").value;
   layout.settings = { ...settings(), quality: choice };
-  applyQuality(choice === "auto" ? "medium" : choice);
+  applyQuality(choice === "auto" ? AUTO_START : choice);
   saveLayout();
   wake();
 });
@@ -1164,7 +1202,7 @@ window.addEventListener("message", event => {
       applySettings();
       // The curtain goes where the show left it: at once on opening, else it travels.
       { const want = Math.max(0, Math.min(1, Number(settings().curtain ?? 1))); if (want !== curtain.target) moveCurtain(want, curtain.loaded ? CURTAIN_SECONDS : 0, false); curtain.loaded = true; }
-      if (settings().quality !== before) applyQuality(settings().quality === "auto" ? "medium" : settings().quality);
+      if (settings().quality !== before) applyQuality(settings().quality === "auto" ? AUTO_START : settings().quality);
       if (patch.length) rebuild();
       break;
     }
@@ -1234,10 +1272,10 @@ function vizCommand(action, arg) {
 
 // --- Start ------------------------------------------------------------------
 
-applyQuality("medium");
+applyQuality(settings().quality === "auto" ? AUTO_START : settings().quality);
 setView("foh");
 applySettings();
 setStatus(consoleWindow ? "Waiting for the console…" : "Open the visualiser from the console");
 renderer.setAnimationLoop(render);
 send({ type: "VISUALIZER_READY" });
-window.LXViz = { views, lightsTable, capture, timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };
+window.LXViz = { renderNow: () => { activeUntil = performance.now() + 500; lastFrame = 0; render(); }, views, lightsTable, capture, timing, curtain, moveCurtain, fixtures, builder, theatre, measure, setMeasure, openPlot, get ball() { return ball; }, layout: () => layout, camera, controls, setView, renderer, scene, shared, lightPool };

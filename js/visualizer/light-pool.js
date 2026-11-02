@@ -62,20 +62,34 @@ export class LightPool {
   update(models, lightScale) {
     const on = [];
     for (const model of models) if (model.light && model.light.intensity > 0) on.push(model);
-    // Fixtures shaping their light (gobo/shutters) get the shadow-casting
-    // lights first, since only those project patterns; then brightest first.
+    // The shadow-casting lights (the only ones that project gobos and
+    // shutters). A light keeps its shadow for as long as it stays on, so
+    // shadows don't hop between fixtures as levels change. A free one goes
+    // to a fixture shaping its light (gobo/shutters) first, then the
+    // brightest; a shaping fixture may take one from a plain light.
     on.sort((a, b) => b.light.intensity - a.light.intensity);
-    const shaped = on.filter(m => m.light.mask);
-    const plain = on.filter(m => !m.light.mask);
     const shadowCount = this.lights.filter(l => l.castShadow).length;
-    const order = [...shaped.slice(0, shadowCount), ...plain, ...shaped.slice(shadowCount)];
-    // The shadow lights go to the first `shadowCount` of that order, the rest
-    // to the plain lights. Within each group a fixture keeps the light it had
-    // last frame when it can, to avoid needless shadow redraws.
-    const top = order.slice(0, this.lights.length);
+    const isOn = new Set(on);
+    const shadowed = [];
+    for (let i = 0; i < shadowCount; i++) { const o = this.owners[i]; if (o && isOn.has(o) && !shadowed.includes(o)) shadowed.push(o); }
+    shadowed.sort((a, b) => b.light.intensity - a.light.intensity);
+    const want = [...on.filter(m => m.light.mask), ...on.filter(m => !m.light.mask)];
+    for (const m of want) {
+      if (shadowed.includes(m)) continue;
+      if (shadowed.length < shadowCount) { shadowed.push(m); continue; }
+      if (!m.light.mask) break;
+      // Shaped and no shadow free: take the dimmest plain light's.
+      let k = -1;
+      for (let j = shadowed.length - 1; j >= 0; j--) if (!shadowed[j].light.mask) { k = j; break; }
+      if (k < 0) break;
+      shadowed.splice(k, 1, m);
+    }
+    const rest = on.filter(m => !shadowed.includes(m)).slice(0, this.lights.length - shadowCount);
+    // Within each group a fixture keeps the light it had last frame when it
+    // can, to avoid needless shadow redraws.
     const groups = [
-      { indices: [...this.lights.keys()].filter(i => i < shadowCount), wanted: top.slice(0, shadowCount) },
-      { indices: [...this.lights.keys()].filter(i => i >= shadowCount), wanted: top.slice(shadowCount) }
+      { indices: [...this.lights.keys()].filter(i => i < shadowCount), wanted: shadowed },
+      { indices: [...this.lights.keys()].filter(i => i >= shadowCount), wanted: rest }
     ];
     const assignment = new Array(this.lights.length).fill(null);
     for (const { indices, wanted } of groups) {

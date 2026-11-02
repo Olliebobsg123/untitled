@@ -388,6 +388,7 @@
       // "bar groups" (js/bar-groups.js).
       if (window.LXBarGroups?.command?.(c)) return true;
       if (window.LXTrackingSheet?.command?.(c)) return true;
+      if (window.LXShowStarter?.command?.(c)) return true;
       if (window.LXSong?.command?.(c)) return true;
       if (c === "cue list" || c === "cuelist") { window.LXWindows?.open("cuelist"); return; }
       if (c === "focus" || c === "point and shoot" || c === "point & shoot") { window.LXWindows?.open("focus"); return; }

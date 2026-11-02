@@ -390,6 +390,8 @@
       if (window.LXTrackingSheet?.command?.(c)) return true;
       if (window.LXShowStarter?.command?.(c)) return true;
       if (window.LXSong?.command?.(c)) return true;
+      // kill, pause, open <window>, page, viz picture… (js/more-commands.js).
+      if (window.LXMoreCommands?.command?.(c, raw)) return true;
       if (c === "cue list" || c === "cuelist") { window.LXWindows?.open("cuelist"); return; }
       if (c === "focus" || c === "point and shoot" || c === "point & shoot") { window.LXWindows?.open("focus"); return; }
       if ((m = c.match(/^focus\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/))) { window.LXFocus?.aimAt({ x: Number(m[1]), z: -Number(m[2]) }); return; }
@@ -526,7 +528,7 @@
   ];
 
   function buildReference(body) {
-    body.innerHTML = `<div class="lx-cmdref">${REFERENCE.map(([title, rows]) => `<h5>${title.toUpperCase()}</h5><div class="lx-cmdref-grid">${rows.map(([cmd, what]) => `<button type="button" data-cmd="${cmd.replace(/"/g, "&quot;")}"><code>${cmd}</code><span>${what}</span></button>`).join("")}</div>`).join("")}<p>↑ and ↓ in the command line bring back earlier commands. Click any line above to put it in the command line, then press Enter.</p></div>`;
+    body.innerHTML = `<div class="lx-cmdref">${[...REFERENCE, ...(window.LXMoreCommands?.REFERENCE || [])].map(([title, rows]) => `<h5>${title.toUpperCase()}</h5><div class="lx-cmdref-grid">${rows.map(([cmd, what]) => `<button type="button" data-cmd="${cmd.replace(/"/g, "&quot;")}"><code>${cmd}</code><span>${what}</span></button>`).join("")}</div>`).join("")}<p>↑ and ↓ in the command line bring back earlier commands. Click any line above to put it in the command line, then press Enter.</p></div>`;
     body.addEventListener("click", e => {
       const b = e.target.closest("button[data-cmd]");
       if (!b) return;

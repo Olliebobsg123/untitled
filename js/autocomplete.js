@@ -128,7 +128,7 @@
       case "tcsource": return [["mtc", "MIDI timecode"], ["ltc", "audio timecode"], ["internal", "Light Spark's clock"], ["off", "no timecode"]].map(([v, d]) => [v, d, "SOURCE"]);
       case "metres": return [["0", "metres"], ["2", "metres"], ["-2", "metres"]].map(([v, d]) => [v, d, "METRES"]);
       case "number": return [["1", ""], ["2", ""], ["3", ""]].map(([v, d]) => [v, d, "NUMBER"]);
-      default: return [];
+      default: return window.LXMoreCommands?.slot?.(type) || [];
     }
   }
   // Whether a typed word is a valid value for an open-ended slot.
@@ -145,6 +145,8 @@
       return { slot: m[1], extra: m[2] ? m[2].slice(1).split("|") : [], optional: Boolean(m[3]) };
     });
   }
+  // js/more-commands.js adds its own (loaded just before this file).
+  COMMANDS.push(...(window.LXMoreCommands?.COMMANDS || []));
   const GRAMMAR = COMMANDS.map(([pattern, desc, group]) => ({ pattern, desc, group, parts: compile(pattern) }));
 
   // ----------------------------------------------------------- matching

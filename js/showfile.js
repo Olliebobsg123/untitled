@@ -623,6 +623,13 @@ try { window.initFixtureStates?.(); } catch (_) {}
     return true;
   }
 
+  // "open palettes" opens a window (js/more-commands.js), not a show called palettes.
+  function isShowCommand(command) {
+    if (!/^(save|load|open)\s+.+$|^save$/i.test(command)) return false;
+    const m = command.match(/^open\s+(.+)$/i);
+    return !(m && window.LXMoreCommands?.isWindow?.(m[1].trim().toLowerCase()));
+  }
+
   function installInputFallback() {
     const input = document.getElementById("cmdInput");
     if (!input || input.dataset.showFileCommands === "1") return !!input;
@@ -630,7 +637,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
     input.addEventListener("keydown", event => {
       if (event.key !== "Enter") return;
       const command = String(input.value || "").trim();
-      if (!/^(save|load|open)\s+.+$|^save$/i.test(command)) return;
+      if (!isShowCommand(command)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       input.value = "";
@@ -644,7 +651,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
     if (typeof current !== "function" || current.__lxShowFiles) return false;
     const wrapped = function (raw) {
       const command = String(raw ?? "").trim();
-      if (/^(save|load|open)\s+.+$|^save$/i.test(command)) {
+      if (isShowCommand(command)) {
         void executeShowCommand(command);
         return;
       }

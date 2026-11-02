@@ -136,9 +136,11 @@
   window.addEventListener("message", event => {
     const message = event.data;
     if (!message || typeof message !== "object") return;
+    if (message.type === "VIZ_REPLY") { if (message.text) window.log?.(`🎥 ${message.text}`, "ok"); return; }
     if (message.type === "VISUALIZER_READY") {
       visualizer = event.source;
       send();
+      flushViz();
     } else if (message.type === "VIZ_SCREEN_SOURCES" && event.source === visualizer) {
       // Live video on a visualiser screen (js/visualizer/live-video.js): what can be shown.
       const reply = result => event.source.postMessage({ type: "SCREEN_SOURCES", id: message.id, result }, "*");
@@ -183,8 +185,24 @@
   }
   if (document.readyState === "complete") install(); else window.addEventListener("load", install, { once: true });
 
+  // A toolbar action in the visualiser ("viz picture", "viz views 4"…), opening
+  // it first if it isn't open.
+  const vizQueue = [];
+  function flushViz() {
+    if (!visualizer || visualizer.closed) return;
+    while (vizQueue.length) visualizer.postMessage({ type: "VIZ_COMMAND", ...vizQueue.shift() }, "*");
+  }
+  function command(action, arg) {
+    vizQueue.push({ action, arg });
+    if (visualizer && !visualizer.closed) return flushViz(), true;
+    window.parseCommand?.("viz");
+    return false;
+  }
+
   window.LXVisualizer = Object.freeze({
     curtain,
+    command,
+    isOpen: () => Boolean(visualizer && !visualizer.closed),
     layout: () => clone(State.visualizer),
     toShow: () => clone(State.visualizer),
     fromShow(layout) {

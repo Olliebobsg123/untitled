@@ -1180,8 +1180,57 @@ window.addEventListener("message", event => {
     case "CONSOLE_MODE":
       $("blind").hidden = message.mode !== "BLIND";
       break;
+    case "VIZ_COMMAND":
+      send({ type: "VIZ_REPLY", id: message.id, text: vizCommand(String(message.action || ""), message.arg) });
+      break;
   }
 });
+
+// Typed in the console's command line ("viz picture", "viz views 4"…): what
+// the toolbar buttons do. Returns what happened, for the console's log.
+function vizCommand(action, arg) {
+  const on = v => (v === "on" ? true : v === "off" ? false : null);
+  const flip = (id, want) => { const b = $(id); if (!b) return false; if (want == null || b.classList.contains("on") !== want) b.click(); return b.classList.contains("on"); };
+  switch (action) {
+    case "split": views.setSplit(Number(arg)); return `${views.split()} view${views.split() === 1 ? "" : "s"}`;
+    case "view": {
+      const word = String(arg || "").toLowerCase();
+      const named = { foh: "foh", front: "foh", house: "foh", "front of house": "foh", close: "close", "front row": "close", plan: "top", top: "top", side: "side" }[word];
+      if (named) { setView(named); wake(); return `View: ${word}`; }
+      const i = savedViews().findIndex(v => String(v.name).toLowerCase() === word);
+      if (i < 0) return `No view called “${arg}”${savedViews().length ? ` — yours are: ${savedViews().map(v => v.name).join(", ")}` : ""}`;
+      goToSavedView(i); return `View: ${savedViews()[i].name}`;
+    }
+    case "save view": { const box = $("saveViewName"); if (!arg) return "Name the view: viz save view Wide"; box.value = ""; saveView(String(arg)); return `View “${arg}” saved`; }
+    case "picture": return `Saving a picture: ${capture.picture()}`;
+    case "record": if (capture.recording()) return "Already recording — viz stop to finish"; capture.start(); return capture.recording() ? "Recording the visualiser — viz stop to finish" : "Couldn't start recording";
+    case "stop": if (!capture.recording()) return "Not recording"; capture.stop(); return "Recording saved to Downloads";
+    case "lights": lightsTable.toggle(on(arg) ?? undefined); return lightsTable.isOpen() ? "Lights table open" : "Lights table closed";
+    case "plot": $("plotButton").click(); return "Lighting plot opened";
+    case "build": return flip("buildMode", on(arg)) ? "Build mode on" : "Build mode off";
+    case "measure": setMeasure(on(arg) ?? !measuring); return measuring ? "Measuring: click two points" : "Measuring off";
+    case "house": case "work": case "grid": case "targets": {
+      const want = on(arg);
+      if (want == null || Boolean(settings()[action]) !== want) $(action).click();
+      return `${{ house: "House lights", work: "Work lights", grid: "Grid", targets: "Targets" }[action]} ${settings()[action] ? "on" : "off"}`;
+    }
+    case "haze": case "exposure": {
+      const el = $(action), v = Number(arg);
+      if (!Number.isFinite(v)) return `viz ${action} needs a number`;
+      el.value = String(action === "haze" ? Math.max(0, Math.min(100, v)) : Math.max(-30, Math.min(30, v)));
+      el.dispatchEvent(new Event("input")); el.dispatchEvent(new Event("change"));
+      return `${action === "haze" ? "Room haze" : "Exposure"} ${el.value}${action === "haze" ? "%" : ""}`;
+    }
+    case "quality": {
+      const el = $("quality"), want = String(arg || "").toLowerCase();
+      if (![...el.options].some(o => o.value === want)) return `Quality is one of: ${[...el.options].map(o => o.value).join(", ")}`;
+      el.value = want; el.dispatchEvent(new Event("change")); return `Quality: ${want}`;
+    }
+    case "from light": $("fromLight").click(); return "Looking from the selected light";
+    case "bar": setBarHidden(on(arg) === false ? true : on(arg) === true ? false : !document.body.classList.contains("bar-hidden")); return document.body.classList.contains("bar-hidden") ? "Toolbar hidden" : "Toolbar shown";
+    default: return `The visualiser doesn't know “${action}”`;
+  }
+}
 
 // --- Start ------------------------------------------------------------------
 

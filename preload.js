@@ -222,6 +222,13 @@ try {
     onCommand: cb => { ipcRenderer.on('lx-desk-command', (_e, msg) => cb(msg)); },
     onInfo: cb => { ipcRenderer.on('lx-desk-info', (_e, info) => cb(info)); }
   });
+  contextBridge.exposeInMainWorld('LXScriptLink', {
+    info: () => ipcRenderer.invoke('lx-script-info'),
+    departments: url => ipcRenderer.invoke('lx-script-departments', url),
+    login: args => ipcRenderer.invoke('lx-script-login', args),
+    fetch: since => ipcRenderer.invoke('lx-script-fetch', since),
+    forget: () => ipcRenderer.invoke('lx-script-forget')
+  });
   contextBridge.exposeInMainWorld('LXRemote', {
     getInfo: () => ipcRenderer.invoke('lx-remote-info'),
     setEnabled: enabled => ipcRenderer.invoke('lx-remote-set-enabled', !!enabled),

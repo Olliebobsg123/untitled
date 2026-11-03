@@ -881,7 +881,7 @@ function peekNextCue() {
 }
 
 // Everything about a cue that isn't its look (kept when it's re-recorded).
-const CUE_OPTIONS = ["noMib", "blocked", "timecode", "delay", "timing", "partDelays", "goNote", "curve", "rate", "followMode", "link", "loop", "disabled", "note", "scene", "colourTag", "macro"];
+const CUE_OPTIONS = ["noMib", "blocked", "timecode", "delay", "timing", "partDelays", "goNote", "curve", "rate", "followMode", "link", "loop", "disabled", "note", "scene", "colourTag", "macro", "goNoteFromScript"];
 function recordCue(number, name, fadeMs, follow, followEnabled) {
     window.finishFade?.();
     number = parseCueNumber(number);

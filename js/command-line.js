@@ -389,6 +389,8 @@
       if (window.LXBarGroups?.command?.(c)) return true;
       if (window.LXTrackingSheet?.command?.(c)) return true;
       if (window.LXShowStarter?.command?.(c)) return true;
+      // "script" (js/script-link.js): the script from QLab Connect.
+      if (window.LXScript?.command?.(c)) return true;
       if (window.LXSong?.command?.(c)) return true;
       // kill, pause, open <window>, page, viz picture… (js/more-commands.js).
       if (window.LXMoreCommands?.command?.(c, raw)) return true;

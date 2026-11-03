@@ -105,7 +105,7 @@
     patch: "patch", "patched fixtures": "patch", "fixture check": "fixturecheck", tracking: "tracking", "tracking sheet": "tracking",
     song: "song", timeline: "song", "song timeline": "song", starter: "starter", "show starter": "starter", prefs: "prefs",
     preferences: "prefs", settings: "prefs", "fixture info": "fixtureinfo", info: "fixtureinfo", commands: "commands", help: "commands",
-    focus: "focus", "point and shoot": "focus", timecode: "timecode", "cue list": "cuelist", cuelist: "cuelist"
+    script: "script", "the script": "script", focus: "focus", "point and shoot": "focus", timecode: "timecode", "cue list": "cuelist", cuelist: "cuelist"
   };
   const PAGES = { live: "live", "live control": "live", patch: "patch", inspector: "inspector", "cue inspector": "inspector", chases: "chases", effects: "effects", qlab: "qlab", faders: "faders", magic: "magic", "magic sheet": "magic" };
 
@@ -296,7 +296,7 @@
     ["update cue <cue> cue only", "save into this cue, the next cue keeps its look", "Cues"], ["update cue <cue> track", "save into this cue and track on", "Cues"],
     ["cue sheet", "a printable cue sheet", "Cues"], ["clean up show", "tidy out lights that aren't patched", "Cues"], ["tracking sheet", "every light's level in every cue", "Cues"],
     ["timeline", "the song timeline (music + cues)", "Cues"], ["learn", "place cues as the music plays", "Cues"], ["learn off", "stop learning", "Cues"],
-    ["show starter", "Frozen colours, song cues, area groups", "Cues"], ["area groups", "a group for each part of the stage", "Select"],
+    ["show starter", "Frozen colours, song cues, area groups", "Cues"], ["script", "the script from QLab Connect, with the cues on it", "Cues"], ["script refresh", "fetch the script again", "Cues"], ["script notes off", "stop writing GO notes from the script", "Cues"], ["area groups", "a group for each part of the stage", "Select"],
     ["open <window>", "open a window", "Windows"], ["close <window>", "close a window", "Windows"], ["windows", "list the windows", "Windows"], ["dock all", "put every window back", "Windows"],
     ["page <page>", "go to a page", "Windows"], ["pages", "list the pages", "Windows"], ["blind", "blind mode: nothing goes to the stage", "Windows"], ["live", "live mode", "Windows"],
     ["screen zoom <pct>", "make the screen bigger or smaller", "Windows"], ["screen zoom reset", "screen back to 100%", "Windows"],

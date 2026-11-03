@@ -369,6 +369,24 @@ function getDeskLink() {
 ipcMain.handle('lx-desk-info', () => getDeskLink().info());
 ipcMain.handle('lx-desk-configure', (_e, next) => getDeskLink().configure(next));
 
+// ---- Script link (see script-link.js) ----
+// Where each cue goes in the show's script, read from QLab Connect.
+let scriptLink = null;
+function getScriptLink() {
+  if (!scriptLink) {
+    const { createScriptLink } = require('./script-link.js');
+    scriptLink = createScriptLink({ configPath: path.join(app.getPath('userData'), 'script-link.json') });
+  }
+  return scriptLink;
+}
+// Errors go back as { error } so the page can say what went wrong.
+const scriptCall = fn => async (_e, arg) => { try { return await fn(arg); } catch (err) { return { error: err.message || String(err) }; } };
+ipcMain.handle('lx-script-info', scriptCall(() => getScriptLink().info()));
+ipcMain.handle('lx-script-departments', scriptCall(url => getScriptLink().departments(url)));
+ipcMain.handle('lx-script-login', scriptCall(args => getScriptLink().login(args)));
+ipcMain.handle('lx-script-fetch', scriptCall(since => getScriptLink().fetchScript(since)));
+ipcMain.handle('lx-script-forget', scriptCall(() => getScriptLink().forget()));
+
 function startServices() {
   if (servicesStarted) return;
   servicesStarted = true;

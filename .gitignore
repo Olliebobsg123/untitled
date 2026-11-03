@@ -5,3 +5,5 @@ repomix-output.xml
 
 # iPhone app builds (xcodebuild -derivedDataPath build)
 remote-ios/build/
+remote-ios/*.xcodeproj/
+remote-ios/LXRemote/Info.plist

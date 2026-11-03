@@ -29,7 +29,7 @@
       type: "state",
       mode: typeof window.getConsoleMode === "function" ? window.getConsoleMode() : null,
       blackout: !!s.blackout,
-      master: master ? Number(master.value) : 100,
+      master: window.LXFaders?.data ? Number(window.LXFaders.data().grand ?? 100) : master ? Number(master.value) : 100,
       intensity: Number(cur.intensity ?? 100),
       hue: Number(cur.hue ?? 0),
       sat: Number(cur.sat ?? 0),
@@ -43,6 +43,7 @@
       activeChase: Number.isInteger(s.currentChase) && s.chaseTimer ? s.currentChase : -1,
       fixtures: fixtures.map((f, i) => ({ id: f.id, num: f.fixtureNumber ?? i + 1, name: f.name || `Fixture ${i + 1}`, sel: selected.has(f.id) })),
       colours: typeof cueColours !== "undefined" ? Object.keys(cueColours) : [],
+      swatches: typeof cueColours !== "undefined" ? Object.entries(cueColours).map(([name, c]) => ({ name, hue: Number(c.hue) || 0, sat: Number(c.sat) || 0, light: Number(c.light ?? 50) })) : [],
       log: lastLog
     };
   }
@@ -70,6 +71,8 @@
     chase(m) { if (has("startChase")) window.startChase(Number(m.index)); },
     stopChase() { if (has("stopChase")) window.stopChase(); },
     master(m) {
+      // The grand master on the Faders page (the old master slider if there's no Faders page).
+      if (window.LXFaders?.setGrand) { window.LXFaders.setGrand(num(m.value, 0, 100)); return; }
       const el = document.getElementById("master");
       if (!el) return;
       el.value = String(num(m.value, 0, 100));

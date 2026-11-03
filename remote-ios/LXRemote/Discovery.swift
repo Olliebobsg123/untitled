@@ -1,12 +1,22 @@
-import Network
 import Foundation
+import Network
 
 struct FoundConsole: Identifiable, Hashable {
-    let id: String          // Bonjour service name
+    let id: String          // the Bonjour service name
     let endpoint: NWEndpoint
+
+    /// "Lighting Console (Olivers-MacBook-Pro.local)" → "Olivers MacBook Pro"
+    var displayName: String {
+        var name = id
+        if let open = name.range(of: "("), let close = name.range(of: ")", options: .backwards), open.upperBound <= close.lowerBound {
+            name = String(name[open.upperBound..<close.lowerBound])
+        }
+        name = name.replacingOccurrences(of: ".local", with: "").replacingOccurrences(of: "-", with: " ")
+        return name.isEmpty ? id : name
+    }
 }
 
-/// Finds consoles advertising _lxconsole._tcp on the local network.
+/// Finds Light Spark consoles on the Wi-Fi (they advertise _lxconsole._tcp).
 final class Discovery: ObservableObject {
     @Published var found: [FoundConsole] = []
     private var browser: NWBrowser?
@@ -18,24 +28,32 @@ final class Discovery: ObservableObject {
             let items = results.compactMap { result -> FoundConsole? in
                 guard case let .service(name, _, _, _) = result.endpoint else { return nil }
                 return FoundConsole(id: name, endpoint: result.endpoint)
-            }.sorted { $0.id < $1.id }
+            }
+            .sorted { $0.id < $1.id }
             DispatchQueue.main.async { self?.found = items }
         }
         browser.start(queue: .main)
         self.browser = browser
     }
 
-    func stop() { browser?.cancel(); browser = nil }
+    func stop() {
+        browser?.cancel()
+        browser = nil
+    }
 
-    /// Opens a short-lived IPv4 connection to the service to learn its address.
+    /// The console's IPv4 address and port, from a short test connection.
     static func resolve(_ endpoint: NWEndpoint, completion: @escaping ((host: String, port: Int)?) -> Void) {
         let params = NWParameters.tcp
         if let ip = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options { ip.version = .v4 }
         let connection = NWConnection(to: endpoint, using: params)
+        let lock = NSLock()
         var finished = false
         func finish(_ result: (host: String, port: Int)?) {
-            guard !finished else { return }
+            lock.lock()
+            let first = !finished
             finished = true
+            lock.unlock()
+            guard first else { return }
             connection.cancel()
             DispatchQueue.main.async { completion(result) }
         }
@@ -46,9 +64,13 @@ final class Discovery: ObservableObject {
                     var name = "\(host)"
                     if let scope = name.firstIndex(of: "%") { name = String(name[..<scope]) }
                     finish((name, Int(port.rawValue)))
-                } else { finish(nil) }
-            case .failed, .cancelled: finish(nil)
-            default: break
+                } else {
+                    finish(nil)
+                }
+            case .failed, .cancelled:
+                finish(nil)
+            default:
+                break
             }
         }
         connection.start(queue: .global())

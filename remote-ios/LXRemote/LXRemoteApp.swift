@@ -6,16 +6,20 @@ struct LXRemoteApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
+            ZStack {
                 if let console = session.active {
-                    RemoteWebView(console: console, onDisconnect: { session.disconnect() })
+                    RemoteWebView(console: console, onDisconnect: { withAnimation(.easeInOut(duration: 0.35)) { session.disconnect() } })
                         .ignoresSafeArea(.container, edges: [])
+                        .transition(.opacity)
                 } else {
                     ConnectView(session: session)
+                        .transition(.opacity)
                 }
             }
+            .animation(.easeInOut(duration: 0.35), value: session.active)
             .preferredColorScheme(.dark)
-            .background(Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea())
+            .tint(.lxAccent)
+            .background(Color.lxBg.ignoresSafeArea())
             .onAppear { UIApplication.shared.isIdleTimerDisabled = true } // keep the screen on during a show
         }
     }

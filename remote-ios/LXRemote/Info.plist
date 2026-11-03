@@ -32,7 +32,10 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>LX Remote connects to your lighting console on the local network.</string>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

@@ -64,6 +64,17 @@
   }
 
   // Throttled slider: sends while dragging, at most every 50ms, plus a final value.
+  // Filled sliders and the colour preview follow the values.
+  function paint(input) {
+    const min = Number(input.min) || 0, max = Number(input.max) || 100;
+    input.style.setProperty('--p', `${((Number(input.value) - min) / (max - min)) * 100}%`);
+    if (input.id === 'hue' || input.id === 'sat') {
+      const h = Number($('hue').value), sat = Number($('sat').value);
+      $('sat').style.setProperty('--sat-to', `hsl(${h} 100% 50%)`);
+      $('colourPreview').style.color = hsl(h, sat);
+    }
+  }
+  document.querySelectorAll('input[type=range]').forEach(i => i.addEventListener('input', () => paint(i)));
   function slider(id, valId, type, extra) {
     const input = $(id); let last = 0, timer = null;
     const push = () => { last = Date.now(); send({ type, value: Number(input.value), ...(extra ? extra() : {}) }); };
@@ -129,7 +140,7 @@
   }
   function setSlider(id, valId, v) {
     if (dragging.has(id) || v == null) return;
-    $(id).value = v; $(valId).textContent = Math.round(v);
+    $(id).value = v; $(valId).textContent = Math.round(v); paint($(id));
   }
 
   function render() {
@@ -139,17 +150,32 @@
     setSlider('hue', 'hueVal', s.hue);
     setSlider('sat', 'satVal', s.sat);
     $('blackout').classList.toggle('on', s.blackout);
-    $('title').textContent = s.mode ? `LX Remote · ${s.mode}` : 'LX Remote';
+    const mode = String(s.mode || '').toUpperCase();
+    $('mode').hidden = !mode || mode === 'LIVE';
+    $('mode').textContent = mode; $('mode').classList.toggle('blind', mode === 'BLIND');
 
     const cur = s.cues[s.currentCue];
-    $('nowplaying').replaceChildren(document.createTextNode('Now: '), el('b', null, cur ? `${s.currentCue + 1} ${cur.name}` : '—'));
+    let nextI = Number.isInteger(s.next) && s.next >= 0 ? s.next : -1;
+    if (nextI < 0) { for (let i = s.currentCue + 1; i < s.cues.length; i++) if (s.cues[i]) { nextI = i; break; } }
+    const nxt = s.cues[nextI];
+    const now = $('nowplaying');
+    now.classList.toggle('idle', !cur);
+    if (cur) now.replaceChildren(el('span', 'n', String(cur.number ?? s.currentCue + 1)), document.createTextNode(cur.name));
+    else now.textContent = 'No cue active';
+    $('nextup').replaceChildren(...(nxt ? [document.createTextNode('Next  '), el('b', null, `${nxt.number} ${nxt.name}`), ...(nxt.goNote ? [document.createTextNode(`  ·  GO on ${nxt.goNote}`)] : [])] : [document.createTextNode(cur ? 'End of the cue list' : '')]));
+    $('goNext').textContent = nxt ? `${nxt.number} · ${nxt.name}` : '';
 
-    fill('cues', [s.cues, s.currentCue], box => {
+    fill('cues', [s.cues, s.currentCue, nextI], box => {
       if (!s.cues.some(Boolean)) box.append(el('div', 'muted', 'No cues recorded yet'));
+      let scene = null;
       s.cues.forEach((q, i) => {
         if (!q) return;
-        const b = el('button', 'btn cue' + (i === s.currentCue ? ' cur' : ''));
-        b.append(el('span', 'n', String(q.number ?? i + 1)), el('span', 't', q.name), el('small', null, `${(q.fade / 1000).toFixed(1)}s`));
+        if (q.scene && q.scene !== scene) { scene = q.scene; box.append(el('div', 'scene', q.scene)); }
+        const live = i === s.currentCue, isNext = i === nextI;
+        const b = el('button', 'btn cue' + (live ? ' cur' : isNext ? ' nxt' : ''));
+        b.append(el('span', 'n', String(q.number ?? i + 1)), el('span', 't', q.name));
+        if (live || isNext) b.append(el('span', 'tag', live ? 'LIVE' : 'NEXT'));
+        b.append(el('small', null, `${(q.fade / 1000).toFixed(1)}s`));
         box.append(tap(b, () => send({ type: 'cue', index: i })));
       });
     });
@@ -159,12 +185,17 @@
     });
     fill('fixtures', s.fixtures, box => {
       if (!s.fixtures.length) box.append(el('div', 'muted', 'No fixtures patched'));
-      s.fixtures.forEach(f => { const b = el('button', 'btn' + (f.sel ? ' on' : ''), String(f.num)); b.append(el('small', null, f.name)); box.append(tap(b, () => send({ type: 'select', id: f.id }))); });
+      s.fixtures.forEach(f => { const b = el('button', 'btn' + (f.sel ? ' on' : '')); b.append(el('b', null, String(f.num)), el('small', null, f.name)); box.append(tap(b, () => send({ type: 'select', id: f.id }))); });
     });
     $('selCount').textContent = `${s.fixtures.filter(f => f.sel).length} selected`;
     fill('palettes', s.palettes, box => {
       if (!s.palettes.length) box.append(el('div', 'muted', 'No palettes'));
-      s.palettes.forEach(p => box.append(tap(el('button', 'btn', p.name), () => send({ type: 'palette', name: p.name }))));
+      s.palettes.forEach(p => {
+        const b = el('button', 'btn');
+        if (p.hue != null) { const d = el('i', 'swd'); d.style.color = hsl(p.hue, p.sat); b.append(d); }
+        b.append(document.createTextNode(p.name));
+        box.append(tap(b, () => send({ type: 'palette', name: p.name })));
+      });
     });
     fill('chases', [s.chases, s.activeChase], box => {
       if (!s.chases.length) box.append(el('div', 'muted', 'No chases'));
@@ -175,7 +206,7 @@
       box.append(tap(b, () => send({ type: 'colourName', name })));
     }));
     if (s.log && s.log.id !== lastLogId) {
-      if (lastLogId) { toast(s.log.msg); const line = el('div', s.log.type, s.log.msg); $('cmdLog').prepend(line); while ($('cmdLog').children.length > 30) $('cmdLog').lastChild.remove(); }
+      if (lastLogId) { toast(s.log.msg); $('cmdLog').querySelector('.muted')?.remove(); const line = el('div', s.log.type, s.log.msg); $('cmdLog').prepend(line); while ($('cmdLog').children.length > 30) $('cmdLog').lastChild.remove(); }
       lastLogId = s.log.id;
     }
   }

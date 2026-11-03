@@ -13,7 +13,8 @@ struct RemoteWebView: UIViewRepresentable {
         config.userContentController.add(context.coordinator, name: "lx")
         let web = WKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
-        web.backgroundColor = UIColor(red: 0.04, green: 0.06, blue: 0.08, alpha: 1)
+        web.backgroundColor = UIColor(red: 0.024, green: 0.031, blue: 0.043, alpha: 1)
+        web.scrollView.backgroundColor = web.backgroundColor
         web.scrollView.bounces = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.navigationDelegate = context.coordinator

@@ -132,7 +132,7 @@
       <div class="row"><span>Enabled</span><input type="checkbox" id="lxRemoteEnable" ${info.enabled ? "checked" : ""}></div>
       ${info.running ? `<div class="pin">${info.pin}</div>
       <div class="row"><span>${info.clients} connected</span><button id="lxRemoteRegen">New PIN</button></div>
-      <small>Open the iPhone app, or browse to:<br><b>${addr}</b><br>and enter the PIN. Both devices must be on the same Wi-Fi.</small>` : `<small>Off. Turn on to control this console from a phone on the same network.</small>`}`;
+      <small>Open LX Remote on your iPhone, tap this Mac (or Enter Address:<br><b>${addr}</b>) and enter the PIN. Both must be on the same Wi-Fi.</small>` : `<small>Off. Turn on to control this console from a phone on the same network.</small>`}`;
     panel.querySelector("#lxRemoteEnable").onchange = e => bridge.setEnabled(e.target.checked).then(render);
     const regen = panel.querySelector("#lxRemoteRegen");
     if (regen) regen.onclick = () => { if (confirm("Generate a new PIN? Connected remotes will be disconnected.")) bridge.regeneratePin().then(render); };

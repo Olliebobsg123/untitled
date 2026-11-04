@@ -12,7 +12,6 @@ console's remote server directly:
     `colour`, `colourName`, `strobe`, `master`, `select`, `group`, `palette`,
     `chase`, `stopChase`, `record`, `cmd` (any command-line text)
 
-The web remote in `../remote/` (for Safari / Add to Home Screen) is separate.
 
 ## Screens
 

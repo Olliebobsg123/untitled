@@ -9,8 +9,6 @@ struct LXRemoteApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(client)
-                .preferredColorScheme(.dark)
-                .tint(LX.accent)
                 .onAppear { UIApplication.shared.isIdleTimerDisabled = true } // the screen stays on during a show
                 .onChange(of: scenePhase) { phase in
                     if phase == .active { client.wake() }
@@ -19,21 +17,34 @@ struct LXRemoteApp: App {
     }
 }
 
-/// Pairing until a console is chosen, then the remote.
+/// Connect first; once connected, the remote's tabs.
 struct RootView: View {
     @EnvironmentObject var client: RemoteClient
 
     var body: some View {
-        ZStack {
-            StageBackground()
+        Group {
             if client.console == nil {
-                PairView()
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                ConnectView()
             } else {
-                MainView()
-                    .transition(.opacity)
+                MainTabs()
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: client.console == nil)
+        .animation(.default, value: client.console == nil)
+    }
+}
+
+struct MainTabs: View {
+    var body: some View {
+        TabView {
+            CuesView()
+                .tabItem { Label("Cues", systemImage: "list.number") }
+            LightsView()
+                .tabItem { Label("Lights", systemImage: "lightbulb") }
+            ColourView()
+                .tabItem { Label("Colour", systemImage: "paintbrush") }
+            MoreView()
+                .tabItem { Label("More", systemImage: "ellipsis.circle") }
+        }
+        .overlay(alignment: .top) { MessageBanner() }
     }
 }

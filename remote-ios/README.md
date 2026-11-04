@@ -16,13 +16,16 @@ The web remote in `../remote/` (for Safari / Add to Home Screen) is separate.
 
 ## Screens
 
-- **Pair** — PIN boxes, consoles found on the Wi-Fi, or type an address
-- **Play** — what's live and next (with GO notes), GO / Back, the cue list by song
-- **Look** — intensity, colour swatches, hue, saturation, strobe, grand master
-- **Select** — all / none, groups, lights
-- **FX** — palettes (with their colours) and chases
-- **Command** — any command, quick commands, record a cue, the console's messages
-- **⋯ menu** — kill the cue list, kill everything, disconnect
+Built from standard iPhone parts (lists, the tab bar, system buttons and sliders), so it looks
+and works like Apple's own apps, in light or dark mode.
+
+- **Connect**: Light Spark on this Wi-Fi (tap it, enter the PIN), or Enter Address
+- **Cues**: the cue list song by song; tap a cue to go to it or make it next; Next, its GO
+  note, Back and Go always at the bottom; Blackout at the top
+- **Lights**: groups, and every light with a tick when selected; search; Select All / Clear
+- **Colour**: intensity, colour swatches and a colour picker, strobe, grand master
+- **More**: palettes, chases, record a cue, the command line, Kill Cue List / Kill
+  Everything, and the connection
 
 ## Build (Mac, Xcode installed)
 

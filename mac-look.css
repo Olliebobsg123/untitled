@@ -1,0 +1,486 @@
+/*
+ * The Mac look (Preferences → Look → Background → Mac, or "look mac").
+ *
+ * Light Spark dressed like a Mac app: the system font, sentence-case titles,
+ * soft grey surfaces instead of blue-black, rounded grouped panels, a source
+ * list sidebar, segmented controls and Mac sliders. Everything is under
+ * html[data-theme="mac"], so the other backgrounds are untouched.
+ */
+
+html[data-theme="mac"] {
+  --bg-0: #1e1e1f;
+  --bg-1: #242426;
+  --bg-2: #2c2c2e;
+  --bg-3: #3a3a3c;
+  --bg-4: #48484a;
+  --surface: rgba(44, 44, 46, .96);
+  --surface-raised: #323234;
+  --text: #f5f5f7;
+  --text-soft: #d1d1d6;
+  --text-muted: #8e8e93;
+  --border: rgba(255, 255, 255, .075);
+  --border-strong: rgba(255, 255, 255, .13);
+  --r-xs: 5px;
+  --r-sm: 7px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+
+html[data-theme="mac"] body {
+  background: var(--bg-0);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0;
+}
+html[data-theme="mac"] body,
+html[data-theme="mac"] button,
+html[data-theme="mac"] input,
+html[data-theme="mac"] select,
+html[data-theme="mac"] textarea { font-family: var(--sans); letter-spacing: normal; }
+
+/* ---------- Words: no shouting. Small caps labels become quiet sentence case. ---------- */
+html[data-theme="mac"] .eyebrow,
+html[data-theme="mac"] .nav-link b,
+html[data-theme="mac"] .brand-sub,
+html[data-theme="mac"] .page-kicker,
+html[data-theme="mac"] .cmd-hint { display: none !important; }
+
+html[data-theme="mac"] .panel-meta,
+html[data-theme="mac"] #topPageTitle,
+html[data-theme="mac"] .brand-name,
+html[data-theme="mac"] .sidebar-section-label,
+html[data-theme="mac"] .control-heading small,
+html[data-theme="mac"] .version {
+  display: inline-block;
+  text-transform: lowercase;
+  letter-spacing: 0;
+}
+html[data-theme="mac"] .panel-meta::first-letter,
+html[data-theme="mac"] #topPageTitle::first-letter,
+html[data-theme="mac"] .brand-name::first-letter,
+html[data-theme="mac"] .sidebar-section-label::first-letter,
+html[data-theme="mac"] .control-heading small::first-letter { text-transform: uppercase; }
+
+/* ---------- Sidebar: a Mac source list ---------- */
+html[data-theme="mac"] .sidebar {
+  background: rgba(38, 38, 40, .88);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  backdrop-filter: blur(30px) saturate(1.5);
+  border-right: 1px solid rgba(0, 0, 0, .45);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, .04);
+}
+html[data-theme="mac"] .brand { gap: 10px; }
+html[data-theme="mac"] .brand-mark {
+  border-radius: 9px;
+  background: linear-gradient(145deg, #4ff0c8, var(--accent) 55%, #0b9e76);
+  color: #04221a;
+  border: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .45);
+  font-weight: 700;
+}
+html[data-theme="mac"] .brand-name { font-size: 13px; font-weight: 600; color: var(--text); }
+html[data-theme="mac"] .sidebar-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding-left: 12px;
+}
+html[data-theme="mac"] .nav-link {
+  border: 0 !important;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-soft);
+  background: transparent;
+  box-shadow: none !important;
+}
+html[data-theme="mac"] .nav-link:hover { background: rgba(255, 255, 255, .06); color: var(--text); }
+html[data-theme="mac"] .nav-link.active {
+  background: rgba(var(--accent-rgb), .22) !important;
+  color: var(--text) !important;
+}
+html[data-theme="mac"] .nav-link.active .nav-icon { color: var(--accent); }
+html[data-theme="mac"] .nav-link::before,
+html[data-theme="mac"] .nav-link::after { display: none !important; }
+html[data-theme="mac"] .sidebar-footer { border-top: 1px solid var(--border); }
+html[data-theme="mac"] .version { font-size: 11px; color: var(--text-muted); }
+
+/* ---------- Top bar: a Mac toolbar ---------- */
+html[data-theme="mac"] .topbar {
+  background: rgba(36, 36, 38, .9);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  backdrop-filter: blur(30px) saturate(1.5);
+  border-bottom: 1px solid rgba(0, 0, 0, .5);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .03);
+}
+html[data-theme="mac"] #topPageTitle { font-size: 15px; font-weight: 600; color: var(--text); }
+
+/* Segmented controls: Live / Blind and friends */
+html[data-theme="mac"] .console-mode-switch,
+html[data-theme="mac"] .lx-seg,
+html[data-theme="mac"] .deck-tabs {
+  background: rgba(255, 255, 255, .08);
+  border: 0;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+  box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .4);
+}
+html[data-theme="mac"] .console-mode-switch button,
+html[data-theme="mac"] .lx-seg button,
+html[data-theme="mac"] .deck-tab {
+  border: 0 !important;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  box-shadow: none;
+}
+html[data-theme="mac"] .console-mode-switch button.active,
+html[data-theme="mac"] .lx-seg button.on,
+html[data-theme="mac"] .lx-seg button.active,
+html[data-theme="mac"] .deck-tab.active,
+html[data-theme="mac"] .deck-tab[aria-selected="true"] {
+  background: #636366 !important;
+  color: #fff !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 .5px 0 rgba(255, 255, 255, .15) !important;
+}
+html[data-theme="mac"] .console-mode-switch button.blind.active { background: #b26d00 !important; }
+
+html[data-theme="mac"] .status-pill {
+  border: 0;
+  background: rgba(255, 255, 255, .06);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  color: var(--text-soft);
+}
+html[data-theme="mac"] .status-dot.online { background: #30d158; box-shadow: 0 0 6px rgba(48, 209, 88, .6); }
+html[data-theme="mac"] .status-dot.offline { background: #636366; box-shadow: none; }
+
+/* ---------- Panels: grouped boxes ---------- */
+html[data-theme="mac"] .workspace { background: var(--bg-0); }
+html[data-theme="mac"] .panel {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+html[data-theme="mac"] .panel-header {
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0;
+  text-transform: none;
+}
+html[data-theme="mac"] .panel-meta { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+html[data-theme="mac"] .selection-badge {
+  border: 0;
+  background: rgba(var(--accent-rgb), .18);
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* ---------- Buttons ---------- */
+html[data-theme="mac"] .btn-primary,
+html[data-theme="mac"] .btn-secondary,
+html[data-theme="mac"] .btn-danger-soft,
+html[data-theme="mac"] .group-item,
+html[data-theme="mac"] .btn-icon {
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  transition: background .12s, filter .12s;
+}
+html[data-theme="mac"] .btn-primary {
+  background: var(--accent);
+  border: 0;
+  color: #03140f;
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, .35), inset 0 .5px 0 rgba(255, 255, 255, .3);
+}
+html[data-theme="mac"] .btn-secondary,
+html[data-theme="mac"] .group-item,
+html[data-theme="mac"] .btn-icon {
+  background: #48484a;
+  border: 0;
+  color: var(--text);
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, .35), inset 0 .5px 0 rgba(255, 255, 255, .12);
+}
+html[data-theme="mac"] .btn-secondary:hover,
+html[data-theme="mac"] .group-item:hover,
+html[data-theme="mac"] .btn-icon:hover { background: #545456; }
+html[data-theme="mac"] .group-item.active,
+html[data-theme="mac"] .group-item.selected {
+  background: var(--accent);
+  color: #03140f;
+}
+html[data-theme="mac"] .btn-danger-soft {
+  background: rgba(255, 69, 58, .16);
+  border: 0;
+  color: #ff6961;
+}
+html[data-theme="mac"] .btn-primary:active,
+html[data-theme="mac"] .btn-secondary:active,
+html[data-theme="mac"] .group-item:active { filter: brightness(1.2); }
+
+/* ---------- Fields ---------- */
+html[data-theme="mac"] input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+html[data-theme="mac"] select,
+html[data-theme="mac"] textarea {
+  background: rgba(255, 255, 255, .055);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 6px;
+  color: var(--text);
+  box-shadow: inset 0 .5px 1px rgba(0, 0, 0, .25);
+}
+html[data-theme="mac"] input:focus,
+html[data-theme="mac"] select:focus,
+html[data-theme="mac"] textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .35);
+}
+
+/* Sliders: a thin track, a white knob */
+html[data-theme="mac"] input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; }
+html[data-theme="mac"] input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .16);
+  border: 0;
+}
+html[data-theme="mac"] input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: #f2f2f2;
+  border: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 0 0 .5px rgba(0, 0, 0, .3);
+}
+
+/* ---------- Lists: fixtures, cues ---------- */
+html[data-theme="mac"] .fixture-item,
+html[data-theme="mac"] .cue-item {
+  border-radius: 7px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 13px;
+}
+html[data-theme="mac"] .fixture-item:nth-child(even) { background: rgba(255, 255, 255, .025); }
+html[data-theme="mac"] .fixture-item:hover,
+html[data-theme="mac"] .cue-item:hover { background: rgba(255, 255, 255, .06); }
+html[data-theme="mac"] .fixture-item.selected,
+html[data-theme="mac"] .fixture-item.active {
+  background: rgba(var(--accent-rgb), .22) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+html[data-theme="mac"] .cue-item {
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid transparent;
+}
+html[data-theme="mac"] .cue-item.active {
+  background: rgba(var(--accent-rgb), .2);
+  border-color: rgba(var(--accent-rgb), .55);
+}
+
+/* ---------- Bottom: cue stack and command line ---------- */
+html[data-theme="mac"] .bottom-row .panel { border-radius: 12px; }
+html[data-theme="mac"] .cmd-line {
+  background: var(--bg-1);
+  border-top: 1px solid rgba(0, 0, 0, .5);
+}
+html[data-theme="mac"] .cmd-line input {
+  font-family: var(--mono) !important;
+  background: rgba(255, 255, 255, .055) !important;
+  border-radius: 7px !important;
+}
+html[data-theme="mac"] .cmd-line .prompt { color: var(--accent); }
+
+/* ---------- Windows: Mac panels ---------- */
+html[data-theme="mac"] .lxw {
+  background: #2c2c2e;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 12px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .55), 0 0 0 .5px rgba(0, 0, 0, .8);
+  overflow: hidden;
+}
+html[data-theme="mac"] .lxw-bar {
+  background: #323234;
+  border-bottom: 1px solid rgba(0, 0, 0, .45);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+html[data-theme="mac"] .lxw-menu {
+  background: rgba(44, 44, 46, .92);
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 10px;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, .5);
+}
+html[data-theme="mac"] .lxw-menu button { border-radius: 5px; font-size: 13px; }
+html[data-theme="mac"] .lxw-menu button:hover { background: var(--accent); color: #03140f; }
+
+/* Dialogs */
+html[data-theme="mac"] .lx-ask {
+  background: #323234;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 12px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .55);
+}
+html[data-theme="mac"] .lx-ask h3 {
+  background: transparent;
+  border-bottom: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+  color: var(--text);
+  padding-top: 14px;
+}
+html[data-theme="mac"] .lx-ask label { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; }
+
+/* Scrollbars: thin, like overlay scrollbars */
+html[data-theme="mac"] ::-webkit-scrollbar { width: 10px; height: 10px; }
+html[data-theme="mac"] ::-webkit-scrollbar-track { background: transparent; }
+html[data-theme="mac"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+html[data-theme="mac"] ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, .3); }
+
+/* ---------- Cards inside panels (Intensity, Beam, Barn doors…) ---------- */
+html[data-theme="mac"] .parameter-card,
+html[data-theme="mac"] .master-card,
+html[data-theme="mac"] .dynamic-parameter-card {
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+html[data-theme="mac"] .control-label,
+html[data-theme="mac"] .dynamic-group-heading,
+html[data-theme="mac"] .toolbar-label,
+html[data-theme="mac"] .toolbar-hint,
+html[data-theme="mac"] .link-row,
+html[data-theme="mac"] .link-row *,
+html[data-theme="mac"] .section-divider,
+html[data-theme="mac"] .dynamic-row label,
+html[data-theme="mac"] .dynamic-row span {
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-family: var(--sans) !important;
+}
+html[data-theme="mac"] .control-label,
+html[data-theme="mac"] .dynamic-group-heading { font-size: 12px !important; font-weight: 600 !important; color: var(--text) !important; }
+html[data-theme="mac"] .toolbar-label { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+html[data-theme="mac"] .control-heading small { display: none !important; }
+html[data-theme="mac"] .link-row { font-size: 13px; color: var(--text); }
+html[data-theme="mac"] .dynamic-row { font-size: 12px; color: var(--text-soft); }
+
+/* Smaller knobs for the dense rows */
+html[data-theme="mac"] input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; }
+
+/* Group buttons: light, like Mac bevel-less buttons; selected fills with the accent */
+html[data-theme="mac"] .group-item {
+  background: rgba(255, 255, 255, .075);
+  box-shadow: none;
+  color: var(--text);
+}
+html[data-theme="mac"] .group-item:hover { background: rgba(255, 255, 255, .12); }
+html[data-theme="mac"] .group-item.sel {
+  background: var(--accent);
+  color: #03140f;
+  border-color: transparent;
+}
+
+/* Selected fixtures and the live cue: filled, like a Mac list selection */
+html[data-theme="mac"] .fixture-item.sel {
+  background: rgba(var(--accent-rgb), .24) !important;
+  border-color: transparent !important;
+  color: var(--text) !important;
+  box-shadow: inset 3px 0 0 var(--accent) !important;
+}
+html[data-theme="mac"] .cue-item.active {
+  background: rgba(var(--accent-rgb), .2) !important;
+  border-color: rgba(var(--accent-rgb), .5) !important;
+  color: var(--text) !important;
+}
+
+/* Top-right buttons: the system font, not tiny code capitals */
+html[data-theme="mac"] .safety-control,
+html[data-theme="mac"] #changeLicenseButton,
+html[data-theme="mac"] .lxw-menu-btn,
+html[data-theme="mac"] .tier-badge,
+html[data-theme="mac"] [class*="license-badge"] {
+  font: 600 11px/1 var(--sans) !important;
+  letter-spacing: .02em !important;
+  border-radius: 7px !important;
+}
+html[data-theme="mac"] #changeLicenseButton,
+html[data-theme="mac"] .lxw-menu-btn {
+  background: rgba(255, 255, 255, .07) !important;
+  border: 0 !important;
+  color: var(--text-soft) !important;
+  opacity: 1 !important;
+}
+html[data-theme="mac"] .safety-blackout {
+  background: rgba(255, 69, 58, .16);
+  border: 0;
+  color: #ff6961;
+}
+html[data-theme="mac"] .safety-blackout.active { background: #ff453a; color: #fff; }
+html[data-theme="mac"] .safety-emergency { border: 0; background: #e5e5ea; color: #1c1c1e; }
+
+/* Palettes / Targets launch rows: plain list rows with a chevron */
+html[data-theme="mac"] .target-launch,
+html[data-theme="mac"] .palette-launch,
+html[data-theme="mac"] #targetLaunch,
+html[data-theme="mac"] #paletteLaunch {
+  background: rgba(255, 255, 255, .055) !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+html[data-theme="mac"] .target-launch span,
+html[data-theme="mac"] .palette-launch span,
+html[data-theme="mac"] #targetLaunch span,
+html[data-theme="mac"] #paletteLaunch span {
+  display: inline-block;
+  font: 500 13px var(--sans) !important;
+  letter-spacing: 0 !important;
+  text-transform: lowercase !important;
+  color: var(--text) !important;
+}
+html[data-theme="mac"] .target-launch span + span,
+html[data-theme="mac"] .palette-launch span + span,
+html[data-theme="mac"] #targetLaunch span + span,
+html[data-theme="mac"] #paletteLaunch span + span { font-size: 12px !important; color: var(--text-muted) !important; }
+html[data-theme="mac"] .target-launch span::first-letter,
+html[data-theme="mac"] .palette-launch span::first-letter,
+html[data-theme="mac"] #targetLaunch span::first-letter,
+html[data-theme="mac"] #paletteLaunch span::first-letter { text-transform: uppercase; }
+html[data-theme="mac"] .dynamic-row label,
+html[data-theme="mac"] .dynamic-row .dynamic-label { font-size: 11px !important; color: var(--text-muted) !important; }

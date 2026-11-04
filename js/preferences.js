@@ -21,7 +21,7 @@
     zoom: 1,                   // interface size
     accent: "teal",            // a name from ACCENTS, or "custom"
     accentCustom: "#19d6a3",
-    theme: "dark",             // dark | black | slate
+    theme: "dark",             // dark | black | slate | mac
     textSize: "normal",        // small | normal | large
     corners: "rounded",        // rounded | square
     motion: true,              // animations
@@ -319,7 +319,7 @@
       row("Density", "Compact fits more on screen, like Eos. Comfortable is roomier.", seg("density", [["compact", "Compact"], ["comfortable", "Comfortable"]])) +
       row("Touch screen", "Bigger buttons, rows and faders, press and hold for menus, and an on-screen keypad (⌨ in the command line). Automatic turns it on when the screen reports touch — many touch monitors on a Mac don't, so pick On.", seg("touchMode", [["auto", "Automatic"], ["on", "On"], ["off", "Off"]])) +
       row("Interface size", "Makes everything bigger or smaller.", select("zoom", [[0.75, "75%"], [0.8, "80%"], [0.9, "90%"], [1, "100%"], [1.1, "110%"], [1.25, "125%"], [1.4, "140%"], [1.5, "150%"]])) +
-      row("Background", "Black is darkest, for a dark auditorium. Slate is lighter, for daylight.", seg("theme", [["black", "Black"], ["dark", "Dark"], ["slate", "Slate"]])) +
+      row("Background", "Black is darkest, for a dark auditorium. Slate is lighter, for daylight. Mac looks like a Mac app: the system font, soft greys, rounded panels.", seg("theme", [["black", "Black"], ["dark", "Dark"], ["slate", "Slate"], ["mac", "Mac"]])) +
       row("Accent colour", "Used for selections, buttons and highlights. The last swatch picks any colour.", `<div class="lx-swatches" data-pref="accent">${Object.entries(ACCENTS).map(([name, [c]]) => `<button type="button" data-value="${name}" title="${name}" style="--c:${c}"></button>`).join("")}<button type="button" data-value="custom" title="Your own colour" class="lx-swatch-custom" style="--c:${esc(prefs.accentCustom)}"></button></div><input type="color" class="lx-color" data-pref="accentCustom" title="Pick your own accent colour">`) +
       row("Text size", "Size of names in lists: fixtures, groups, cues, effects and chases.", seg("textSize", [["small", "Small"], ["normal", "Normal"], ["large", "Large"]])) +
       row("Corners", "Rounded, or square like a hardware desk.", seg("corners", [["rounded", "Rounded"], ["square", "Square"]])) +
@@ -605,7 +605,7 @@
     const style = document.createElement("style");
     style.id = "lxPrefStyles";
     style.textContent = `
-      .lx-pref-row{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:14px;align-items:center;padding:9px 0;border-bottom:1px solid #161f24}
+      .lx-pref-row{display:grid;grid-template-columns:minmax(120px,1fr) auto;gap:14px;align-items:center;padding:9px 0;border-bottom:1px solid #161f24}
       .lx-pref-row:last-child{border-bottom:0}
       .lx-pref-row b{display:block;color:#dfe8e5;font-size:12px;font-weight:650}
       .lx-pref-row small{display:block;margin-top:3px;color:#71807d;font-size:10.5px;line-height:1.45}

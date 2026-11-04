@@ -554,9 +554,9 @@ function createWindow() {
   // open, recovering only once it closed and this window got focus back.
   // The new interface on a Mac: the window's buttons sit in its toolbar, like Apple's apps.
   const uiFile = path.join(app.getPath('userData'), 'ui.json');
-  let uiChoice = 'studio';
-  try { uiChoice = JSON.parse(fs.readFileSync(uiFile, 'utf8')).ui || 'studio'; } catch (_) {}
-  const inset = process.platform === 'darwin' && uiChoice !== 'classic';
+  let uiChoice = 'classic';
+  try { uiChoice = JSON.parse(fs.readFileSync(uiFile, 'utf8')).ui || 'classic'; } catch (_) {}
+  const inset = process.platform === 'darwin' && uiChoice === 'studio';
   mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', ...(inset ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 } } : {}), webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, backgroundThrottling: false, preload: path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);

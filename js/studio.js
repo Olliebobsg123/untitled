@@ -5,8 +5,9 @@
  *
  * It sits on the same engine as before (State, cues.js, commands, effects,
  * chases, DMX output…) and calls the same functions; only what you see and
- * touch is new. The old interface stays underneath, hidden, because the
- * engine still draws into it; "ui classic" brings it back, "ui new" this.
+ * touch is new. Classic is the default; "ui new" shows this one (the old
+ * interface stays underneath, hidden, because the engine still draws into
+ * it), "ui classic" goes back.
  *
  *   sidebar   Cues · Lights · Groups · Palettes | Effects · Chases · Patch | tools
  *   content   the list for the sidebar's choice

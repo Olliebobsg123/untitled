@@ -379,6 +379,8 @@
       const raw = String(rawCommand ?? "").trim();
       const c = raw.toLowerCase();
       let m;
+      // "ui classic" / "ui new" (js/studio.js): which interface.
+      if (window.LXStudio?.command?.(c)) return true;
       if (c === "undo") return undo();
       if (c === "redo") return redo();
       // "fog limit 10", "fog reset" (js/atmos-safety.js): before "fog 80".

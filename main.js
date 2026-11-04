@@ -366,6 +366,7 @@ function getDeskLink() {
   }
   return deskLink;
 }
+ipcMain.on('lx-ui-set', (_e, ui) => { try { fs.writeFileSync(path.join(app.getPath('userData'), 'ui.json'), JSON.stringify({ ui: ui === 'classic' ? 'classic' : 'studio' })); } catch (_) {} });
 ipcMain.handle('lx-desk-info', () => getDeskLink().info());
 ipcMain.handle('lx-desk-configure', (_e, next) => getDeskLink().configure(next));
 
@@ -551,14 +552,19 @@ function createWindow() {
   // poll both run on setTimeout in THIS window, so throttling them made
   // QLab connections stall or drop for as long as the visualizer stayed
   // open, recovering only once it closed and this window got focus back.
-  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, backgroundThrottling: false, preload: path.join(__dirname, 'preload.js') } });
+  // The new interface on a Mac: the window's buttons sit in its toolbar, like Apple's apps.
+  const uiFile = path.join(app.getPath('userData'), 'ui.json');
+  let uiChoice = 'studio';
+  try { uiChoice = JSON.parse(fs.readFileSync(uiFile, 'utf8')).ui || 'studio'; } catch (_) {}
+  const inset = process.platform === 'darwin' && uiChoice !== 'classic';
+  mainWindow = new BrowserWindow({ width: 1280, height: 800, minWidth: 900, minHeight: 600, title: 'Lighting Console', ...(inset ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 } } : {}), webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, backgroundThrottling: false, preload: path.join(__dirname, 'preload.js') } });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(true);
   guardClose(mainWindow);
   mainWindow.on('unresponsive', () => step('PAGE NOT RESPONDING'));
   mainWindow.on('responsive', () => step('page responding again'));
   mainWindow.webContents.on('render-process-gone', (_e, d) => step(`page crashed: ${d.reason}`));
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  mainWindow.loadFile(path.join(__dirname, 'index.html'), inset ? { query: { frame: 'inset' } } : {});
 
   mainWindow.webContents.once('did-finish-load', () => {
     step('page loaded');

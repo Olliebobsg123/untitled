@@ -94,6 +94,8 @@ try {
   try { version = require('./package.json').version; } catch (_) {}
   contextBridge.exposeInMainWorld('LXApp', {
     quit: () => ipcRenderer.send('lx-quit'),
+    // Which interface (new or classic): the Mac window frame follows it from the next launch.
+    setUi: ui => ipcRenderer.send('lx-ui-set', String(ui)),
     setConfirmQuit: on => ipcRenderer.send('lx-quit-confirm', Boolean(on)),
     askMicrophone: () => ipcRenderer.invoke('lx-ask-microphone'),
     screenSource: () => ipcRenderer.invoke('lx-screen-source'),

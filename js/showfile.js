@@ -627,7 +627,7 @@ try { window.initFixtureStates?.(); } catch (_) {}
   function isShowCommand(command) {
     if (!/^(save|load|open)\s+.+$|^save$/i.test(command)) return false;
     // "open flx" opens a ZerOS show (js/zos-import.js).
-    if (/^(open|load)\s+(flx|zeros|zos)(\s+show)?$/i.test(command)) return false;
+    if (/^(open|load|save|save\s+as)\s+(flx|zeros|zos)(\s+show)?$/i.test(command)) return false;
     const m = command.match(/^open\s+(.+)$/i);
     return !(m && window.LXMoreCommands?.isWindow?.(m[1].trim().toLowerCase()));
   }

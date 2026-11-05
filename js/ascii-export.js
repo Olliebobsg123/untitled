@@ -248,5 +248,5 @@
     return true;
   }
 
-  window.LXAscii = { build, export: exportAsk, exportFile, command };
+  window.LXAscii = { build, export: exportAsk, exportFile, command, dmxFor };
 })();

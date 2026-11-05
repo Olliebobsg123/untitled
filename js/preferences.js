@@ -119,6 +119,7 @@
     autosaveMin: 2,            // 0 = off
     autosaveCopies: 1,
     autosaveTo: "show",        // show (into the show file you have open) | separate (its own Autosave.json)
+    vizInShow: "together",     // together (the visualiser is saved in the show file) | separate (its own .lsviz file, js/viz-files.js)
     confirmQuit: true
   };
   const ACCENTS = {
@@ -446,7 +447,9 @@
       `<div class="lx-pref-note" id="prefAutosaveStatus"></div>
        <div class="action-row"><button type="button" class="btn-secondary" id="prefAutosaveNow">Autosave now</button><button type="button" class="btn-secondary" id="prefAutosaveLoad">Open the autosave</button></div>
        <div class="section-divider"><span>SHOW FILE</span></div>
-       <div class="action-row lx-showfile-row"></div>`));
+       <div class="action-row lx-showfile-row"></div>` +
+      row("Visualiser", "Together: the stage, set and where every light hangs are saved in the show file. Separate: show files leave the visualiser alone, and you save and open it as its own file (App menu → Save / Open visualiser file), so one venue can go with many shows.", seg("vizInShow", [["together", "Together"], ["separate", "Separate files"]])) +
+      `<div class="action-row"><button type="button" class="btn-secondary" id="prefVizSave">Save visualiser file…</button><button type="button" class="btn-secondary" id="prefVizOpen">Open visualiser file…</button></div>`));
 
     host.appendChild(panel("show", "prefQuit", "Quitting", "SHOW",
       row("Ask before quitting", `Light Spark asks before it closes, so a stray ${/Mac/.test(navigator.platform) ? "⌘Q" : "Ctrl+Q or Alt+F4"} can't stop the lights mid-show.`, check("confirmQuit"))));

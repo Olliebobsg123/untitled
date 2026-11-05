@@ -169,11 +169,15 @@
 
   // The visualiser layout (fixture positions, aims, view settings) lives in
   // State.visualizer, owned by js/visualizer-link.js.
+  // Preferences → Show File → Visualiser "Separate files": shows leave it alone (js/viz-files.js).
+  const vizSeparate = () => window.LXPrefs?.get?.("vizInShow") === "separate";
   function snapshotVisualizerState() {
+    if (vizSeparate()) return null;
     return window.LXVisualizer?.toShow() ?? null;
   }
 
   function restoreVisualizerState(viz) {
+    if (vizSeparate()) return;
     window.LXVisualizer?.fromShow(viz);
   }
 
@@ -628,6 +632,8 @@ try { window.initFixtureStates?.(); } catch (_) {}
     if (!/^(save|load|open)\s+.+$|^save$/i.test(command)) return false;
     // "open flx" opens a ZerOS show (js/zos-import.js).
     if (/^(open|load|save|save\s+as)\s+(flx|zeros|zos)(\s+show)?$/i.test(command)) return false;
+    // "save viz" / "open visualiser" are visualiser files (js/viz-files.js).
+    if (/^(open|load|save|save\s+as)\s+(viz|vis|visuali[sz]er)(\s+file)?$/i.test(command)) return false;
     const m = command.match(/^open\s+(.+)$/i);
     return !(m && window.LXMoreCommands?.isWindow?.(m[1].trim().toLowerCase()));
   }

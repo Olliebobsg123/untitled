@@ -385,6 +385,8 @@
       if (window.LXAscii?.command?.(c)) return true;
       // "open flx" — open a ZerOS .zos show (js/zos-import.js).
       if (window.LXZos?.command?.(c)) return true;
+      // "save viz" / "open viz" — visualiser files (js/viz-files.js).
+      if (window.LXVizFiles?.command?.(c)) return true;
       if (c === "undo") return undo();
       if (c === "redo") return redo();
       // "fog limit 10", "fog reset" (js/atmos-safety.js): before "fog 80".

@@ -381,6 +381,8 @@
       let m;
       // "ui classic" / "ui new" (js/studio.js): which interface.
       if (window.LXStudio?.command?.(c)) return true;
+      // "export flx" / "export ascii" (js/ascii-export.js).
+      if (window.LXAscii?.command?.(c)) return true;
       if (c === "undo") return undo();
       if (c === "redo") return redo();
       // "fog limit 10", "fog reset" (js/atmos-safety.js): before "fog 80".

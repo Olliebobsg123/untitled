@@ -31,6 +31,7 @@
       case "save": return window.LXShowCommands?.saveCurrent ? window.LXShowCommands.saveCurrent() : click("btnSaveShow");
       case "save-as": return window.LXShowCommands?.saveAs();
       case "open": return window.LXShowCommands?.open ? window.LXShowCommands.open() : click("btnLoadShow");
+      case "export-flx": return window.LXAscii?.export();
       case "autosave": return window.LXPrefs?.autosave().then(r => window.log?.(r ? `Autosaved to ${r.path}` : "Nothing new to autosave", r ? "ok" : "info"));
       case "clear": return window.parseCommand?.("clear programmer");
       case "new-page": return window.LXCustomPages?.create();
@@ -71,6 +72,7 @@
       ["save-as", "Save Show As…", key("⇧S")],
       ["open", "Open Show…", key("O")],
       ["autosave", "Autosave Now", ""],
+      ["export-flx", "Export for FLX S (ASCII)…", ""],
       "-",
       ["clear", "Clear Programmer", ""],
       ["new-page", "New Page…", ""],

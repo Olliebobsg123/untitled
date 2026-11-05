@@ -316,7 +316,7 @@
     ["viz lights", "the lights table", "Visualiser"], ["viz plot", "the lighting plot", "Visualiser"], ["viz build", "build mode", "Visualiser"], ["viz measure", "measure", "Visualiser"],
     ["viz house <onoff>", "house lights", "Visualiser"], ["viz work <onoff>", "work lights", "Visualiser"], ["viz grid <onoff>", "the floor grid", "Visualiser"],
     ["viz haze <level>", "room haze", "Visualiser"], ["viz exposure <number>", "brighter or darker", "Visualiser"], ["viz quality <quality>", "quality", "Visualiser"], ["viz from light", "look from the selected light", "Visualiser"],
-    ["save as", "save the show under a new name", "Show"], ["open show", "open a show file", "Show"], ["check for updates", "look for a new Light Spark", "Show"]
+    ["save as", "save the show under a new name", "Show"], ["export flx", "an ASCII show file for a Zero 88 FLX S (levels and cues)", "Show"], ["open show", "open a show file", "Show"], ["check for updates", "look for a new Light Spark", "Show"]
   ];
 
   function slot(type) {

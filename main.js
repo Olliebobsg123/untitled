@@ -290,6 +290,51 @@ ipcMain.handle('lx-show-open-dialog', async event => {
   const result = await dialog.showOpenDialog(win, { title: 'Open Show', defaultPath: getShowDirectory(), properties: ['openFile'], filters: [{ name: 'Light Spark Show', extensions: ['json'] }] });
   return result.canceled || !result.filePaths?.[0] ? null : result.filePaths[0];
 });
+// ---- Zero 88 FLX / ZerOS show files (.zos), js/zos-import.js ----
+// Read and written as bytes, wherever they are (a USB stick included).
+// Writing over a file first keeps the old one in userData/FLX Backups.
+let lastZosDir = '';
+ipcMain.handle('lx-zos-open-dialog', async event => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const result = await dialog.showOpenDialog(win, { title: 'Open FLX Show', defaultPath: lastZosDir || app.getPath('downloads'), properties: ['openFile'], filters: [{ name: 'Zero 88 FLX / ZerOS show', extensions: ['zos'] }] });
+  if (result.canceled || !result.filePaths?.[0]) return null;
+  const filePath = result.filePaths[0];
+  lastZosDir = path.dirname(filePath);
+  return { filePath, data: new Uint8Array(fs.readFileSync(filePath)) };
+});
+ipcMain.handle('lx-zos-read', (_event, payload) => {
+  const filePath = String(payload?.filePath || '');
+  if (!/\.zos$/i.test(filePath) || !fs.existsSync(filePath)) return null;
+  return { filePath, data: new Uint8Array(fs.readFileSync(filePath)) };
+});
+ipcMain.handle('lx-zos-save-dialog', async (event, payload) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const name = String(payload?.name || 'FLX show').replace(/\.(zos|json)$/ig, '').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'FLX show';
+  const result = await dialog.showSaveDialog(win, { title: 'Save FLX Show', defaultPath: path.join(payload?.dir || lastZosDir || app.getPath('downloads'), `${name}.zos`), filters: [{ name: 'Zero 88 FLX / ZerOS show', extensions: ['zos'] }] });
+  if (result.canceled || !result.filePath) return null;
+  lastZosDir = path.dirname(result.filePath);
+  return /\.zos$/i.test(result.filePath) ? result.filePath : `${result.filePath}.zos`;
+});
+ipcMain.handle('lx-zos-save', (_event, payload) => {
+  const filePath = String(payload?.filePath || '');
+  if (!/\.zos$/i.test(filePath)) throw new Error('Not an FLX show file name (.zos)');
+  const data = Buffer.from(payload?.data || []);
+  if (data.length < 64 || data.toString('latin1', 0, 4) !== 'Z88C') throw new Error('Nothing valid to save');
+  let backup = '';
+  if (fs.existsSync(filePath)) {
+    const dir = path.join(app.getPath('userData'), 'FLX Backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    backup = path.join(dir, `${path.basename(filePath, '.zos')} ${stamp}.zos`);
+    fs.copyFileSync(filePath, backup);
+  }
+  const tmp = `${filePath}.saving`;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, filePath);
+  return { filePath, backup, bytes: data.length };
+});
+ipcMain.handle('lx-zos-reveal', (_event, payload) => { try { require('electron').shell.showItemInFolder(String(payload?.filePath || '')); } catch (_) {} });
+
 ipcMain.handle('lx-show-load', async (_event, payload) => {
   const filePath = resolveShowPath(payload?.filePath);
   if (!fs.existsSync(filePath) && fs.existsSync(placeholderOf(filePath)) && !(await downloadFromICloud(filePath))) throw new Error(`iCloud hasn't downloaded “${path.basename(filePath)}” to this Mac yet — check the internet connection and try again`);

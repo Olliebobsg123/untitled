@@ -352,6 +352,8 @@
   function restoreShow(show) {
     if (!show || typeof show !== "object" || (show.format && show.format !== "lx-console-show")) throw new Error("Not a valid LX Console show file");
     keepOldWheelWhite(show);
+    // Opening any other show means Save no longer goes to an FLX file.
+    if (!show.fromZerOS) window.LXZos?.detach?.();
     stopLivePlayback();
     const state = window.State || (window.State = {});
     state.fixtures = Array.isArray(show.fixtures) ? show.fixtures : [];
@@ -497,6 +499,8 @@ try { window.initFixtureStates?.(); } catch (_) {}
 
   // Save: back into the open show, or ask where the first time.
   async function saveCurrent() {
+    // An FLX show (.zos) that's open saves back into its own file (js/zos-import.js).
+    if (window.LXZos?.isOpen?.()) return window.LXZos.save();
     if (!window.LXShowFiles?.saveDialog) return browserSaveShow();
     if (!currentPath) return saveAs();
     try { return await saveShow(currentPath); }

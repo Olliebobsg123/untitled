@@ -34,6 +34,7 @@
       case "export-flx": return window.LXAscii?.export();
       case "open-flx": return window.LXZos?.open();
       case "save-flx": return window.LXZos?.save();
+      case "save-flx-as": return window.LXZos?.saveAs();
       case "open-viz": return window.LXVizFiles?.open();
       case "save-viz": return window.LXVizFiles?.save();
       case "autosave": return window.LXPrefs?.autosave().then(r => window.log?.(r ? `Autosaved to ${r.path}` : "Nothing new to autosave", r ? "ok" : "info"));
@@ -81,7 +82,8 @@
       ["save-viz", "Save visualiser file…", ""],
       "-",
       ["open-flx", "Open FLX show (.zos)…", ""],
-      ["save-flx", "Save as FLX show (.zos)…", ""],
+      ["save-flx", "Save FLX show", ""],
+      ["save-flx-as", "Save FLX show as…", ""],
       ["export-flx", "Export for FLX S (ASCII)…", ""],
       "-",
       ["clear", "Clear Programmer", ""],

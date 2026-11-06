@@ -13,7 +13,13 @@ const showFileApi = {
   folder: () => ipcRenderer.invoke('lx-shows-folder'),
   setFolder: (kind, options = {}) => ipcRenderer.invoke('lx-shows-folder-set', { kind, path: options.path, copy: Boolean(options.copy) }),
   chooseFolder: () => ipcRenderer.invoke('lx-shows-folder-choose'),
-  lock: (filePath, on) => ipcRenderer.invoke('lx-show-lock', { filePath, on: Boolean(on) })
+  lock: (filePath, on) => ipcRenderer.invoke('lx-show-lock', { filePath, on: Boolean(on) }),
+  // Zero 88 FLX shows (.zos, js/zos-import.js)
+  zosOpenDialog: () => ipcRenderer.invoke('lx-zos-open-dialog'),
+  zosRead: filePath => ipcRenderer.invoke('lx-zos-read', { filePath }),
+  zosSaveDialog: (name, dir) => ipcRenderer.invoke('lx-zos-save-dialog', { name, dir }),
+  zosSave: (filePath, data) => ipcRenderer.invoke('lx-zos-save', { filePath, data }),
+  zosReveal: filePath => ipcRenderer.invoke('lx-zos-reveal', { filePath })
 };
 
 const feedbackApi = {

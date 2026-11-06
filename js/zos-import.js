@@ -404,7 +404,7 @@
     }
     return {
       show: {
-        format: "lx-console-show", version: 8, savedAt: new Date().toISOString(),
+        format: "lx-console-show", version: 8, savedAt: new Date().toISOString(), fromZerOS: true,
         fixtures, groups, cues, chases: [], savedEffects: [], palettes: [], fixtureStates: [], selected: [],
         current: { __lxCustomFixtures: custom }, currentCue: -1
       },
@@ -413,7 +413,10 @@
   }
 
   async function openFile(file) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    return openBytes(new Uint8Array(await file.arrayBuffer()), file.name, "");
+  }
+
+  async function openBytes(bytes, label, filePath) {
     const z = read(bytes);
     const r = toShow(z);
     const others = z.playbacks.filter(p => p.cues.length && p !== r.playback).length;
@@ -425,7 +428,9 @@
     if (window.LXAsk && !ok) { say("Open FLX show cancelled — nothing was changed", "info"); return null; }
     try { for (const [k, d] of Object.entries(r.custom)) window.FixtureLibrary[k] = JSON.parse(JSON.stringify(d)); } catch (_) {}
     window.LXShowCommands?.restore?.(r.show);
-    keepBase(bytes, z.name);
+    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath);
+    openPath = filePath || "";
+    try { window.LXShowCommands?.markSaved?.(); } catch (_) {}
     try { window.renderLibrary?.(); } catch (_) {}
     say(`Opened FLX show “${z.name}”: ${r.show.fixtures.length} lights (${r.matched} fixture type${r.matched === 1 ? "" : "s"} from Light Spark's library, ${r.rebuilt} rebuilt from the show), ${r.show.groups.length} groups, ${r.show.cues.length} cues`, "ok");
     if (r.skipped) say(`${r.skipped} light${r.skipped === 1 ? " wasn't" : "s weren't"} patched on the desk, so ${r.skipped === 1 ? "it was" : "they were"} left out`, "warn");
@@ -556,18 +561,18 @@
   // The base show: the FLX show opened last (kept on this Mac).
   let base = null;
   const BASE_KEY = "lx-zos-base";
-  function keepBase(bytes, name) {
-    base = { bytes: bytes.slice(), name };
+  function keepBase(bytes, name, filePath = "") {
+    base = { bytes: bytes.slice(), name, path: filePath };
     try {
       let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-      localStorage.setItem(BASE_KEY, JSON.stringify({ name, data: btoa(bin) }));
+      localStorage.setItem(BASE_KEY, JSON.stringify({ name, path: filePath, data: btoa(bin) }));
     } catch (_) {}
   }
   function loadBase() {
     if (base) return base;
     try {
       const saved = JSON.parse(localStorage.getItem(BASE_KEY) || "null");
-      if (saved?.data) { const bin = atob(saved.data); const b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); base = { bytes: b, name: saved.name }; }
+      if (saved?.data) { const bin = atob(saved.data); const b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); base = { bytes: b, name: saved.name, path: saved.path || "" }; }
     } catch (_) {}
     return base;
   }
@@ -580,7 +585,8 @@
     const z = read(raw);
     const main = top.find(n => n.section === 0x10 && n.kids);
     const sec = id => main ? kidsOf(main, { section: id }).find(k => k.kids) : null;
-    const name = String(opts.name || window.LXShowCommands?.name?.() || z.name).replace(/\.json$/i, "").replace(/[^\x20-\x7e]/g, "").slice(0, 31) || z.name;
+    const clean = n => String(n || "").replace(/\.(zos|json)$/ig, "").replace(/\.(zos|json)$/ig, "").replace(/[^\x20-\x7e]/g, "").trim().slice(0, 31);
+    const name = clean(opts.name) || clean(window.LXShowCommands?.name?.()) || clean(z.name) || "FLX show";
     const nameNode = top.find(n => n.section === 0 && n.field === 2 && n.value);
     if (nameNode) nameNode.value = new TextEncoder().encode(name);
 
@@ -635,7 +641,7 @@
       const a = spans[i - 1], b = spans[i];
       if (a.uni === b.uni && b.from <= a.to) clashes.push(`${a.d.number} and ${b.d.number} (address ${b.from})`);
     }
-    if (clashes.length) throw new Error(`lights would share DMX channels on the desk: ${clashes.slice(0, 6).join(", ")}${clashes.length > 6 ? "…" : ""}. Light Spark and the FLX show have different lights at those addresses — patch the desk to match (or fix the patch here), then try again`);
+    // These overlaps are in Light Spark's own patch: save anyway, and say so.
     let moved = 0;
     for (const [d, ls] of pair) {
       const p = place.get(d);
@@ -707,7 +713,7 @@
     list.kids = [{ open: true }, ...newCues.map(x => x.node)];
 
     const data = writeData(raw, top);
-    return { bytes: pack(data), name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched };
+    return { bytes: pack(data), name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes };
   }
 
   function download(bytes, file) {
@@ -718,20 +724,47 @@
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 
-  async function saveWith(b) {
-    const ok = await window.LXAsk?.("Save as FLX show", [], {
-      ok: "Save .zos",
-      message: `Saves your cues and patch into “${b.name}” (the FLX show you opened last), keeping its setup, fixture types and palettes. Each light is matched to a light of the same type on the desk (same address, or same number); lights the desk show doesn't have are left out, and nothing is saved if two lights would share channels. Test it on the desk with the school's show saved to USB first — loading replaces the whole show on the desk.`
-    });
-    if (window.LXAsk && !ok) return null;
-    try {
-      const r = build(b.bytes);
-      const file = `${r.name.replace(/[^\w .-]/g, "") || "Light Spark"}.zos`;
-      download(r.bytes, file);
-      say(`${file} saved to your Downloads folder: ${r.cues} cues for ${r.lights} lights${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}${r.unpatched ? `, ${r.unpatched} desk light${r.unpatched === 1 ? "" : "s"} Light Spark doesn't have unpatched` : ""}. Copy it to a USB stick → FLX S: Setup → Load File`, "ok");
-      if (r.renumbered.length) say(`Some lights have different numbers on the desk (Light Spark → desk): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""}`, "info");
-      if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");
+  const bridge = () => (window.LXShowFiles?.zosSave ? window.LXShowFiles : null);
+  const fileName = p => String(p || "").split(/[\\/]/).pop();
+  const baseName = p => fileName(p).replace(/\.zos$/i, "");
+  let openPath = "";          // the FLX file the open show came from: Save writes back to it
+
+  function report(r, where) {
+    say(`Saved FLX show “${where}”: ${r.cues} cues for ${r.lights} lights${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}${r.unpatched ? `, ${r.unpatched} desk light${r.unpatched === 1 ? "" : "s"} Light Spark doesn't have unpatched` : ""}`, "ok");
+    if (r.renumbered.length) say(`Some lights have different numbers on the desk (Light Spark → desk): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""}`, "info");
+    if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");
+    if (r.clashes?.length) say(`Lights share DMX channels in this show: ${r.clashes.slice(0, 6).join(", ")}${r.clashes.length > 6 ? "…" : ""} — check the patch before using it on the desk`, "warn");
+  }
+
+  // Write to a file (Light Spark app), or download it (no file access).
+  async function writeTo(filePath, r) {
+    const b = bridge();
+    if (b && filePath) {
+      const out = await b.zosSave(filePath, r.bytes);
+      openPath = out.filePath;
+      keepBase(r.bytes, baseName(out.filePath), out.filePath);
+      window.LXShowCommands?.markSaved?.();
+      report(r, fileName(out.filePath));
+      if (out.backup) say(`The previous version is kept in Light Spark's FLX Backups folder`, "info");
       return r;
+    }
+    const file = `${(r.name || "FLX show").replace(/[^\w .-]/g, "") || "FLX show"}.zos`;
+    download(r.bytes, file);
+    report(r, `${file}” in your Downloads folder, “${file}`);
+    return r;
+  }
+
+  function buildFrom(b, name) {
+    return build(b.bytes, { name });
+  }
+
+  // Save: back into the FLX file that's open (or ask where, the first time).
+  async function save() {
+    const b = loadBase();
+    if (!b) return saveAs();
+    try {
+      if (openPath && bridge()) return await writeTo(openPath, buildFrom(b, baseName(openPath)));
+      return await saveAs();
     } catch (e) {
       console.error("[ZOS] save", e);
       say(`Couldn't save the FLX show: ${e.message || e}`, "error");
@@ -739,51 +772,70 @@
     }
   }
 
-  function save() {
-    const b = loadBase();
-    if (b) return saveWith(b);
-    say("Pick an FLX show from the desk to save into (it keeps the desk's setup and fixture types)", "info");
-    pickFile(async file => {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      read(bytes);
-      keepBase(bytes, file.name.replace(/\.zos$/i, ""));
-      saveWith(base);
+  async function saveAs() {
+    let b = loadBase();
+    if (!b) {
+      say("Pick an FLX show from the desk to save into — it keeps the desk's setup, fixture types and palettes", "info");
+      b = await pickBase();
+      if (!b) return null;
+    }
+    try {
+      const suggested = (window.LXShowCommands?.name?.() || "").replace(/\.(json|zos)$/ig, "") || baseName(openPath) || b.name || "FLX show";
+      const br = bridge();
+      if (br) {
+        const dir = openPath ? openPath.replace(/[\\/][^\\/]*$/, "") : "";
+        const target = await br.zosSaveDialog(suggested, dir);
+        if (!target) return null;
+        return await writeTo(target, buildFrom(b, baseName(target)));
+      }
+      return await writeTo("", buildFrom(b, suggested));
+    } catch (e) {
+      console.error("[ZOS] save", e);
+      say(`Couldn't save the FLX show: ${e.message || e}`, "error");
+      return null;
+    }
+  }
+
+  // Choose an FLX file: the app's own dialog (knows where the file is), or the browser's.
+  function pickFile() {
+    const br = bridge();
+    if (br) return br.zosOpenDialog().then(r => r ? { bytes: new Uint8Array(r.data), path: r.filePath, name: fileName(r.filePath) } : null);
+    return new Promise(resolve => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".zos";
+      input.style.display = "none";
+      input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        input.remove();
+        resolve(file ? { bytes: new Uint8Array(await file.arrayBuffer()), path: "", name: file.name } : null);
+      });
+      document.body.appendChild(input);
+      input.click();
     });
   }
 
-  function pickFile(then) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".zos";
-    input.style.display = "none";
-    input.addEventListener("change", () => {
-      const file = input.files?.[0];
-      input.remove();
-      if (file) Promise.resolve(then(file)).catch(e => { console.error("[ZOS]", e); say(`Couldn't use that FLX show: ${e.message || e}`, "error"); });
-    });
-    document.body.appendChild(input);
-    input.click();
+  async function pickBase() {
+    const f = await pickFile();
+    if (!f) return null;
+    read(f.bytes);
+    keepBase(f.bytes, f.name.replace(/\.zos$/i, ""), f.path);
+    return base;
   }
 
-  function choose() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".zos,.isf";
-    input.style.display = "none";
-    input.addEventListener("change", () => {
-      const file = input.files?.[0];
-      input.remove();
-      if (file) openFile(file).catch(e => { console.error("[ZOS]", e); say(`Couldn't open that FLX show: ${e.message || e}`, "error"); });
-    });
-    document.body.appendChild(input);
-    input.click();
+  async function choose() {
+    try {
+      const f = await pickFile();
+      if (f) await openBytes(f.bytes, f.name, f.path);
+    } catch (e) { console.error("[ZOS]", e); say(`Couldn't open that FLX show: ${e.message || e}`, "error"); }
   }
 
   function command(c) {
     if (/^(open|load|import) (flx|zeros|zos)( show)?$/.test(c)) { choose(); return true; }
-    if (/^(save|export) (as )?(flx|zeros|zos)( show)?$/.test(c)) { save(); return true; }
+    if (/^(save|export) as (flx|zeros|zos)( show)?$/.test(c)) { saveAs(); return true; }
+    if (/^(save|export) (flx|zeros|zos)( show)?( as)?$/.test(c)) { if (/ as$/.test(c)) saveAs(); else save(); return true; }
     return false;
   }
 
-  window.LXZos = { lzw, lzwEncode, unpack, parse, read, toShow, serialize, writeData, pack, build, open: choose, openFile, save, command, base: loadBase };
+  window.LXZos = { lzw, lzwEncode, unpack, parse, read, toShow, serialize, writeData, pack, build, open: choose, openFile, openBytes, save, saveAs, command, base: loadBase, isOpen: () => Boolean(openPath), path: () => openPath, detach: () => { openPath = ""; } };
 })();

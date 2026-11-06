@@ -328,10 +328,14 @@ ipcMain.handle('lx-zos-save', (_event, payload) => {
     backup = path.join(dir, `${path.basename(filePath, '.zos')} ${stamp}.zos`);
     fs.copyFileSync(filePath, backup);
   }
-  const tmp = `${filePath}.saving`;
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, filePath);
-  return { filePath, backup, bytes: data.length };
+  // Written straight to the file (USB sticks formatted FAT / exFAT don't
+  // always allow renaming over a file), flushed, then read back to check.
+  const fd = fs.openSync(filePath, 'w');
+  try { fs.writeSync(fd, data, 0, data.length, 0); try { fs.fsyncSync(fd); } catch (_) {} }
+  finally { fs.closeSync(fd); }
+  const check = fs.readFileSync(filePath);
+  if (!check.equals(data)) throw new Error(`the file on disk doesn't match what was saved (${check.length} of ${data.length} bytes) — the drive may be full or read-only`);
+  return { filePath, backup, bytes: data.length, verified: true };
 });
 ipcMain.handle('lx-zos-reveal', (_event, payload) => { try { require('electron').shell.showItemInFolder(String(payload?.filePath || '')); } catch (_) {} });
 

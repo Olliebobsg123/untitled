@@ -740,11 +740,21 @@
   async function writeTo(filePath, r) {
     const b = bridge();
     if (b && filePath) {
-      const out = await b.zosSave(filePath, r.bytes);
+      let out;
+      try { out = await b.zosSave(filePath, r.bytes); }
+      catch (e) {
+        const why = String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+        const perm = /EPERM|EACCES|not permitted|read-only|EROFS/i.test(why);
+        say(`Couldn't write “${filePath}”: ${why}${perm ? " — on a Mac, allow Light Spark in System Settings → Privacy & Security → Files and Folders → Removable Volumes, or pick another place" : ""}`, "error");
+        const target = await b.zosSaveDialog(baseName(filePath), "");
+        if (!target) return null;
+        out = await b.zosSave(target, r.bytes);
+      }
       openPath = out.filePath;
       keepBase(r.bytes, baseName(out.filePath), out.filePath);
       window.LXShowCommands?.markSaved?.();
-      report(r, fileName(out.filePath));
+      report(r, out.filePath);
+      if (out.verified) say(`Checked: the file on disk is exactly what was saved (${Math.round(out.bytes / 1024)} KB)`, "ok");
       if (out.backup) say(`The previous version is kept in Light Spark's FLX Backups folder`, "info");
       return r;
     }

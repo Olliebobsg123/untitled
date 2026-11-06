@@ -109,7 +109,14 @@ function createRemoteServer({ configPath, onCommand, onClientsChanged }) {
     server.listen(PORT, '0.0.0.0', () => console.log(`[REMOTE] listening on :${PORT}`));
     try {
       const { Bonjour } = require('bonjour-service');
-      bonjour = new Bonjour();
+      // Sending the announcement can fail while the Mac has no usable network
+      // (Wi-Fi off or switching, asleep: EADDRNOTAVAIL, ENETUNREACH…). The
+      // library throws those by default, which pops up a main-process error;
+      // log them instead — it announces again on its own when it can.
+      let lastWarn = 0;
+      bonjour = new Bonjour({}, err => {
+        if (Date.now() - lastWarn > 60000) { lastWarn = Date.now(); console.warn('[REMOTE] Bonjour:', err?.code || err?.message || err); }
+      });
       advert = bonjour.publish({ name: `Lighting Console (${os.hostname()})`, type: 'lxconsole', port: PORT });
     } catch (err) { console.warn('[REMOTE] Bonjour unavailable:', err.message); }
     notify();

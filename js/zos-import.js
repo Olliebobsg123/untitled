@@ -584,20 +584,69 @@
     const nameNode = top.find(n => n.section === 0 && n.field === 2 && n.value);
     if (nameNode) nameNode.value = new TextEncoder().encode(name);
 
-    // Patch: lights the desk already knows, by fixture number.
-    const lsByNumber = new Map((S.fixtures || []).filter(Boolean).map(f => [Number(f.fixtureNumber), f]));
-    const deskByNumber = new Map(z.fixtures.map(f => [f.number, f]));
-    let moved = 0;
-    for (const node of kidsOf(sec(0x1c))) {
-      const number = int(one(node, 8));
-      const ls = lsByNumber.get(number);
-      const patch = kidsOf(one(node, 6))[0];
-      if (!ls || !patch || ls.addr == null) continue;
-      const addr = Number(ls.addr), uni = Math.max(1, Number(ls.uni) || 1);
-      const d = deskByNumber.get(number);
-      if (d && (d.addr !== addr || d.uni !== uni)) { if (setInt(patch, 1, addr)) { if (!setInt(patch, 2, uni - 1) && uni > 1) continue; d.addr = addr; d.uni = uni; moved++; } }
+    // Patch: pair each light on the desk with a Light Spark light of the
+    // same type — at the same address first, then with the same number. A
+    // desk light is never moved onto a light of another type, and nothing is
+    // written if two lights would end up on the same channels.
+    const words = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const lsLights = (S.fixtures || []).filter(f => f && f.addr != null);
+    // looseName: at the same address, the same channel count is enough
+    // (names differ between libraries, e.g. "MKII" / "MKIII").
+    const sameType = (d, ls, looseName = false) => {
+      if (!d.type) return false;
+      const def = window.getFixtureDefinition?.(ls) || window.FixtureLibrary?.[ls.name] || {};
+      const chans = Number(def.channels ?? def.channelCount);
+      if (Number.isFinite(chans) && chans !== d.type.channels) return false;
+      if (looseName && Number.isFinite(chans)) return true;
+      const model = words(d.type.name);
+      return words(ls.name).includes(model) || words(def.model).includes(model) || (/^dimmer$/.test(model) && chans === 1 && /dimmer/.test(words(ls.name)));
+    };
+    const at = f => `${Math.max(1, Number(f.uni) || 1)}/${Number(f.addr)}`;
+    const pair = new Map(); // desk fixture → Light Spark fixture
+    const used = new Set();
+    for (const d of z.fixtures) {
+      if (!d.addr) continue;
+      const ls = lsLights.find(l => !used.has(l) && at(l) === at(d) && sameType(d, l, true));
+      if (ls) { pair.set(d, ls); used.add(ls); }
     }
-    const missing = [...lsByNumber.keys()].filter(n => !deskByNumber.has(n) || !deskByNumber.get(n).addr);
+    for (const d of z.fixtures) {
+      if (pair.has(d)) continue;
+      const ls = lsLights.find(l => !used.has(l) && Number(l.fixtureNumber) === d.number && sameType(d, l));
+      if (ls) { pair.set(d, ls); used.add(ls); }
+    }
+    // Desk lights Light Spark doesn't have are unpatched (kept in the list,
+    // since the desk's palettes and groups still refer to them, but given no
+    // address), so the desk ends up with just Light Spark's lights patched.
+    const nodeByNumber = new Map(kidsOf(sec(0x1c)).map(n => [int(one(n, 8)), n]));
+    let unpatched = 0;
+    for (const d of z.fixtures) {
+      if (!d.addr || pair.has(d)) continue;
+      const node = nodeByNumber.get(d.number);
+      if (!node?.kids) continue;
+      node.kids = node.kids.filter(k => !(k.field === 6 && k.kids));
+      d.addr = null;
+      unpatched++;
+    }
+    // Where every desk light will be, and whether any overlap.
+    const place = new Map([...pair].map(([d, ls]) => [d, { uni: Math.max(1, Number(ls.uni) || 1), addr: Number(ls.addr) }]));
+    const spans = [...place].map(([d, p]) => ({ d, uni: p.uni, from: p.addr, to: p.addr + Math.max(1, d.type?.channels || 1) - 1 })).sort((a, b) => a.uni - b.uni || a.from - b.from);
+    const clashes = [];
+    for (let i = 1; i < spans.length; i++) {
+      const a = spans[i - 1], b = spans[i];
+      if (a.uni === b.uni && b.from <= a.to) clashes.push(`${a.d.number} and ${b.d.number} (address ${b.from})`);
+    }
+    if (clashes.length) throw new Error(`lights would share DMX channels on the desk: ${clashes.slice(0, 6).join(", ")}${clashes.length > 6 ? "…" : ""}. Light Spark and the FLX show have different lights at those addresses — patch the desk to match (or fix the patch here), then try again`);
+    let moved = 0;
+    for (const [d, ls] of pair) {
+      const p = place.get(d);
+      if (p.addr === d.addr && p.uni === d.uni) continue;
+      const patch = kidsOf(one(nodeByNumber.get(d.number), 6))[0];
+      if (!patch || !setInt(patch, 1, p.addr)) throw new Error(`couldn't move light ${d.number} on the desk patch`);
+      if (!setInt(patch, 2, p.uni - 1) && p.uni > 1) throw new Error(`couldn't move light ${d.number} to universe ${p.uni}`);
+      d.addr = p.addr; d.uni = p.uni; moved++;
+    }
+    const renumbered = [...pair].filter(([d, ls]) => Number(ls.fixtureNumber) !== d.number).map(([d, ls]) => `${ls.fixtureNumber}→${d.number}`);
+    const missing = lsLights.filter(l => !used.has(l)).map(l => l.fixtureNumber);
 
     // Cues: into the playback that has the most cues.
     const stacks = top.find(n => n.section === 0x50 && n.kids);
@@ -618,7 +667,7 @@
     if (!entryProto || !paramProto) throw new Error("couldn't find a lit light in the FLX show's cues to copy the layout from");
 
     const looks = (S.cues || []).map((cue, i) => ({ cue, i })).filter(x => x.cue);
-    const fixturesForCue = z.fixtures.filter(f => f.type && f.addr && lsByNumber.has(f.number));
+    const fixturesForCue = z.fixtures.filter(f => f.type && f.addr && pair.has(f));
     const newCues = [];
     for (const { cue, i } of looks) {
       const look = window.cueLook?.(i)?.fixtureMap || new Map();
@@ -658,7 +707,7 @@
     list.kids = [{ open: true }, ...newCues.map(x => x.node)];
 
     const data = writeData(raw, top);
-    return { bytes: pack(data), name, cues: newCues.length, lights: fixturesForCue.length, moved, missing };
+    return { bytes: pack(data), name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched };
   }
 
   function download(bytes, file) {
@@ -672,14 +721,15 @@
   async function saveWith(b) {
     const ok = await window.LXAsk?.("Save as FLX show", [], {
       ok: "Save .zos",
-      message: `Saves your cues and patch into “${b.name}” (the FLX show you opened last), keeping its setup, fixture types and palettes. Only lights the desk show already has are included. Test it on the desk with the school's show saved to USB first — loading replaces the whole show on the desk.`
+      message: `Saves your cues and patch into “${b.name}” (the FLX show you opened last), keeping its setup, fixture types and palettes. Each light is matched to a light of the same type on the desk (same address, or same number); lights the desk show doesn't have are left out, and nothing is saved if two lights would share channels. Test it on the desk with the school's show saved to USB first — loading replaces the whole show on the desk.`
     });
     if (window.LXAsk && !ok) return null;
     try {
       const r = build(b.bytes);
       const file = `${r.name.replace(/[^\w .-]/g, "") || "Light Spark"}.zos`;
       download(r.bytes, file);
-      say(`${file} saved to your Downloads folder: ${r.cues} cues for ${r.lights} lights${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}. Copy it to a USB stick → FLX S: Setup → Load File`, "ok");
+      say(`${file} saved to your Downloads folder: ${r.cues} cues for ${r.lights} lights${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}${r.unpatched ? `, ${r.unpatched} desk light${r.unpatched === 1 ? "" : "s"} Light Spark doesn't have unpatched` : ""}. Copy it to a USB stick → FLX S: Setup → Load File`, "ok");
+      if (r.renumbered.length) say(`Some lights have different numbers on the desk (Light Spark → desk): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""}`, "info");
       if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");
       return r;
     } catch (e) {

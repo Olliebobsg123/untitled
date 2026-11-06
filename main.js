@@ -522,8 +522,17 @@ function getUpdater() {
   if (updater) return updater;
   const { shell } = require('electron');
   const { createUpdater } = require('./updater.js');
+  // Where updates come from. The packaged app's package.json has no "build"
+  // section (electron-builder strips it), so read app-update.yml (which the
+  // builder writes into Resources), then package.json, then the known address.
+  const FEED = 'https://github.com/Olliebobsg123/untitled/releases/download/latest-build';
   let feedUrl = '';
-  try { feedUrl = require('./package.json').build?.publish?.[0]?.url || ''; } catch (_) {}
+  try {
+    const yml = require('fs').readFileSync(require('path').join(process.resourcesPath || '', 'app-update.yml'), 'utf8');
+    feedUrl = (yml.match(/^url:\s*['"]?([^'"\s]+)/m) || [])[1] || '';
+  } catch (_) {}
+  if (!feedUrl) { try { feedUrl = require('./package.json').build?.publish?.[0]?.url || ''; } catch (_) {} }
+  if (!/^https?:\/\//.test(feedUrl)) feedUrl = FEED;
   updater = createUpdater({ app, shell, feedUrl, send: state => { for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send('lx-update', state); } });
   return updater;
 }

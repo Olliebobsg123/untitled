@@ -101,7 +101,8 @@ function createUpdater({ app, shell, send, feedUrl }) {
     const files = Array.isArray(info?.files) ? info.files : [];
     const zip = files.find(f => new RegExp(`-${process.arch}\\.zip$`).test(f.url)) || files.find(f => /\.zip$/.test(f.url));
     if (!zip) throw new Error("No Mac zip in the update");
-    const url = /^https?:/.test(zip.url) ? zip.url : `${feedUrl.replace(/\/$/, "")}/${zip.url}`;
+    if (!/^https?:/.test(zip.url) && !/^https?:/.test(feedUrl || "")) throw new Error("No update address set");
+    const url = /^https?:/.test(zip.url) ? zip.url : `${feedUrl.replace(/\/$/, "")}/${String(zip.url).replace(/^\//, "")}`;
     cleanup();
     fs.mkdirSync(workDir(), { recursive: true });
     const file = path.join(workDir(), "update.zip");

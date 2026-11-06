@@ -337,6 +337,67 @@ ipcMain.handle('lx-zos-save', (_event, payload) => {
   if (!check.equals(data)) throw new Error(`the file on disk doesn't match what was saved (${check.length} of ${data.length} bytes) — the drive may be full or read-only`);
   return { filePath, backup, bytes: data.length, verified: true };
 });
+// ---- Find a show anywhere on the computer (js/find-show.js) ----
+// Light Spark shows (.json that really are shows), FLX shows (.zos) and
+// visualiser files (.lsviz) whose name contains the search. On a Mac,
+// Spotlight finds them everywhere; USB sticks (often not indexed) and, on
+// other systems, the home folder are also walked directly.
+const FIND_EXT = /\.(json|zos|lsviz)$/i;
+function findKind(file) {
+  if (/\.zos$/i.test(file)) return 'flx';
+  if (/\.lsviz$/i.test(file)) return 'viz';
+  try {
+    const fd = fs.openSync(file, 'r'); const buf = Buffer.alloc(600);
+    const n = fs.readSync(fd, buf, 0, 600, 0); fs.closeSync(fd);
+    return /"format"\s*:\s*"lx-console-show"/.test(buf.toString('utf8', 0, n)) ? 'show' : null;
+  } catch (_) { return null; }
+}
+function walkFind(dir, test, out, limits, depth = 0) {
+  if (depth > limits.depth || out.length >= limits.max || limits.seen++ > limits.files) return;
+  let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+  for (const e of entries) {
+    if (out.length >= limits.max) return;
+    if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'Library' && depth === 0) continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walkFind(full, test, out, limits, depth + 1);
+    else if (test(e.name)) out.push(full);
+  }
+}
+ipcMain.handle('lx-find-files', async (_event, payload) => {
+  const query = String(payload?.query || '').trim();
+  if (query.length < 2) return [];
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const test = name => FIND_EXT.test(name) && words.every(w => name.toLowerCase().includes(w));
+  const found = new Set();
+  if (process.platform === 'darwin') {
+    const safe = s => s.replace(/["\\*]/g, '');
+    const q = `(${words.map(w => `kMDItemFSName == "*${safe(w)}*"cd`).join(' && ')}) && (kMDItemFSName == "*.json"c || kMDItemFSName == "*.zos"c || kMDItemFSName == "*.lsviz"c)`;
+    const list = await new Promise(resolve => require('child_process').execFile('mdfind', [q], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => resolve(err && !stdout ? [] : String(stdout || '').split('\n').filter(Boolean))));
+    list.forEach(f => found.add(f));
+    // USB sticks and other drives Spotlight may not have indexed.
+    let vols = []; try { vols = fs.readdirSync('/Volumes').map(v => path.join('/Volumes', v)); } catch (_) {}
+    for (const v of vols) { let real = ''; try { real = fs.realpathSync(v); } catch (_) {} if (real === '/') continue; const out = []; walkFind(v, test, out, { depth: 6, max: 200, files: 40000, seen: 0 }); out.forEach(f => found.add(f)); }
+  } else {
+    const out = []; walkFind(os.homedir(), test, out, { depth: 7, max: 300, files: 150000, seen: 0 }); out.forEach(f => found.add(f));
+    if (process.platform === 'win32') for (const d of 'DEFGHIJ') { const root = `${d}:\\`; if (fs.existsSync(root)) { const o = []; walkFind(root, test, o, { depth: 5, max: 100, files: 40000, seen: 0 }); o.forEach(f => found.add(f)); } }
+  }
+  const results = [];
+  for (const file of found) {
+    if (results.length >= 150) break;
+    if (!test(path.basename(file)) || /\/(\.Trash|node_modules)\//.test(file)) continue;
+    const kind = findKind(file);
+    if (!kind) continue;
+    let st = null; try { st = fs.statSync(file); } catch (_) { continue; }
+    results.push({ path: file, name: path.basename(file), folder: path.dirname(file), kind, modified: st.mtimeMs, size: st.size, usb: file.startsWith('/Volumes/') });
+  }
+  return results.sort((a, b) => b.modified - a.modified);
+});
+ipcMain.handle('lx-find-read-text', (_event, payload) => {
+  const file = String(payload?.filePath || '');
+  if (!/\.(lsviz|json)$/i.test(file)) throw new Error('Not a Light Spark file');
+  return fs.readFileSync(file, 'utf8');
+});
+
 ipcMain.handle('lx-zos-reveal', (_event, payload) => { try { require('electron').shell.showItemInFolder(String(payload?.filePath || '')); } catch (_) {} });
 
 ipcMain.handle('lx-show-load', async (_event, payload) => {
@@ -524,6 +585,7 @@ function buildApplicationMenu() {
         page('Save Show', 'save', 'CmdOrCtrl+S'),
         page('Save Show As…', 'save-as', 'CmdOrCtrl+Shift+S'),
         page('Open Show…', 'open', 'CmdOrCtrl+O'),
+        page('Find a Show…', 'find-show', 'CmdOrCtrl+Shift+O'),
         page('Autosave Now', 'autosave'),
         { type: 'separator' },
         page('Clear Programmer', 'clear'),

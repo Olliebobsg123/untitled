@@ -19,7 +19,10 @@ const showFileApi = {
   zosRead: filePath => ipcRenderer.invoke('lx-zos-read', { filePath }),
   zosSaveDialog: (name, dir) => ipcRenderer.invoke('lx-zos-save-dialog', { name, dir }),
   zosSave: (filePath, data) => ipcRenderer.invoke('lx-zos-save', { filePath, data }),
-  zosReveal: filePath => ipcRenderer.invoke('lx-zos-reveal', { filePath })
+  zosReveal: filePath => ipcRenderer.invoke('lx-zos-reveal', { filePath }),
+  // Find a show anywhere on the computer (js/find-show.js)
+  find: query => ipcRenderer.invoke('lx-find-files', { query }),
+  readText: filePath => ipcRenderer.invoke('lx-find-read-text', { filePath })
 };
 
 const feedbackApi = {

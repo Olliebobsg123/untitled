@@ -387,6 +387,8 @@
       if (window.LXZos?.command?.(c)) return true;
       // "save viz" / "open viz" — visualiser files (js/viz-files.js).
       if (window.LXVizFiles?.command?.(c)) return true;
+      // "find frozen" — search the whole computer for a show (js/find-show.js).
+      if (window.LXFindShow?.command?.(c, raw)) return true;
       if (c === "undo") return undo();
       if (c === "redo") return redo();
       // "fog limit 10", "fog reset" (js/atmos-safety.js): before "fog 80".

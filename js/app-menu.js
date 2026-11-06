@@ -35,6 +35,7 @@
       case "open-flx": return window.LXZos?.open();
       case "save-flx": return window.LXZos?.save();
       case "save-flx-as": return window.LXZos?.saveAs();
+      case "find-show": return window.LXFindShow?.open();
       case "open-viz": return window.LXVizFiles?.open();
       case "save-viz": return window.LXVizFiles?.save();
       case "autosave": return window.LXPrefs?.autosave().then(r => window.log?.(r ? `Autosaved to ${r.path}` : "Nothing new to autosave", r ? "ok" : "info"));
@@ -76,6 +77,7 @@
       ["save", "Save Show", key("S")],
       ["save-as", "Save Show As…", key("⇧S")],
       ["open", "Open Show…", key("O")],
+      ["find-show", "Find a show…", key("⇧O")],
       ["autosave", "Autosave Now", ""],
       "-",
       ["open-viz", "Open visualiser file…", ""],

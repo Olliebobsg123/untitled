@@ -88,11 +88,15 @@
     const value = Math.round(Number(raw));
     if (field === "fixtureNumber") {
       if (!Number.isInteger(value) || value < 1) return warn("Fixture numbers start at 1");
-      if (state.fixtures.some(f => f !== fixture && Number(f.fixtureNumber) === value)) return warn(`Fixture number ${value} is already used`);
       const old = Number(fixture.fixtureNumber);
+      if (value === old) return true;
+      // A number that's taken: the two fixtures swap numbers.
+      const other = state.fixtures.find(f => f && f !== fixture && Number(f.fixtureNumber) === value);
       fixture.fixtureNumber = value;
-      // Groups store fixture numbers: follow the renumber.
-      for (const group of state.groups || []) if (Array.isArray(group.members)) group.members = group.members.map(n => (Number(n) === old ? value : n));
+      if (other) other.fixtureNumber = old;
+      // Groups store fixture numbers: follow the renumber (and the swap).
+      for (const group of state.groups || []) if (Array.isArray(group.members)) group.members = group.members.map(n => (Number(n) === old ? value : other && Number(n) === value ? old : n));
+      if (other) window.log?.(`#${value} was ${other.name} — swapped: it's #${old} now`, "info");
       state.fixtures.sort((a, b) => Number(a?.fixtureNumber) - Number(b?.fixtureNumber));
     } else if (field === "uni") {
       if (!Number.isInteger(value) || value < 1 || value > MAX_UNIVERSES) return warn(`Universe must be 1 to ${MAX_UNIVERSES}`);

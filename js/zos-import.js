@@ -368,7 +368,8 @@
     const have = new Set(fixtures.map(f => f.fixtureNumber));
     const groups = z.groups.filter(g => g.name && !g.auto).map(g => ({ name: g.name, members: g.members.filter(n => have.has(n)) })).filter(g => g.members.length);
     const cues = [];
-    const pb = z.playbacks.find(p => p.cues.length) || null;
+    // The main cue list: the playback with the most cues (ties: the lowest number), as saving picks it.
+    const pb = [...z.playbacks].filter(p => p.cues.length).sort((a, b) => b.cues.length - a.cues.length || (a.number ?? 0) - (b.number ?? 0))[0] || null;
     if (pb) {
       // Cues on the desk only hold what changed (tracking): carry each light's
       // state forward so colour mixes stay whole.
@@ -651,13 +652,28 @@
       if (!setInt(patch, 2, p.uni - 1) && p.uni > 1) throw new Error(`couldn't move light ${d.number} to universe ${p.uni}`);
       d.addr = p.addr; d.uni = p.uni; moved++;
     }
-    const renumbered = [...pair].filter(([d, ls]) => Number(ls.fixtureNumber) !== d.number).map(([d, ls]) => `${ls.fixtureNumber}→${d.number}`);
+    // Fixture numbers: the desk keeps its own "user" number for each light
+    // (field 8; its position in the list, field 1, is what cues refer to).
+    // Give each paired light Light Spark's number; desk lights that would
+    // clash (ones Light Spark doesn't have) move to free numbers above.
+    const want = new Map([...pair].map(([d, ls]) => [d, Number(ls.fixtureNumber)]).filter(([, n]) => Number.isInteger(n) && n > 0));
+    const taken = new Set(want.values());
+    let spare = Math.max(0, ...z.fixtures.map(d => d.number), ...taken);
+    const renumbered = [];
+    for (const d of z.fixtures) {
+      let n = want.get(d);
+      if (n == null) { if (!taken.has(d.number)) continue; n = ++spare; }
+      if (n === d.number) continue;
+      const node = nodeByNumber.get(d.number);
+      if (node && setInt(node, 8, n)) renumbered.push(`${d.number}→${n}`);
+    }
+    for (const d of z.fixtures) { const n = want.get(d); if (n != null) d.number = n; }
     const missing = lsLights.filter(l => !used.has(l)).map(l => l.fixtureNumber);
 
     // Cues: into the playback that has the most cues.
     const stacks = top.find(n => n.section === 0x50 && n.kids);
     const pbs = kidsOf(stacks).filter(pb => !/^grand master$/i.test(text(one(pb, 2))) && one(pb, 0, { kind: 0x10 }));
-    const pb = pbs.sort((a, b) => kidsOf(one(b, 0, { kind: 0x10 })).length - kidsOf(one(a, 0, { kind: 0x10 })).length)[0];
+    const pb = pbs.sort((a, b) => kidsOf(one(b, 0, { kind: 0x10 })).length - kidsOf(one(a, 0, { kind: 0x10 })).length || (int(one(a, 1)) ?? 0) - (int(one(b, 1)) ?? 0))[0];
     const list = pb ? one(pb, 0, { kind: 0x10 }) : null;
     const proto = list ? kidsOf(list)[0] : null;
     if (!proto) throw new Error("the FLX show needs at least one cue in a playback to copy from — record one cue on the desk, save, and use that file");
@@ -731,7 +747,7 @@
 
   function report(r, where) {
     say(`Saved FLX show “${where}”: ${r.cues} cues for ${r.lights} lights${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}${r.unpatched ? `, ${r.unpatched} desk light${r.unpatched === 1 ? "" : "s"} Light Spark doesn't have unpatched` : ""}`, "ok");
-    if (r.renumbered.length) say(`Some lights have different numbers on the desk (Light Spark → desk): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""}`, "info");
+    if (r.renumbered.length) say(`Fixture numbers changed on the desk to match Light Spark (desk old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — check the desk's groups still hold the right lights`, "info");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");
     if (r.clashes?.length) say(`Lights share DMX channels in this show: ${r.clashes.slice(0, 6).join(", ")}${r.clashes.length > 6 ? "…" : ""} — check the patch before using it on the desk`, "warn");
   }

@@ -222,6 +222,15 @@
     return { param, value: v ?? null, palette: { kind: int(ref), id: raw } };
   }
 
+  // Palette kinds Light Spark has (Colour / Beam / Position) and the
+  // channels each holds.
+  const PALETTE_CATEGORY = { 0x10: "Colour", 0x20: "Beam", 0x30: "Position" };
+  const PALETTE_ATTRS = {
+    0x10: new Set(["r", "g", "b", "w", "amber", "lime", "uv", "cyan", "magenta", "yellow", "cto", "warmWhite", "coolWhite"]),
+    0x20: new Set(["strobe", "gobo", "gobo2", "gobor", "prism", "prismr", "focus", "zoom", "frost", "iris"]),
+    0x30: new Set(["pan", "tilt", "panf", "tiltf"])
+  };
+
   // ---------- What a channel is ----------
   const CODES = { 86: "r", 87: "g", 88: "b", 35: "w", 60: "amber", 67: "lime", 78: "cyan", 77: "warmWhite", 62: "coolWhite" };
   function attribute(name, code, code2) {
@@ -391,7 +400,7 @@
     for (const p of kidsOf(sec(0x1d))) {
       const kind = KINDS[p.kind];
       if (!kind || !p.kids) continue;
-      for (const e of kidsOf(p)) { const n = text(one(e, 0xb)); if (n) palettes.push({ kind, id: int(one(e, 1)), name: n }); }
+      for (const e of kidsOf(p)) { const n = text(one(e, 0xb)); if (n) palettes.push({ kind, code: p.kind, id: int(one(e, 1)), name: n }); }
     }
 
     const paletteMap = paletteValues(main);
@@ -432,7 +441,7 @@
       playbacks.push({ number: int(one(pb, 1)), name: label, cues });
     }
     playbacks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-    return { name, fixtures, types: [...types.values()], groups, palettes, playbacks, damaged };
+    return { name, fixtures, types: [...types.values()], groups, palettes, paletteMap, playbacks, damaged };
   }
 
   // r, g, b (0-255) → Light Spark's hue / sat / light (light 50 = full colour).
@@ -501,10 +510,38 @@
         if (prev && (c.trigger === 6 || c.trigger === 0)) Object.assign(prev, { followEnabled: true, followMode: c.trigger === 6 ? "go" : "complete", follow: Math.round((c.wait || 0) / 10) / 100 });
       }
     }
+    // Palettes: colour, beam and position, each light's own values.
+    const lsPalettes = [];
+    const lightByIndex = new Map(z.fixtures.filter(f => f.type && f.addr && have.has(f.number)).map(f => [f.index ?? 0, f]));
+    for (const p of z.palettes) {
+      const category = PALETTE_CATEGORY[p.code];
+      if (!category) continue;
+      const perFixture = {};
+      for (const [index, chans] of z.paletteMap.get(`${p.code}:${p.id}`) || []) {
+        const f = lightByIndex.get(index);
+        if (!f) continue;
+        const { slots } = deskSlots(f.type);
+        const st = {};
+        let rgb = null;
+        for (const ch of f.type.list) {
+          if (!chans.has(ch.index)) continue;
+          const key = slots.get(ch.index), a = attribute(ch.label, ch.code, ch.code2);
+          if (!key || !PALETTE_ATTRS[p.code].has(a)) continue;
+          const v = chans.get(ch.index);
+          if (key === "r" || key === "g" || key === "b") { rgb = rgb || f.type.list.filter(c => ["r", "g", "b"].includes(slots.get(c.index))).reduce((acc, c) => { acc["rgb".indexOf(slots.get(c.index))] = (chans.get(c.index) ?? c.home ?? 0) / 257; return acc; }, [255, 255, 255]); }
+          else st[key] = Math.round(v / 257);
+        }
+        if (rgb) Object.assign(st, hsl(rgb));
+        if (Object.keys(st).length) perFixture[`zos-i${f.index}`] = st;
+      }
+      const ids = Object.keys(perFixture);
+      if (!ids.length) continue;
+      lsPalettes.push({ id: `zos-palette-${p.code}-${p.id}`, name: p.name, category, values: { ...perFixture[ids[0]] }, fixtures: ids, perFixture, zos: { kind: p.code, id: p.id }, createdAt: new Date().toISOString() });
+    }
     return {
       show: {
         format: "lx-console-show", version: 8, savedAt: new Date().toISOString(), fromZerOS: true,
-        fixtures, groups, cues, chases: [], savedEffects: [], palettes: [], fixtureStates: [], selected: [],
+        fixtures, groups, cues, chases: [], savedEffects: [], palettes: lsPalettes, fixtureStates: [], selected: [],
         current: { __lxCustomFixtures: custom }, currentCue: -1
       },
       custom, matched, rebuilt, playback: pb, skipped: z.fixtures.length - fixtures.length
@@ -532,7 +569,7 @@
     if (window.LXAsk && !ok) { say("Open FLX show cancelled — nothing was changed", "info"); return null; }
     try { for (const [k, d] of Object.entries(r.custom)) window.FixtureLibrary[k] = JSON.parse(JSON.stringify(d)); } catch (_) {}
     window.LXShowCommands?.restore?.(r.show);
-    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath);
+    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, (r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`));
     openPath = filePath || "";
     try { window.LXShowCommands?.markSaved?.(); } catch (_) {}
     try { window.renderLibrary?.(); } catch (_) {}
@@ -673,10 +710,12 @@
   const b64 = bytes => { let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
   const unb64 = text => { const bin = atob(text); const b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); return b; };
   let base = null;
-  function keepBase(bytes, name, filePath = "") {
+  // palettes: the desk palettes ("kind:id") this show has, so only those
+  // can be deleted from the desk by deleting them here.
+  function keepBase(bytes, name, filePath = "", palettes) {
     base = { bytes: bytes.slice(), name, path: filePath };
     const S = window.State || (window.State = {});
-    S.zos = { name, path: filePath, data: b64(bytes), savedAt: new Date().toISOString() };
+    S.zos = { name, path: filePath, data: b64(bytes), savedAt: new Date().toISOString(), palettes: palettes || S.zos?.palettes || [] };
   }
   function loadBase() {
     const z = window.State?.zos;
@@ -890,6 +929,109 @@
       }
     }
 
+    // ---- Palettes: colour, beam and position ----
+    // Light Spark's palettes, each light's values worked out from what
+    // Light Spark would output for it. Channels Light Spark doesn't control
+    // in a palette stay as they were.
+    const palSec = sec(0x1d);
+    const lsOfDesk = new Map([...pair].map(([d, ls]) => [String(ls.id), d]));
+    const KIND = { Colour: 0x10, Beam: 0x20, Position: 0x30 };
+    const recProto = (() => { // a light entry and a channel record to copy
+      for (const g of kidsOf(palSec)) for (const e of kidsOf(g)) for (const h of kidsOf(one(e, 0xa))) for (const l of kidsOf(h).filter(k => k.kids)) {
+        const r = kidsOf(one(l, 0, { kind: 0x11 })).find(x => kidsOf(x).length === 2 && one(x, 0x11) && one(x, 0x10));
+        if (r) return { light: l, rec: r };
+      }
+      return null;
+    })();
+    const deskOff = (d, ls, ch) => {
+      const def = defOf(ls);
+      if (def?.fromZerOS && Number(def.channels) === d.type.channels) return ch.offset - 1;
+      const a = attribute(ch.label, ch.code, ch.code2);
+      return a && typeof def?.map?.[a] === "number" ? def.map[a] : null;
+    };
+    function paletteWant(p, kind) {
+      const states = new Map();
+      for (const id of new Set([...(p.fixtures || []), ...Object.keys(p.perFixture || {})])) if (lsOfDesk.has(String(id))) states.set(String(id), { intensity: 100, ...(p.values || {}), ...(p.perFixture?.[id] || {}) });
+      const want = new Map();
+      if (!states.size) return want;
+      const dmx = window.LXAscii?.dmxFor?.(states);
+      if (!dmx) throw new Error("couldn't work out palette values — nothing was saved");
+      for (const id of states.keys()) {
+        const d = lsOfDesk.get(id), ls = pair.get(d);
+        const lsBase = (uniOf(ls) - 1) * 512 + Number(ls.addr) - 1;
+        const m = new Map();
+        for (const ch of d.type.list) {
+          if (!PALETTE_ATTRS[kind].has(attribute(ch.label, ch.code, ch.code2))) continue;
+          const off = deskOff(d, ls, ch);
+          if (off == null) continue;
+          const c = dmx[lsBase + off] ?? 0;
+          m.set(ch.index, ch.width === 2 ? c * 256 : c * 257);
+        }
+        if (m.size) want.set(d.index ?? 0, m);
+      }
+      return want;
+    }
+    const lightsOf = e => kidsOf(kidsOf(one(e, 0xa))[0]).filter(k => k.kids);
+    const valuesOf = l => new Map(kidsOf(one(l, 0, { kind: 0x11 })).filter(r => one(r, 0x10) && !one(r, 0x12)).map(r => [int(one(r, 0x11)) ?? 0, int(one(r, 0x10))]));
+    const homeOf = (i, param) => { const d = z.fixtures.find(x => (x.index ?? 0) === i); return d?.type?.list.find(c => c.index === param)?.home ?? 0; };
+    // Does a desk palette light hold any channel Light Spark controls here?
+    const managed = (i, m, kind) => { const d = z.fixtures.find(x => (x.index ?? 0) === i); const ls = d && pair.get(d); return !!ls && d.type.list.some(ch => m.has(ch.index) && PALETTE_ATTRS[kind].has(attribute(ch.label, ch.code, ch.code2)) && deskOff(d, ls, ch) != null); };
+    function samePalette(e, want, kind) {
+      const now = new Map(lightsOf(e).map(l => [int(one(l, 1)) ?? 0, valuesOf(l)]));
+      for (const [i, m] of want) { const n = now.get(i); if (!n) return false; for (const [p, v] of m) if (Math.abs(((n.get(p) ?? homeOf(i, p)) >> 8) - (v >> 8)) > 1) return false; }
+      for (const [i, m] of now) if (!want.has(i) && managed(i, m, kind)) return false;
+      return true;
+    }
+    function writePalette(e, want) {
+      const holder = kidsOf(one(e, 0xa))[0];
+      const keep = lightsOf(e).filter(l => { const i = int(one(l, 1)) ?? 0; return !want.has(i) && !managed(i, valuesOf(l), e.__kind); });
+      const lights = new Map(lightsOf(e).map(l => [int(one(l, 1)) ?? 0, l]));
+      const out = [...keep];
+      for (const [i, m] of want) {
+        const l = lights.get(i) || (() => { const n = clone(recProto.light); setInt(n, 1, i); one(n, 0, { kind: 0x11 }).kids = [{ open: true }]; return n; })();
+        const pg = one(l, 0, { kind: 0x11 });
+        for (const [param, v] of m) {
+          let r = kidsOf(pg).find(x => (int(one(x, 0x11)) ?? 0) === param);
+          if (!r && Math.abs((homeOf(i, param) >> 8) - (v >> 8)) <= 1) continue; // the desk leaves default channels out
+          if (r) { r.kids = r.kids.filter(k => k.open || k.field !== 0x12); if (one(r, 0x10)) setInt(r, 0x10, v); else { const vn = clone(one(recProto.rec, 0x10)); vn.value = intBytes(v); r.kids.push(vn); } }
+          else { r = clone(recProto.rec); setInt(r, 0x11, param); setInt(r, 0x10, v); pg.kids.splice(1, 0, r); }
+        }
+        out.push(l);
+      }
+      holder.kids = [{ open: true }, ...out.sort((a, b) => (int(one(a, 1)) ?? 0) - (int(one(b, 1)) ?? 0))];
+    }
+    let palAdded = 0, palChanged = 0, palRemoved = 0;
+    const palWant = [];
+    if (palSec && recProto) for (const kind of [0x10, 0x20, 0x30]) {
+      const group = kidsOf(palSec).find(g => g.kids && g.kind === kind);
+      if (!group) continue;
+      const mine = (S.palettes || []).filter(p => p && KIND[p.category] === kind && p.name);
+      const brought = new Set((S.zos?.palettes || []).filter(k => k.startsWith(`${kind}:`)));
+      const matched = new Set();
+      for (const p of mine) {
+        const want = paletteWant(p, kind);
+        if (!want.size) continue;
+        const pname = cleanText(p.name);
+        let e = (p.zos?.kind === kind && kidsOf(group).find(x => int(one(x, 1)) === p.zos.id && !matched.has(x))) || kidsOf(group).find(x => !matched.has(x) && text(one(x, 0xb)).trim().toLowerCase() === pname.toLowerCase());
+        if (e) e.__kind = kind;
+        if (!e) {
+          const like = kidsOf(group).find(x => one(x, 0xa));
+          if (!like) continue;
+          e = clone(like); e.__kind = kind;
+          setInt(e, 1, Math.max(0, ...kidsOf(group).map(x => int(one(x, 1)) ?? 0)) + 1);
+          kidsOf(one(e, 0xa))[0].kids = [{ open: true }];
+          group.kids.splice(1, 0, e);
+          writePalette(e, want);
+          palAdded++;
+        } else if (!samePalette(e, want, kind)) { writePalette(e, want); palChanged++; }
+        if (text(one(e, 0xb)) !== pname && one(e, 0xb)) { one(e, 0xb).value = new TextEncoder().encode(pname); palChanged++; }
+        matched.add(e);
+        delete e.__kind;
+        palWant.push({ kind, id: int(one(e, 1)), name: pname, want });
+      }
+      for (const e of kidsOf(group)) if (!matched.has(e) && brought.has(`${kind}:${int(one(e, 1))}`)) { group.kids = group.kids.filter(k => k !== e); palRemoved++; }
+    }
+
     // ---- Cues: only what's different from the desk's show is written ----
     const stacks = top.find(n => n.section === 0x50 && n.kids);
     const pbs = kidsOf(stacks).filter(pb => !/^grand master$/i.test(text(one(pb, 2))) && one(pb, 0, { kind: 0x10 }));
@@ -1044,6 +1186,13 @@
     const track = new Map(z2.fixtures.filter(f => f.type).map(f => [f.index ?? 0, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
     const problems = [];
     for (const d of toUnpatch) { const f2 = byIndex2.get(d.index ?? 0); if (f2?.addr) problems.push(`light ${d.number} would still be patched on the desk`); }
+    for (const pw of palWant) {
+      const got = z2.paletteMap.get(`${pw.kind}:${pw.id}`);
+      for (const [i, m] of pw.want) for (const [param, v] of m) {
+        const g = got?.get(i)?.get(param) ?? (got?.get(i) ? homeOf(i, param) : null);
+        if ((g == null || Math.abs((g >> 8) - (v >> 8)) > 1) && problems.length < 6) problems.push(`palette “${pw.name}” light ${byIndex2.get(i)?.number}: desk ${g == null ? "nothing" : g >> 8}, Light Spark ${v >> 8}`);
+      }
+    }
     for (const [d] of pair) { const f2 = byIndex2.get(d.index ?? 0); if (f2 && (f2.label || "") !== wantLabel(d)) problems.push(`light ${d.number} would be called “${f2.label}” on the desk, “${wantLabel(d)}” here`); }
     {
       const deskG = z2.groups.filter(g => !g.auto).map(g => `${g.name.trim().toLowerCase()}:${[...g.members].sort((a, b) => a - b)}`).sort();
@@ -1081,7 +1230,7 @@
     }
     if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
 
-    return { bytes, name, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
+    return { bytes, name, palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -1103,7 +1252,7 @@
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
     if (r.numberClash?.length) say(`Fixture number${r.numberClash.length === 1 ? "" : "s"} ${r.numberClash.slice(0, 8).join(", ")} ${r.numberClash.length === 1 ? "is" : "are"} used by two lights in Light Spark, so ${r.numberClash.length === 1 ? "that one wasn't" : "those weren't"} changed on the desk — every other number was`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
-    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
+    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
     if (extra.length) say(`Also saved: ${extra.join(", ")}`, "ok");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "is a" : "are"} type${r.missing.length === 1 ? "" : "s"} the desk show doesn't have yet, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch one light of that type on the desk, save, open that here, then save again`, "warn");
   }
@@ -1123,7 +1272,7 @@
         out = await b.zosSave(target, r.bytes);
       }
       openPath = out.filePath;
-      keepBase(r.bytes, baseName(out.filePath), out.filePath);
+      keepBase(r.bytes, baseName(out.filePath), out.filePath, r.palettesNow);
       window.LXShowCommands?.markSaved?.();
       report(r, out.filePath);
       if (out.verified) say(`Checked: the file on disk is exactly what was saved (${Math.round(out.bytes / 1024)} KB)`, "ok");

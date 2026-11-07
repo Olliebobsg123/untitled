@@ -779,24 +779,33 @@
     }
 
     // ---- Fixture numbers you changed (and the desk's groups with them) ----
+    // Light Spark's numbers win. A desk light Light Spark doesn't show (an
+    // unpatched one) that holds a number you've given to another light moves
+    // to a free number. Each change stands on its own: one that can't be
+    // made doesn't stop the others.
     const finalNumber = new Map(z.fixtures.map(d => [d, d.number]));
-    for (const [d, ls] of pair) { const n = Number(ls.fixtureNumber); if (Number.isInteger(n) && n > 0) finalNumber.set(d, n); }
-    // Unpatched lights keep their place in the desk's list, with Light Spark's number if it still has one.
-    for (const d of toUnpatch) { const n = Number(lsById.get(idOf(d))?.fixtureNumber); if (Number.isInteger(n) && n > 0) finalNumber.set(d, n); }
-    const counts = new Map();
-    for (const n of finalNumber.values()) counts.set(n, (counts.get(n) || 0) + 1);
-    const numberClash = [...counts].filter(([, c]) => c > 1).map(([n]) => n);
-    const renumbered = [];
-    if (!numberClash.length) {
-      const change = new Map();
-      for (const [d, n] of finalNumber) if (n !== d.number && setInt(nodeByIndex.get(d.index ?? 0), 8, n)) { change.set(d.number, n); renumbered.push(`${d.number}→${n}`); }
-      if (change.size) for (const g of kidsOf(sec(0x1f))) for (const m of kidsOf(one(g, 0, { kind: 0x11 }))) {
-        const ref = kidsOf(m).find(k => k.kids);
-        const num = ref ? kidsOf(ref).find(x => x.field === 1 && x.value) : null;
-        if (num && change.has(int(num))) num.value = intBytes(change.get(int(num)));
-      }
-      for (const [d, n] of finalNumber) d.number = n;
+    const shown = new Set([...pair.keys(), ...toUnpatch].filter(d => lsById.has(idOf(d)) || pair.has(d)));
+    const wanted = new Map();
+    for (const d of shown) {
+      const ls = pair.get(d) || lsById.get(idOf(d));
+      const n = Number(ls?.fixtureNumber);
+      if (Number.isInteger(n) && n > 0 && n <= 9999) wanted.set(d, n);
     }
+    const numberClash = [];
+    const byWanted = new Map();
+    for (const [d, n] of wanted) { if (byWanted.has(n)) numberClash.push(n); else byWanted.set(n, d); }
+    for (const [n, d] of byWanted) finalNumber.set(d, n);
+    let spare = Math.max(0, ...z.fixtures.map(d => d.number), ...byWanted.keys());
+    for (const d of z.fixtures) if (!byWanted.has(finalNumber.get(d)) || byWanted.get(finalNumber.get(d)) !== d) { if (byWanted.has(finalNumber.get(d))) finalNumber.set(d, ++spare); }
+    const renumbered = [];
+    const change = new Map();
+    for (const [d, n] of finalNumber) if (n !== d.number && setInt(nodeByIndex.get(d.index ?? 0), 8, n)) { change.set(d.number, n); renumbered.push(`${d.number}→${n}`); }
+    if (change.size) for (const g of kidsOf(sec(0x1f))) for (const m of kidsOf(one(g, 0, { kind: 0x11 }))) {
+      const ref = kidsOf(m).find(k => k.kids);
+      const num = ref ? kidsOf(ref).find(x => x.field === 1 && x.value) : null;
+      if (num && change.has(int(num))) num.value = intBytes(change.get(int(num)));
+    }
+    for (const [d, n] of finalNumber) d.number = n;
 
     // ---- Cues: only what's different from the desk's show is written ----
     const stacks = top.find(n => n.section === 0x50 && n.kids);
@@ -952,6 +961,9 @@
     const track = new Map(z2.fixtures.filter(f => f.type).map(f => [f.index ?? 0, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
     const problems = [];
     for (const d of toUnpatch) { const f2 = byIndex2.get(d.index ?? 0); if (f2?.addr) problems.push(`light ${d.number} would still be patched on the desk`); }
+    for (const [d, n] of wanted) { const f2 = byIndex2.get(d.index ?? 0); if (!numberClash.includes(n) && f2 && f2.number !== n) problems.push(`light ${n} would be number ${f2.number} on the desk`); }
+    const used2 = new Map();
+    for (const f2 of z2.fixtures) { if (used2.has(f2.number)) problems.push(`two desk lights would both be number ${f2.number}`); used2.set(f2.number, f2); }
     lsCues.forEach((x, k) => {
       const want = nameFor(x.cue, x.number);
       if ((cues2[k]?.name || "") !== want && problems.length < 6) problems.push(`cue ${x.number} would be called “${cues2[k]?.name || ""}” on the desk, “${want}” here`);
@@ -1006,7 +1018,7 @@
     const what = r.changed ? `${r.changed} value${r.changed === 1 ? "" : "s"} changed on ${r.lightsChanged} light${r.lightsChanged === 1 ? "" : "s"}` : "no light levels changed";
     say(`Saved FLX show “${where}”: ${r.cues} cues (${what}${r.added ? `, ${r.added} new cue${r.added === 1 ? "" : "s"}` : ""}${r.removed ? `, ${r.removed} cue${r.removed === 1 ? "" : "s"} deleted` : ""})${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}${r.unpatched ? `, ${r.unpatched} light${r.unpatched === 1 ? "" : "s"} unpatched` : ""}${r.named ? `, ${r.named} cue name${r.named === 1 ? "" : "s"}` : ""}${r.renumbered?.length ? `, ${r.renumbered.length} fixture number${r.renumbered.length === 1 ? "" : "s"}` : ""}. Everything else is exactly as the desk had it${r.checked ? ". Checked: every cue plays on the desk exactly as it does here" : ""}`, "ok");
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
-    if (r.numberClash?.length) say(`Fixture numbers weren't changed on the desk: ${r.numberClash.slice(0, 8).join(", ")} would be used twice`, "warn");
+    if (r.numberClash?.length) say(`Fixture number${r.numberClash.length === 1 ? "" : "s"} ${r.numberClash.slice(0, 8).join(", ")} ${r.numberClash.length === 1 ? "is" : "are"} used by two lights in Light Spark, so ${r.numberClash.length === 1 ? "that one wasn't" : "those weren't"} changed on the desk — every other number was`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
     if (r.groupsChanged) say("Group changes aren't saved into FLX files yet — the desk keeps its own groups (they're still in your Light Spark show)", "warn");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");

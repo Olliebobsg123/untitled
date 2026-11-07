@@ -736,11 +736,20 @@
     }
     if (wrongType.length) throw new Error(`this show's lights don't match the FLX file “${z.name}”: ${wrongType.slice(0, 4).join("; ")}${wrongType.length > 4 ? "…" : ""}. Open the FLX file this show came from, or use Save As FLX to pick it — nothing was saved`);
     const missing = lsLights.filter(l => !used.has(l)).map(l => l.fixtureNumber);
+    // Desk lights unpatched in Light Spark (still in the show, no address) or
+    // deleted from it are unpatched on the desk too — only when this show came
+    // from this file (its lights carry the file's ids), so a show that
+    // doesn't belong here can never unpatch a rig.
+    const allLs = (S.fixtures || []).filter(Boolean);
+    const idOf = d => `zos-i${d.index ?? 0}`;
+    const fromThisFile = allLs.some(l => /^zos-i\d+$/.test(String(l.id || "")) && deskByIndex.has(Number(String(l.id).slice(5))));
+    const lsById = new Map(allLs.map(l => [String(l.id || ""), l]));
+    const toUnpatch = new Set(fromThisFile ? z.fixtures.filter(d => d.addr && !pair.has(d) && (!lsById.has(idOf(d)) || lsById.get(idOf(d)).addr == null)) : []);
 
     // ---- Patch: addresses you changed in Light Spark ----
     const nodeByIndex = new Map(kidsOf(sec(0x1c)).map(n => [int(one(n, 1)) ?? 0, n]));
     const size = d => Math.max(1, d.type?.channels || 1);
-    const where = new Map(z.fixtures.filter(d => d.addr).map(d => [d, { uni: d.uni, addr: d.addr }]));
+    const where = new Map(z.fixtures.filter(d => d.addr && !toUnpatch.has(d)).map(d => [d, { uni: d.uni, addr: d.addr }]));
     const notMoved = [];
     for (const [d, ls] of pair) {
       const want = { uni: uniOf(ls), addr: Number(ls.addr) };
@@ -753,6 +762,13 @@
     const clashes = [];
     for (let i = 0; i < spans.length; i++) for (let j = i + 1; j < spans.length && spans[j].uni === spans[i].uni && spans[j].from <= spans[i].to; j++) clashes.push(`${spans[i].d.number} and ${spans[j].d.number} (from address ${spans[j].from})`);
     if (clashes.length) throw new Error(`lights would share DMX channels on the desk: ${clashes.slice(0, 6).join(", ")}${clashes.length > 6 ? "…" : ""}. Fix the patch first — nothing was saved`);
+    let unpatched = 0;
+    for (const d of toUnpatch) {
+      const node = nodeByIndex.get(d.index ?? 0);
+      if (!node?.kids) continue;
+      node.kids = node.kids.filter(k => !(k.field === 6 && k.kids));
+      unpatched++;
+    }
     let moved = 0;
     for (const [d, p] of where) {
       if (p.addr === d.addr && p.uni === d.uni) continue;
@@ -765,6 +781,8 @@
     // ---- Fixture numbers you changed (and the desk's groups with them) ----
     const finalNumber = new Map(z.fixtures.map(d => [d, d.number]));
     for (const [d, ls] of pair) { const n = Number(ls.fixtureNumber); if (Number.isInteger(n) && n > 0) finalNumber.set(d, n); }
+    // Unpatched lights keep their place in the desk's list, with Light Spark's number if it still has one.
+    for (const d of toUnpatch) { const n = Number(lsById.get(idOf(d))?.fixtureNumber); if (Number.isInteger(n) && n > 0) finalNumber.set(d, n); }
     const counts = new Map();
     for (const n of finalNumber.values()) counts.set(n, (counts.get(n) || 0) + 1);
     const numberClash = [...counts].filter(([, c]) => c > 1).map(([n]) => n);
@@ -849,7 +867,12 @@
       if (seen.has(key)) throw new Error(`cues ${seen.get(key)} and ${x.number} would both be cue ${key / 100} on the desk (it keeps two decimal places) — renumber one, nothing was saved`);
       seen.set(key, x.number);
     }
-    let state = homes(), changed = 0, kept = 0, added = 0;
+    let state = homes(), changed = 0, kept = 0, added = 0, named = 0;
+    const nameFor = (cue, number) => {
+      const label = String(cue.name || "").trim();
+      const placeholder = new RegExp(`^cue\\s*${String(Math.round(number * 100) / 100).replace(".", "\\.")}$`, "i");
+      return !label || placeholder.test(label) ? "" : label.replace(/[^\x20-\x7e]/g, "").slice(0, 31);
+    };
     const lsOutput = new Map(); // cue (hundredths) → Light Spark's DMX for it
     const lightsChanged = new Set();
     const newCues = [];
@@ -860,8 +883,16 @@
       setInt(c, 1, key);
       const h = holderOf(c);
       if (!baseCue && h) h.kids = [{ open: true }];
-      // A new cue copies the shape of another cue, but not its name.
-      if (!baseCue) c.kids = c.kids.filter(k => k.open || k.kids || k.field !== 2);
+      // Its name (none for Light Spark's own "Cue 5" placeholder).
+      const wantName = nameFor(cue, number);
+      if (text(one(c, 2)) !== wantName) {
+        c.kids = c.kids.filter(k => k.open || k.kids || k.field !== 2);
+        if (wantName) {
+          const like = kidsOf(c).find(k => k.value && k.field === 1);
+          c.kids.splice(c.kids.indexOf(like) + 1, 0, { field: 2, kind: like?.kind ?? 0x11, section: like?.section ?? 0x51, raw: 0, value: new TextEncoder().encode(wantName) });
+        }
+        named++;
+      }
       // Times: fade up / down and their delays, colour, beam and position.
       const timing = cue.timing && typeof cue.timing === "object" ? cue.timing : {};
       const fade = Number(cue.fade ?? 0) || 0, wait = Number(cue.delay ?? 0) || 0;
@@ -905,7 +936,6 @@
     newCues.sort((a, b) => b.number - a.number);
     list.kids = [{ open: true }, ...newCues.map(x => x.node)];
     const fixturesForCue = [...pair.keys()];
-    const unpatched = 0;
 
     const data = writeData(raw, top);
     const bytes = pack(data);
@@ -921,6 +951,11 @@
     const byIndex2 = new Map(z2.fixtures.map(f => [f.index ?? 0, f]));
     const track = new Map(z2.fixtures.filter(f => f.type).map(f => [f.index ?? 0, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
     const problems = [];
+    for (const d of toUnpatch) { const f2 = byIndex2.get(d.index ?? 0); if (f2?.addr) problems.push(`light ${d.number} would still be patched on the desk`); }
+    lsCues.forEach((x, k) => {
+      const want = nameFor(x.cue, x.number);
+      if ((cues2[k]?.name || "") !== want && problems.length < 6) problems.push(`cue ${x.number} would be called “${cues2[k]?.name || ""}” on the desk, “${want}” here`);
+    });
     for (const [d, ls] of pair) {
       const f2 = byIndex2.get(d.index ?? 0);
       if (!f2 || f2.addr !== Number(ls.addr) || f2.uni !== uniOf(ls)) problems.push(`light ${ls.fixtureNumber} would be at ${f2 ? `${f2.uni}/${f2.addr}` : "nowhere"} on the desk, ${uniOf(ls)}/${ls.addr} here`);
@@ -945,7 +980,13 @@
     }
     if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
 
-    return { bytes, name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
+    // Groups aren't written to the desk yet: say so if they were changed.
+    const key = g => `${String(g.name || "").trim().toLowerCase()}:${[...(g.members || [])].map(Number).sort((a, b) => a - b).join(",")}`;
+    const deskGroups = new Set(z.groups.filter(g => g.name && !g.auto).map(key));
+    const lsGroups = new Set((S.groups || []).filter(g => g && g.name && !g.area).map(g => key({ name: g.name, members: (g.members || []).map(m => (S.fixtures || []).find(f => String(f?.id) === String(m))?.fixtureNumber ?? m) })));
+    const groupsChanged = [...lsGroups].some(k => !deskGroups.has(k)) || [...deskGroups].some(k => !lsGroups.has(k));
+
+    return { bytes, name, groupsChanged, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -963,10 +1004,11 @@
 
   function report(r, where) {
     const what = r.changed ? `${r.changed} value${r.changed === 1 ? "" : "s"} changed on ${r.lightsChanged} light${r.lightsChanged === 1 ? "" : "s"}` : "no light levels changed";
-    say(`Saved FLX show “${where}”: ${r.cues} cues (${what}${r.added ? `, ${r.added} new cue${r.added === 1 ? "" : "s"}` : ""}${r.removed ? `, ${r.removed} cue${r.removed === 1 ? "" : "s"} deleted` : ""})${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}. Everything else is exactly as the desk had it${r.checked ? ". Checked: every cue plays on the desk exactly as it does here" : ""}`, "ok");
+    say(`Saved FLX show “${where}”: ${r.cues} cues (${what}${r.added ? `, ${r.added} new cue${r.added === 1 ? "" : "s"}` : ""}${r.removed ? `, ${r.removed} cue${r.removed === 1 ? "" : "s"} deleted` : ""})${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}${r.unpatched ? `, ${r.unpatched} light${r.unpatched === 1 ? "" : "s"} unpatched` : ""}${r.named ? `, ${r.named} cue name${r.named === 1 ? "" : "s"}` : ""}${r.renumbered?.length ? `, ${r.renumbered.length} fixture number${r.renumbered.length === 1 ? "" : "s"}` : ""}. Everything else is exactly as the desk had it${r.checked ? ". Checked: every cue plays on the desk exactly as it does here" : ""}`, "ok");
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
     if (r.numberClash?.length) say(`Fixture numbers weren't changed on the desk: ${r.numberClash.slice(0, 8).join(", ")} would be used twice`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
+    if (r.groupsChanged) say("Group changes aren't saved into FLX files yet — the desk keeps its own groups (they're still in your Light Spark show)", "warn");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");
   }
 

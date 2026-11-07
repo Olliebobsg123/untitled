@@ -159,6 +159,46 @@
   const int = v => { if (!v?.value) return null; let n = 0; for (let i = v.value.length - 1; i >= 0; i--) n = n * 256 + v.value[i]; return n; };
   const text = v => v?.value ? new TextDecoder("latin1").decode(v.value).replace(/\0+$/, "") : "";
 
+  // ---------- Palettes and cue values ----------
+  // A palette holds values per light: kids → [0x71 holder] → light entries
+  // (field 1 = the light's position) → channel records (0x11 = channel
+  // index, 0x10 = value). A cue value with field 0x12 is a reference: 0x12
+  // = palette kind (1 colour, 2 beam, 3 position, 4 effect, 5 intensity),
+  // 0x10 = the palette's number.
+  const PALETTE_KIND = { 1: 0x10, 2: 0x20, 3: 0x30, 4: 0x40, 5: 0x50 };
+  function paletteValues(main) {
+    const out = new Map(); // "kind:id" → Map(light position → Map(channel → value))
+    const sec = main ? kidsOf(main, { section: 0x1d }).find(k => k.kids) : null;
+    for (const group of kidsOf(sec)) {
+      if (!group.kids) continue;
+      for (const e of kidsOf(group)) {
+        const id = int(one(e, 1));
+        const lights = new Map();
+        for (const holder of kidsOf(one(e, 0xa))) for (const fx of kidsOf(holder).filter(k => k.kids)) {
+          const m = new Map();
+          for (const r of kidsOf(one(fx, 0, { kind: 0x11 }))) {
+            const v = int(kidsOf(r).find(k => k.field === 0x10 && k.value));
+            if (v != null && !kidsOf(r).some(k => k.field === 0x12)) m.set(int(kidsOf(r).find(k => k.field === 0x11 && k.value)) ?? 0, v);
+          }
+          lights.set(int(one(fx, 1)) ?? 0, m);
+        }
+        out.set(`${group.kind}:${id}`, lights);
+      }
+    }
+    return out;
+  }
+  // A cue's channel record → its value (looking palettes up), or null.
+  function recordValue(r, light, palettes) {
+    const param = int(kidsOf(r).find(k => k.field === 0x11 && k.value)) ?? 0;
+    const raw = int(kidsOf(r).find(k => k.field === 0x10 && k.value));
+    const ref = kidsOf(r).find(k => k.field === 0x12 && k.value);
+    if (raw == null) return { param, value: null };
+    if (!ref) return { param, value: raw };
+    const kind = PALETTE_KIND[int(ref)];
+    const v = kind != null ? palettes.get(`${kind}:${raw}`)?.get(light)?.get(param) : undefined;
+    return { param, value: v ?? null, palette: { kind: int(ref), id: raw } };
+  }
+
   // ---------- What a channel is ----------
   const CODES = { 86: "r", 87: "g", 88: "b", 35: "w", 60: "amber", 67: "lime", 78: "cyan", 77: "warmWhite", 62: "coolWhite" };
   function attribute(name, code, code2) {
@@ -329,6 +369,7 @@
       for (const e of kidsOf(p)) { const n = text(one(e, 0xb)); if (n) palettes.push({ kind, id: int(one(e, 1)), name: n }); }
     }
 
+    const paletteMap = paletteValues(main);
     const playbacks = [];
     const stacks = top.find(n => n.section === 0x50 && n.kids);
     const byIndex = new Map(fixtures.map(f => [f.index, f]));
@@ -345,16 +386,22 @@
             if (!fixture) continue;
             const params = {};
             for (const pv of kidsOf(one(fx, 0, { kind: 0x11 }))) {
-              const param = int(kidsOf(pv).find(k => k.field === 0x11 && k.value)) ?? 0;
-              const value = int(kidsOf(pv).find(k => k.field === 0x10 && k.value));
+              const { param, value } = recordValue(pv, fixture.index ?? 0, paletteMap);
               if (value != null) params[param] = value;
             }
             if (Object.keys(params).length) levels.push({ number: fixture.number, params });
           }
         }
+        // Times in ms. Up Time[0..] / Up Delay[0..] per attribute group,
+        // Down Time / Delay; trigger 1 = Go, 6 = Auto with previous cue,
+        // 0 = Auto after previous cue, with its wait time (field 4).
+        const t = f => int(one(c, f));
         cues.push({
           number: n != null ? n / 100 : cues.length + 1, name: text(one(c, 2)),
-          up: int(one(c, 0xd)), down: int(one(c, 0x1e)), levels
+          up: t(0xa) ?? 0, upDelay: t(0x6) ?? 0, down: t(0x1c) ?? 0, downDelay: t(0x1d) ?? 0,
+          colour: t(0xb) ?? 0, colourDelay: t(0x7) ?? 0, beam: t(0xc) ?? 0, beamDelay: t(0x8) ?? 0,
+          focus: t(0xd) ?? 0, focusDelay: t(0x9) ?? 0,
+          trigger: t(0x3) ?? 1, wait: t(0x4) ?? 0, levels
         });
       }
       playbacks.push({ number: int(one(pb, 1)), name: label, cues });
@@ -419,10 +466,14 @@
           states.push([`zos-i${f.index}`, out]);
         }
         cues.push({
-          name: c.name || `Cue ${c.number}`, number: c.number, fade: c.up ?? 3000,
-          timing: { up: c.up ?? 3000, down: c.down ?? c.up ?? 3000 },
-          follow: 0, followEnabled: false, mode: "track", fixtureStates: states, state: {}, globalState: {}
+          name: c.name || `Cue ${c.number}`, number: c.number, fade: c.up,
+          timing: { up: c.up, down: c.down, upDelay: c.upDelay, downDelay: c.downDelay, colour: c.colour, colourDelay: c.colourDelay, beam: c.beam, beamDelay: c.beamDelay, focus: c.focus, focusDelay: c.focusDelay },
+          follow: 0, followEnabled: false, mode: "track", fixtureStates: states, state: {}, globalState: {},
+          zosTrigger: c.trigger
         });
+        // This cue runs by itself: the one before it follows on.
+        const prev = cues[cues.length - 2];
+        if (prev && (c.trigger === 6 || c.trigger === 0)) Object.assign(prev, { followEnabled: true, followMode: c.trigger === 6 ? "go" : "complete", follow: Math.round((c.wait || 0) / 10) / 100 });
       }
     }
     return {
@@ -703,6 +754,7 @@
     }
     if (!entryProto || !paramProto) throw new Error("couldn't find a lit light in the FLX show's cues to copy the layout from");
 
+    const paletteMap = paletteValues(main);
     const holderOf = c => kidsOf(one(c, 0xf))[0] || null;
     const entriesOf = h => kidsOf(h).filter(k => k.kids);
     const paramOf = r => int(kidsOf(r).find(x => x.field === 0x11 && x.value)) ?? 0;
@@ -713,7 +765,7 @@
       const h = holderOf(c); if (!h) return;
       for (const e of entriesOf(h)) {
         const m = st.get(int(one(e, 1)) ?? 0); if (!m) continue;
-        for (const r of kidsOf(one(e, 0, { kind: 0x11 }))) { const v = valueOf(r); if (v != null) m.set(paramOf(r), v); }
+        for (const r of kidsOf(one(e, 0, { kind: 0x11 }))) { const { param, value } = recordValue(r, int(one(e, 1)) ?? 0, paletteMap); if (value != null) m.set(param, value); }
       }
     };
     function setParam(h, idx, param, v) {
@@ -726,6 +778,8 @@
       const pg = one(e, 0, { kind: 0x11 });
       const r = kidsOf(pg).find(k => paramOf(k) === param);
       if (r) {
+        // A palette reference becomes a plain value (the palette is left alone).
+        r.kids = r.kids.filter(k => k.open || k.field !== 0x12);
         if (one(r, 0x10)) setInt(r, 0x10, v);
         else { const vn = clone(one(paramProto, 0x10)); vn.value = intBytes(v); const at = r.kids.indexOf(one(r, 0x11)); r.kids.splice(at >= 0 ? at + 1 : r.kids.length, 0, vn); }
         return;
@@ -734,6 +788,14 @@
       pg.kids.push(nr);
     }
 
+    // Set a cue's setting, adding it (after the cue number) if the cue has none.
+    function setLeaf(c, field, v) {
+      if (setInt(c, field, v)) return;
+      const like = kidsOf(c).find(k => k.value && k.field === 1);
+      const leaf = { field, kind: like?.kind ?? 0x11, section: like?.section ?? 0x51, raw: 0, value: intBytes(v) };
+      const at = c.kids.indexOf(kidsOf(c).find(k => k.field === 3) || like);
+      c.kids.splice(at >= 0 ? at + 1 : c.kids.length, 0, leaf);
+    }
     const baseByNumber = new Map(kidsOf(list).map(c => [int(one(c, 1)) ?? 0, c]));
     const lsCues = (S.cues || []).map((cue, i) => ({ cue, i })).filter(x => x.cue)
       .map(x => ({ ...x, number: Number(window.cueLabel ? window.cueLabel(x.i) : x.i + 1) || x.i + 1 }))
@@ -748,10 +810,19 @@
       setInt(c, 1, key);
       const h = holderOf(c);
       if (!baseCue && h) h.kids = [{ open: true }];
+      // Times: fade up / down and their delays, colour, beam and position.
       const timing = cue.timing && typeof cue.timing === "object" ? cue.timing : {};
-      const up = Number(timing.up ?? cue.fade ?? 3000), down = Number(timing.down ?? cue.fade ?? up);
-      if (!baseCue || Math.abs((int(one(c, 0xd)) ?? 0) - up) > 50) setInt(c, 0xd, up);
-      if (!baseCue || Math.abs((int(one(c, 0x1e)) ?? 0) - down) > 50) setInt(c, 0x1e, down);
+      const fade = Number(cue.fade ?? 0) || 0, wait = Number(cue.delay ?? 0) || 0;
+      const part = (k, d) => { const v = Number(timing[k]); return Number.isFinite(v) && timing[k] !== "" && timing[k] != null ? v : d; };
+      const want = { 0xa: part("up", fade), 0x6: part("upDelay", wait), 0x1c: part("down", fade), 0x1d: part("downDelay", wait), 0xb: part("colour", fade), 0x7: part("colourDelay", wait), 0xc: part("beam", fade), 0x8: part("beamDelay", wait), 0xd: part("focus", fade), 0x9: part("focusDelay", wait) };
+      for (const [f, v] of Object.entries(want)) if (Math.abs((int(one(c, Number(f))) ?? 0) - v) > 50) setLeaf(c, Number(f), Math.round(v));
+      // Trigger: this cue goes by itself when the one before follows on.
+      const prev = lsCues[lsCues.indexOf(lsCues.find(x => x.i === i)) - 1]?.cue;
+      const trig = prev?.followEnabled === true ? (prev.followMode === "go" ? 6 : 0) : 1;
+      const waitMs = trig === 1 ? 0 : Math.round(Math.max(0, Number(prev.follow) || 0) * 1000);
+      if ((int(one(c, 3)) ?? 1) !== trig) setLeaf(c, 3, trig);
+      if (trig === 1) c.kids = c.kids.filter(k => k.open || k.kids || k.field !== 4);
+      else if ((int(one(c, 4)) ?? 0) !== waitMs) setLeaf(c, 4, waitMs);
       if (baseCue) kept++; else added++;
       if (h) {
         const expect = copyState(state); applyCue(expect, c);

@@ -57,6 +57,7 @@
 
   // ---------- Unix compress LZW (as ZerOS reads it) ----------
   function lzw(src, limit) {
+    limit = Math.max(0, Math.min(Number(limit) || 0, MAX_SEGMENT));
     const MAXBITS = 16, MAXMAX = 1 << MAXBITS;
     const prefix = new Uint16Array(MAXMAX), suffix = new Uint8Array(MAXMAX);
     for (let i = 0; i < 256; i++) suffix[i] = i;
@@ -96,8 +97,14 @@
       }
       const incode = code;
       let sp = 0;
+      // A code past the next free one can't be in a real file: it's damaged
+      // (and following it could loop for ever).
+      if (code > freeEnt || (code === freeEnt && old < 0)) throw new Error("the show file is damaged (bad packed data)");
       if (code >= freeEnt) { stack[sp++] = fin; code = old; }
-      while (code >= 256) { stack[sp++] = suffix[code]; code = prefix[code]; }
+      while (code >= 256) {
+        if (sp >= MAXMAX) throw new Error("the show file is damaged (bad packed data)");
+        stack[sp++] = suffix[code]; code = prefix[code];
+      }
       fin = suffix[code];
       stack[sp++] = fin;
       while (sp > 0 && o < limit) out[o++] = stack[--sp];
@@ -111,30 +118,46 @@
   const u32 = (b, i) => (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0;
   const isTag = (b, i, c) => b[i] === 0x5a && b[i + 1] === 0x38 && b[i + 2] === 0x38 && b[i + 3] === c.charCodeAt(0);
 
-  function unpack(b, at = 0) {
-    if (!isTag(b, at, "C")) throw new Error("not a Z88C container");
+  // Limits, so a damaged (or deliberately odd) file can't use up memory or
+  // send the reader past the end: real shows unpack to well under 4 MB, in
+  // segments of at most 64 KB.
+  const MAX_SHOW = 64 * 1024 * 1024, MAX_SEGMENT = 0x10000, MAX_SEGMENTS = 4096;
+
+  // Unpack a Z88C container. damaged: segments whose desk checks don't match.
+  function unpack(b, at = 0, depth = 0) {
+    if (depth > 4) throw new Error("the show file is nested too deeply to be real");
+    if (!isTag(b, at, "C") || at + 8 > b.length) throw new Error("not a Z88C container");
     const total = u32(b, at + 4), end = at + total;
-    if (end > b.length || !isTag(b, end - 4, "C")) throw new Error("the show file is cut short");
+    if (total < 0x28 || end > b.length || !isTag(b, end - 4, "C")) throw new Error("the show file is cut short or damaged");
     const version = u32(b, end - 8);
     const tr = version >= 3 ? end - 0x24 : end - 0x20;
+    if (tr < at + 8) throw new Error("the show file is damaged (its index is missing)");
     const count = u32(b, tr + (version >= 3 ? 16 : 12));
     const usize = u32(b, tr + (version >= 3 ? 20 : 16));
+    if (count > MAX_SEGMENTS || usize > MAX_SHOW) throw new Error("the show file says it's far bigger than any real show — it's damaged");
     const out = new Uint8Array(usize);
+    const damaged = [];
     let pos = at + 8, o = 0;
     for (let n = 0; n < count; n++) {
-      let c, h;
-      if (version >= 3) { c = u32(b, pos); h = 16; } else { c = u32(b, pos) & 0xffff; h = 12; }
-      const method = b[pos + h], size = u32(b, pos + h + 1);
-      const body = b.subarray(pos + h + 5, pos + h + c);
+      let c, h, sumRaw, sumPacked;
+      if (version >= 3) { c = u32(b, pos); h = 16; sumRaw = u32(b, pos + 8); sumPacked = u32(b, pos + 12); }
+      else { c = u32(b, pos) & 0xffff; h = 12; sumRaw = u32(b, pos + 4); sumPacked = u32(b, pos + 8); }
+      if (c < 5 || pos + h + c > tr) throw new Error(`the show file is damaged (part ${n + 1} runs past the end)`);
+      const packed = b.subarray(pos + h, pos + h + c);
+      const method = packed[0], size = u32(packed, 1);
+      if (size > MAX_SEGMENT || o + size > usize) throw new Error(`the show file is damaged (part ${n + 1} is the wrong size)`);
+      const body = packed.subarray(5);
       let part;
       if (method === 0) part = body.subarray(0, size);
       else if (method === 2 || method === 3) part = lzw(body, size);
       else throw new Error(`unknown packing (${method}) — a newer ZerOS version?`);
+      if (part.length !== size || rot(packed) !== sumPacked || rot(part) !== sumRaw) damaged.push(n + 1);
       out.set(part.subarray(0, Math.min(part.length, usize - o)), o);
       o += part.length;
       pos += h + c;
     }
-    return { data: out.subarray(0, Math.min(o, usize)), total };
+    if (o !== usize) damaged.push("size");
+    return { data: out.subarray(0, Math.min(o, usize)), total, damaged };
   }
 
   // ---------- Z88B records (read backwards) ----------
@@ -327,8 +350,10 @@
   // ---------- Read a whole show ----------
   function read(buffer) {
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    const raw = isTag(bytes, 0, "C") ? unpack(bytes).data : bytes;
-    if (!isTag(raw, 0, "B")) throw new Error("this isn't a ZerOS show file");
+    let damaged = [];
+    let raw = bytes;
+    if (isTag(bytes, 0, "C")) ({ data: raw, damaged } = unpack(bytes));
+    if (raw.length < 0x30 || !isTag(raw, 0, "B") || !isTag(raw, raw.length - 4, "B")) throw new Error("this isn't a ZerOS show file (or it's damaged)");
     const top = parse(raw, 16, raw.length - 0x20);
     const name = text(top.find(n => n.section === 0 && n.field === 2 && n.value)) || "FLX show";
     const main = top.find(n => n.section === 0x10 && n.kids);
@@ -389,7 +414,7 @@
               const { param, value } = recordValue(pv, fixture.index ?? 0, paletteMap);
               if (value != null) params[param] = value;
             }
-            if (Object.keys(params).length) levels.push({ number: fixture.number, params });
+            if (Object.keys(params).length) levels.push({ number: fixture.number, index: fixture.index ?? 0, params });
           }
         }
         // Times in ms. Up Time[0..] / Up Delay[0..] per attribute group,
@@ -407,7 +432,7 @@
       playbacks.push({ number: int(one(pb, 1)), name: label, cues });
     }
     playbacks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-    return { name, fixtures, types: [...types.values()], groups, palettes, playbacks };
+    return { name, fixtures, types: [...types.values()], groups, palettes, playbacks, damaged };
   }
 
   // r, g, b (0-255) → Light Spark's hue / sat / light (light 50 = full colour).
@@ -492,6 +517,11 @@
 
   async function openBytes(bytes, label, filePath) {
     const z = read(bytes);
+    if (z.damaged?.length) {
+      const go = await window.LXAsk?.("This FLX file is damaged", [], { ok: "Open anyway", safe: true, message: `Part of “${z.name}” doesn't match the desk's own checks (${z.damaged.join(", ")}), so some lights or cues may be wrong. Use another copy if you have one (the Backups folder in your Shows folder, or the desk's USB stick).` });
+      if (window.LXAsk && !go) { say("Didn't open the damaged FLX file", "info"); return null; }
+      say(`“${z.name}” is damaged — check it before using it on the desk`, "warn");
+    }
     const r = toShow(z);
     const others = z.playbacks.filter(p => p.cues.length && p !== r.playback).length;
     const ok = await window.LXAsk?.(`Open FLX show “${z.name}”`, [], {
@@ -636,23 +666,27 @@
   const clone = n => n.open ? { open: true } : n.kids ? { ...n, kids: n.kids.map(clone) } : { ...n, value: n.value.slice() };
   const setInt = (n, field, v, extra) => { const k = one(n, field, extra); if (k) k.value = intBytes(v); return !!k; };
 
-  // The base show: the FLX show opened last (kept on this Mac).
+  // The base: the FLX file this Light Spark show came from. It travels inside
+  // the Light Spark show file (State.zos, saved by js/showfile.js), so a
+  // show is only ever saved into its own FLX file — never into whichever FLX
+  // file happened to be opened last.
+  const b64 = bytes => { let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+  const unb64 = text => { const bin = atob(text); const b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); return b; };
   let base = null;
-  const BASE_KEY = "lx-zos-base";
   function keepBase(bytes, name, filePath = "") {
     base = { bytes: bytes.slice(), name, path: filePath };
-    try {
-      let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-      localStorage.setItem(BASE_KEY, JSON.stringify({ name, path: filePath, data: btoa(bin) }));
-    } catch (_) {}
+    const S = window.State || (window.State = {});
+    S.zos = { name, path: filePath, data: b64(bytes), savedAt: new Date().toISOString() };
   }
   function loadBase() {
-    if (base) return base;
-    try {
-      const saved = JSON.parse(localStorage.getItem(BASE_KEY) || "null");
-      if (saved?.data) { const bin = atob(saved.data); const b = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i); base = { bytes: b, name: saved.name, path: saved.path || "" }; }
-    } catch (_) {}
-    return base;
+    const z = window.State?.zos;
+    if (z?.data) {
+      if (!base || base.name !== z.name || base.path !== (z.path || "") || base.data !== z.data) {
+        try { base = { bytes: unb64(z.data), name: z.name, path: z.path || "", data: z.data }; } catch (_) { base = null; }
+      }
+      return base;
+    }
+    return null;
   }
 
   // Light Spark's show written into the base show's records.
@@ -693,6 +727,14 @@
       const d = z.fixtures.find(x => !pair.has(x) && x.type && x.addr === Number(ls.addr) && x.uni === uniOf(ls) && String(ls.name) === definitionFor(x.type).key && Number(def?.channels) === x.type.channels);
       if (d) { pair.set(d, ls); used.add(ls); }
     }
+    // Every matched light must be the desk light's type, or this show
+    // doesn't belong to this FLX file: stop rather than write the wrong lights.
+    const wrongType = [];
+    for (const [d, ls] of pair) {
+      const chans = Number(defOf(ls)?.channels);
+      if (Number.isFinite(chans) && chans !== d.type.channels) wrongType.push(`${ls.fixtureNumber} (${ls.name} is ${chans} channels, the desk's ${d.type.name} is ${d.type.channels})`);
+    }
+    if (wrongType.length) throw new Error(`this show's lights don't match the FLX file “${z.name}”: ${wrongType.slice(0, 4).join("; ")}${wrongType.length > 4 ? "…" : ""}. Open the FLX file this show came from, or use Save As FLX to pick it — nothing was saved`);
     const missing = lsLights.filter(l => !used.has(l)).map(l => l.fixtureNumber);
 
     // ---- Patch: addresses you changed in Light Spark ----
@@ -800,7 +842,15 @@
     const lsCues = (S.cues || []).map((cue, i) => ({ cue, i })).filter(x => x.cue)
       .map(x => ({ ...x, number: Number(window.cueLabel ? window.cueLabel(x.i) : x.i + 1) || x.i + 1 }))
       .sort((a, b) => a.number - b.number);
+    const seen = new Map();
+    for (const x of lsCues) {
+      const key = Math.round(x.number * 100);
+      if (key < 1 || key > 99999) throw new Error(`cue ${x.number} can't be stored on the desk (cues go from 0.01 to 999.99) — nothing was saved`);
+      if (seen.has(key)) throw new Error(`cues ${seen.get(key)} and ${x.number} would both be cue ${key / 100} on the desk (it keeps two decimal places) — renumber one, nothing was saved`);
+      seen.set(key, x.number);
+    }
     let state = homes(), changed = 0, kept = 0, added = 0;
+    const lsOutput = new Map(); // cue (hundredths) → Light Spark's DMX for it
     const lightsChanged = new Set();
     const newCues = [];
     for (const { cue, i, number } of lsCues) {
@@ -810,6 +860,8 @@
       setInt(c, 1, key);
       const h = holderOf(c);
       if (!baseCue && h) h.kids = [{ open: true }];
+      // A new cue copies the shape of another cue, but not its name.
+      if (!baseCue) c.kids = c.kids.filter(k => k.open || k.kids || k.field !== 2);
       // Times: fade up / down and their delays, colour, beam and position.
       const timing = cue.timing && typeof cue.timing === "object" ? cue.timing : {};
       const fade = Number(cue.fade ?? 0) || 0, wait = Number(cue.delay ?? 0) || 0;
@@ -828,6 +880,7 @@
         const expect = copyState(state); applyCue(expect, c);
         const dmx = window.LXAscii?.dmxFor?.(window.cueLook?.(i)?.fixtureMap || new Map());
         if (!dmx) throw new Error("couldn't work out the cue levels — nothing was saved");
+        lsOutput.set(key, dmx);
         for (const [d, ls] of pair) {
           const m = expect.get(d.index ?? 0); if (!m) continue;
           const def = defOf(ls), own = def?.fromZerOS && Number(def.channels) === d.type.channels;
@@ -855,7 +908,44 @@
     const unpatched = 0;
 
     const data = writeData(raw, top);
-    return { bytes: pack(data), name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash };
+    const bytes = pack(data);
+
+    // ---- Self-check: read the new file back as the desk would and play
+    // every cue; each matched light must output what Light Spark does. ----
+    const z2 = read(bytes);
+    if (z2.damaged.length) throw new Error("the new file failed its own checks — nothing was saved");
+    const pb2 = [...z2.playbacks].filter(p => p.cues.length).sort((a, b) => b.cues.length - a.cues.length || (a.number ?? 0) - (b.number ?? 0))[0];
+    const cues2 = pb2 ? [...pb2.cues].sort((a, b) => a.number - b.number) : [];
+    if (cues2.length !== lsCues.length || cues2.some((c, k) => Math.round(c.number * 100) !== Math.round(lsCues[k].number * 100)))
+      throw new Error(`self-check: the desk would see ${cues2.length} cues, Light Spark has ${lsCues.length} — nothing was saved`);
+    const byIndex2 = new Map(z2.fixtures.map(f => [f.index ?? 0, f]));
+    const track = new Map(z2.fixtures.filter(f => f.type).map(f => [f.index ?? 0, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
+    const problems = [];
+    for (const [d, ls] of pair) {
+      const f2 = byIndex2.get(d.index ?? 0);
+      if (!f2 || f2.addr !== Number(ls.addr) || f2.uni !== uniOf(ls)) problems.push(`light ${ls.fixtureNumber} would be at ${f2 ? `${f2.uni}/${f2.addr}` : "nowhere"} on the desk, ${uniOf(ls)}/${ls.addr} here`);
+    }
+    for (const c2 of cues2) {
+      for (const l of c2.levels) { const m = track.get(l.index); if (m) for (const [p, v] of Object.entries(l.params)) m.set(Number(p), v); }
+      const dmx = lsOutput.get(Math.round(c2.number * 100));
+      if (!dmx) continue;
+      for (const [d, ls] of pair) {
+        const m = track.get(d.index ?? 0); if (!m) continue;
+        const def = defOf(ls), own = def?.fromZerOS && Number(def.channels) === d.type.channels;
+        const lsBase = (uniOf(ls) - 1) * 512 + Number(ls.addr) - 1;
+        for (const ch of d.type.list) {
+          let off = null;
+          if (own) off = ch.offset - 1;
+          else { const a = attribute(ch.label, ch.code, ch.code2); if (a && typeof def?.map?.[a] === "number") off = def.map[a]; }
+          if (off == null) continue;
+          const desk = (m.get(ch.index) ?? ch.home ?? 0) >> 8, here = dmx[lsBase + off] ?? 0;
+          if (Math.abs(desk - here) > 1 && problems.length < 6) problems.push(`cue ${c2.number}, light ${ls.fixtureNumber} ${ch.label}: desk ${desk}, Light Spark ${here}`);
+        }
+      }
+    }
+    if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
+
+    return { bytes, name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -873,7 +963,7 @@
 
   function report(r, where) {
     const what = r.changed ? `${r.changed} value${r.changed === 1 ? "" : "s"} changed on ${r.lightsChanged} light${r.lightsChanged === 1 ? "" : "s"}` : "no light levels changed";
-    say(`Saved FLX show “${where}”: ${r.cues} cues (${what}${r.added ? `, ${r.added} new cue${r.added === 1 ? "" : "s"}` : ""}${r.removed ? `, ${r.removed} cue${r.removed === 1 ? "" : "s"} deleted` : ""})${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}. Everything else is exactly as the desk had it`, "ok");
+    say(`Saved FLX show “${where}”: ${r.cues} cues (${what}${r.added ? `, ${r.added} new cue${r.added === 1 ? "" : "s"}` : ""}${r.removed ? `, ${r.removed} cue${r.removed === 1 ? "" : "s"} deleted` : ""})${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}. Everything else is exactly as the desk had it${r.checked ? ". Checked: every cue plays on the desk exactly as it does here" : ""}`, "ok");
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
     if (r.numberClash?.length) say(`Fixture numbers weren't changed on the desk: ${r.numberClash.slice(0, 8).join(", ")} would be used twice`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");

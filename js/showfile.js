@@ -219,6 +219,8 @@
       tempo: state.tempo ? cloneValue(state.tempo) : null,
       song: state.song ? cloneValue(state.song) : null,
       targets: cloneValue(state.targets || []),
+      // The FLX file this show came from (js/zos-import.js): Save as FLX writes into it.
+      zos: state.zos && state.zos.data ? { ...state.zos } : null,
       fixtureStates: state.fixtureStates instanceof Map ? [...state.fixtureStates.entries()].map(([id, value]) => [id, cloneValue(value)]) : [],
       current: cloneValue(state.current || {}),
       selectedFixtureId: state.selectedFixtureId ?? null,
@@ -370,6 +372,7 @@
     // The Song Timeline's track: its name, length and waveform (the audio stays on each Mac).
     state.song = show.song && typeof show.song === "object" && Number(show.song.duration) > 0 ? show.song : null;
     state.targets = Array.isArray(show.targets) ? show.targets : [];
+    state.zos = show.zos && typeof show.zos === "object" && typeof show.zos.data === "string" ? show.zos : null;
     state.current = show.current && typeof show.current === "object" ? cloneValue(show.current) : {};
     state.selectedFixtureId = show.selectedFixtureId ?? null;
     state.currentCue = Number.isInteger(show.currentCue) ? show.currentCue : -1;

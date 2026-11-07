@@ -381,7 +381,7 @@
         const num = ref ? int(kidsOf(ref).find(x => x.field === 1 && x.value)) : null;
         if (num != null) members.push({ order: int(one(m, 0x12)) ?? 0, num });
       }
-      members.sort((a, b) => a.num - b.num);
+      members.sort((a, b) => a.order - b.order);   // the desk's own order
       groups.push({ id: int(one(g, 1)), name: text(one(g, 2)), members: members.map(m => m.num), auto: int(one(g, 7)) === 1 });
     }
     groups.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
@@ -746,6 +746,34 @@
     const lsById = new Map(allLs.map(l => [String(l.id || ""), l]));
     const toUnpatch = new Set(fromThisFile ? z.fixtures.filter(d => d.addr && !pair.has(d) && (!lsById.has(idOf(d)) || lsById.get(idOf(d)).addr == null)) : []);
 
+    // ---- New lights: added in Light Spark, of a type the desk already has ----
+    // A copy of a desk light of that type, at the end of the desk's list.
+    const fixSec = sec(0x1c);
+    const nodeOfIndex = i => kidsOf(fixSec).find(n => (int(one(n, 1)) ?? 0) === i);
+    const patchedNode = kidsOf(fixSec).find(n => kidsOf(one(n, 6))[0]);
+    const newLights = [];
+    let nextIndex = Math.max(-1, ...z.fixtures.map(d => d.index ?? 0)) + 1;
+    for (const ls of lsLights) {
+      if (used.has(ls)) continue;
+      const type = z.types.find(t => definitionFor(t).key === String(ls.name) && Number(defOf(ls)?.channels) === t.channels);
+      const like = type && (z.fixtures.find(d => d.type === type && kidsOf(one(nodeOfIndex(d.index ?? 0), 6))[0]) || z.fixtures.find(d => d.type === type));
+      const likeNode = like && nodeOfIndex(like.index ?? 0);
+      if (!likeNode || !patchedNode) continue;
+      const node = clone(likeNode);
+      if (!kidsOf(one(node, 6))[0]) { node.kids = node.kids.filter(k => !(k.field === 6 && k.kids)); node.kids.splice(node.kids.findIndex(k => k.field === 4) + 1, 0, clone(one(patchedNode, 6))); }
+      const index = nextIndex++;
+      setInt(node, 1, index);
+      const d = { index, number: like.number, label: like.label, type, addr: Number(ls.addr), uni: uniOf(ls), added: true };
+      const patch = kidsOf(one(node, 6))[0];
+      setInt(patch, 1, d.addr);
+      if (!setInt(patch, 2, d.uni - 1) && d.uni > 1) continue;
+      fixSec.kids.splice(1, 0, node);           // the desk lists lights last-first
+      z.fixtures.push(d); deskByIndex.set(index, d);
+      pair.set(d, ls); used.add(ls); newLights.push(ls.fixtureNumber);
+    }
+    const missingType = lsLights.filter(l => !used.has(l)).map(l => l.fixtureNumber);
+    missing.length = 0; missing.push(...missingType);
+
     // ---- Patch: addresses you changed in Light Spark ----
     const nodeByIndex = new Map(kidsOf(sec(0x1c)).map(n => [int(one(n, 1)) ?? 0, n]));
     const size = d => Math.max(1, d.type?.channels || 1);
@@ -806,6 +834,61 @@
       if (num && change.has(int(num))) num.value = intBytes(change.get(int(num)));
     }
     for (const [d, n] of finalNumber) d.number = n;
+
+    // ---- Light names ----
+    const cleanText = (t, n = 31) => String(t || "").replace(/[^\x20-\x7e]/g, "").trim().slice(0, n);
+    let renamed = 0;
+    const wantLabel = d => cleanText(pair.get(d)?.label) || d.type.name;
+    for (const [d] of pair) {
+      const node = nodeByIndex.get(d.index ?? 0) || nodeOfIndex(d.index ?? 0);
+      const now = text(one(node, 3));
+      if (now === wantLabel(d)) continue;
+      const leaf = one(node, 3);
+      if (leaf) leaf.value = new TextEncoder().encode(wantLabel(d));
+      renamed++;
+    }
+
+    // ---- Groups: Light Spark's (not its automatic ones) replace the desk's own ----
+    // The desk's automatic groups ("Odd - …", "All - …") are left alone.
+    const gsec = sec(0x1f);
+    const deskNumbers = new Set([...pair.keys()].map(d => d.number));
+    const memberNumber = m => { const f = allLs.find(x => String(x.id) === String(m)); return f ? Number(f.fixtureNumber) : Number(m); };
+    const lsGroups = (S.groups || []).filter(g => g && g.name && !g.auto)
+      .map(g => ({ name: cleanText(g.name), members: [...new Set((g.members || []).map(memberNumber))].filter(n => deskNumbers.has(n)) }))
+      .filter(g => g.name);
+    const userGroups = kidsOf(gsec).filter(g => int(one(g, 7)) !== 1);
+    const groupLike = userGroups[0] || kidsOf(gsec).find(g => kidsOf(one(g, 0, { kind: 0x11 })).length) || null;
+    const memberLike = (() => { for (const g of kidsOf(gsec)) { const m = kidsOf(one(g, 0, { kind: 0x11 }))[0]; if (m) return m; } return null; })();
+    const memberNums = g => kidsOf(one(g, 0, { kind: 0x11 })).map(m => ({ order: int(one(m, 0x12)) ?? 0, n: int(kidsOf(kidsOf(m).find(k => k.kids)).find(x => x.field === 1 && x.value)) })).sort((a, b) => a.order - b.order).map(x => x.n);
+    const setMembers = (g, nums) => {
+      const list = one(g, 0, { kind: 0x11 });
+      // The desk writes members last-first, each with its place (0x12).
+      list.kids = [{ open: true }, ...nums.map((n, i) => { const m = clone(memberLike); const ref = kidsOf(m).find(k => k.kids); kidsOf(ref).find(x => x.field === 1 && x.value).value = intBytes(n); setInt(m, 0x12, i); return m; }).reverse()];
+    };
+    let groupsAdded = 0, groupsChanged = 0, groupsRemoved = 0;
+    if (gsec && (lsGroups.length || userGroups.length)) {
+      if ((!groupLike || !memberLike) && lsGroups.length) throw new Error("the FLX show has no group to copy the layout from — make one group on the desk, save, and use that file. Nothing was saved");
+      const byName = new Map(lsGroups.map(g => [g.name.toLowerCase(), g]));
+      const done = new Set();
+      for (const g of userGroups) {
+        const want = byName.get(text(one(g, 2)).trim().toLowerCase());
+        if (!want || done.has(want)) { gsec.kids = gsec.kids.filter(k => k !== g); groupsRemoved++; continue; }
+        done.add(want);
+        const now = memberNums(g);
+        if (now.join(",") !== want.members.join(",")) { setMembers(g, want.members); groupsChanged++; }
+      }
+      let nextId = Math.max(0, ...kidsOf(gsec).map(g => int(one(g, 1)) ?? 0));
+      for (const want of lsGroups) {
+        if (done.has(want)) continue;
+        const g = clone(groupLike);
+        g.kids = g.kids.filter(k => k.open || k.kids || k.field !== 7);
+        setInt(g, 1, ++nextId);
+        one(g, 2).value = new TextEncoder().encode(want.name);
+        setMembers(g, want.members);
+        gsec.kids.splice(1, 0, g);              // last-first, like the desk
+        groupsAdded++;
+      }
+    }
 
     // ---- Cues: only what's different from the desk's show is written ----
     const stacks = top.find(n => n.section === 0x50 && n.kids);
@@ -961,6 +1044,12 @@
     const track = new Map(z2.fixtures.filter(f => f.type).map(f => [f.index ?? 0, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
     const problems = [];
     for (const d of toUnpatch) { const f2 = byIndex2.get(d.index ?? 0); if (f2?.addr) problems.push(`light ${d.number} would still be patched on the desk`); }
+    for (const [d] of pair) { const f2 = byIndex2.get(d.index ?? 0); if (f2 && (f2.label || "") !== wantLabel(d)) problems.push(`light ${d.number} would be called “${f2.label}” on the desk, “${wantLabel(d)}” here`); }
+    {
+      const deskG = z2.groups.filter(g => !g.auto).map(g => `${g.name.trim().toLowerCase()}:${[...g.members].sort((a, b) => a - b)}`).sort();
+      const lsG = [...new Map(lsGroups.map(g => [g.name.toLowerCase(), g])).values()].map(g => `${g.name.trim().toLowerCase()}:${[...g.members].sort((a, b) => a - b)}`).sort();
+      if (deskG.join("|") !== lsG.join("|")) problems.push(`the desk's groups wouldn't match Light Spark's (${deskG.length} vs ${lsG.length})`);
+    }
     for (const [d, n] of wanted) { const f2 = byIndex2.get(d.index ?? 0); if (!numberClash.includes(n) && f2 && f2.number !== n) problems.push(`light ${n} would be number ${f2.number} on the desk`); }
     const used2 = new Map();
     for (const f2 of z2.fixtures) { if (used2.has(f2.number)) problems.push(`two desk lights would both be number ${f2.number}`); used2.set(f2.number, f2); }
@@ -992,13 +1081,7 @@
     }
     if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
 
-    // Groups aren't written to the desk yet: say so if they were changed.
-    const key = g => `${String(g.name || "").trim().toLowerCase()}:${[...(g.members || [])].map(Number).sort((a, b) => a - b).join(",")}`;
-    const deskGroups = new Set(z.groups.filter(g => g.name && !g.auto).map(key));
-    const lsGroups = new Set((S.groups || []).filter(g => g && g.name && !g.area).map(g => key({ name: g.name, members: (g.members || []).map(m => (S.fixtures || []).find(f => String(f?.id) === String(m))?.fixtureNumber ?? m) })));
-    const groupsChanged = [...lsGroups].some(k => !deskGroups.has(k)) || [...deskGroups].some(k => !lsGroups.has(k));
-
-    return { bytes, name, groupsChanged, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
+    return { bytes, name, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -1020,8 +1103,9 @@
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
     if (r.numberClash?.length) say(`Fixture number${r.numberClash.length === 1 ? "" : "s"} ${r.numberClash.slice(0, 8).join(", ")} ${r.numberClash.length === 1 ? "is" : "are"} used by two lights in Light Spark, so ${r.numberClash.length === 1 ? "that one wasn't" : "those weren't"} changed on the desk — every other number was`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
-    if (r.groupsChanged) say("Group changes aren't saved into FLX files yet — the desk keeps its own groups (they're still in your Light Spark show)", "warn");
-    if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");
+    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
+    if (extra.length) say(`Also saved: ${extra.join(", ")}`, "ok");
+    if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "is a" : "are"} type${r.missing.length === 1 ? "" : "s"} the desk show doesn't have yet, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch one light of that type on the desk, save, open that here, then save again`, "warn");
   }
 
   // Write to a file (Light Spark app), or download it (no file access).

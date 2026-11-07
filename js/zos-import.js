@@ -519,6 +519,17 @@
 
     const paletteMap = paletteValues(main);
     const fxPalettes = fxPaletteValues(main);
+    // The colour each colour palette was picked as on the desk: hue, saturation,
+    // brightness (fractions) and white temperature.
+    const swatches = new Map();
+    {
+      const psec = kidsOf(main, { section: 0x1d }).find(k => k.kids);
+      for (const e of kidsOf(kidsOf(psec).find(g => g.kids && g.kind === 0x10))) {
+        const b = one(e, 0x10); if (!b?.kids) continue;
+        const v = f => { const x = one(b, f)?.value; return x && x.length >= 4 ? (x[0] | (x[1] << 8) | (x[2] << 16) | (x[3] << 24)) >>> 0 : null; };
+        if ([0, 1, 2, 3].every(f => v(f) != null)) swatches.set(int(one(e, 1)), { h: v(0) / 4294967296, s: v(1) / 65535, v: v(2) / 65535, k: v(3) });
+      }
+    }
     const playbacks = [];
     const stacks = top.find(n => n.section === 0x50 && n.kids);
     const byIndex = new Map(fixtures.map(f => [f.index, f]));
@@ -558,9 +569,19 @@
       playbacks.push({ number: int(one(pb, 1)), name: label, cues, chase, bpm: chase ? (int(one(pb, 0x27)) || 60000) / 1000 : null, shots: chase ? int(one(pb, 0x24)) ?? 0 : null });
     }
     playbacks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-    return { name, fixtures, types: [...types.values()], groups, palettes, paletteMap, fxPalettes, playbacks, damaged };
+    return { name, fixtures, types: [...types.values()], groups, palettes, paletteMap, fxPalettes, swatches, playbacks, damaged };
   }
 
+  // What an extra emitter adds to the colour you see (r, g, b per full level).
+  const EMITTER_TINT = { amber: [1, 0.75, 0], lime: [0.75, 1, 0], cyan: [0, 1, 1], w: [1, 1, 1], warmWhite: [1, 0.78, 0.55], coolWhite: [0.86, 0.9, 1], uv: [0.4, 0, 1] };
+  // A desk colour-picker swatch → Light Spark's hue / sat / light.
+  function swatchColour(sw) {
+    // Whites as Light Spark's own warm / cool white.
+    if (sw.s < 0.02) return sw.k === 3200 ? { hue: 32, sat: 70, light: 82 } : sw.k === 10000 ? { hue: 210, sat: 45, light: 88 } : { hue: 0, sat: 0, light: Math.round(sw.v * 100) };
+    const l = sw.v * (1 - sw.s / 2), sl = l > 0 && l < 1 ? (sw.v - l) / Math.min(l, 1 - l) : 0;
+    const r1 = x => Math.round(x * 100) / 100;
+    return { hue: r1(sw.h * 360), sat: r1(sl * 100), light: r1(l * 100) };
+  }
   // r, g, b (0-255) → Light Spark's hue / sat / light (light 50 = full colour).
   function hsl([r, g, b]) {
     r /= 255; g /= 255; b /= 255;
@@ -682,6 +703,13 @@
         ids.push(`zos-i${index}`);
         for (const [param, o] of m) { first = first || o; (params[index] = params[index] || {})[param] = o[0x70]; lights[index] = { f50: o[0x50], f60: o[0x60] }; }
       }
+      // An effect recorded from another recorded effect points at that one: follow it to the desk's own effect.
+      let effectId = first?.[0x20];
+      for (let hop = 0; hop < 4 && effectId != null && !FX_TYPE_OF(fxNamesAll.get(effectId)) && z.fxPalettes.get(effectId); hop++) {
+        const inner = [...z.fxPalettes.get(effectId).lights.values()][0]?.values().next().value;
+        effectId = inner?.[0x20];
+      }
+      if (first && effectId != null) first = { ...first, 0x20: effectId };
       const type = first && FX_TYPE_OF(fxNamesAll.get(first[0x20]));
       if (!type || !ids.length) continue;
       const name = fp.name || `Effect ${id}`;
@@ -695,6 +723,14 @@
       seenFx.set(key, name);
       savedEffects[name] = { name, type: e.type, speed: e.speed, fixtureMode: "custom", fixtureIds: [...e.fixtureIds], zos: { ...e.zos, cue: true } };
     }
+    // The desk's own effects (Circle, Rainbow, Fly in…), as on its Effects
+    // page: they run on whatever is selected, like on the desk.
+    for (const p of z.palettes.filter(p => p.code === 0x40).sort((a, b) => a.id - b.id)) {
+      if (z.fxPalettes?.has(p.id)) continue; // recorded ones are above
+      const type = FX_TYPE_OF(p.name);
+      if (!type || savedEffects[p.name]) continue;
+      savedEffects[p.name] = { name: p.name, type, speed: 1, fixtureMode: "selected", fixtureIds: [], zos: { kind: 0x40, id: p.id, effect: p.id, builtin: true } };
+    }
     // Palettes: colour, beam and position, each light's own values.
     const lsPalettes = [];
     const lightByIndex = new Map(z.fixtures.filter(f => f.type && f.addr && have.has(f.number)).map(f => [f.index ?? 0, f]));
@@ -702,12 +738,16 @@
       const category = PALETTE_CATEGORY[p.code];
       if (!category) continue;
       const perFixture = {};
+      // The colour the desk's colour picker made this palette as, if it did.
+      const sw = p.code === 0x10 ? z.swatches?.get(p.id) : null;
+      const picked = sw ? swatchColour(sw) : null;
       for (const [index, chans] of z.paletteMap.get(`${p.code}:${p.id}`) || []) {
         const f = lightByIndex.get(index);
         if (!f) continue;
         const { slots } = deskSlots(f.type);
         const st = {};
         let rgb = null;
+        const mix = [0, 0, 0];
         for (const ch of f.type.list) {
           if (!chans.has(ch.index)) continue;
           const key = slots.get(ch.index), a = attribute(ch.label, ch.code, ch.code2);
@@ -715,13 +755,25 @@
           const v = chans.get(ch.index);
           if (key === "r" || key === "g" || key === "b") { rgb = rgb || f.type.list.filter(c => ["r", "g", "b"].includes(slots.get(c.index))).reduce((acc, c) => { acc["rgb".indexOf(slots.get(c.index))] = (chans.get(c.index) ?? c.home ?? 0) / 257; return acc; }, [255, 255, 255]); }
           else st[key] = Math.round(v / 257);
+          // What each emitter adds to the colour you see.
+          const tint = EMITTER_TINT[a];
+          if (tint) tint.forEach((t, j) => { mix[j] += t * v / 257; });
         }
-        if (rgb) Object.assign(st, hsl(rgb));
+        if (picked) {
+          // Made with the desk's colour picker: that colour, with the desk's own
+          // amber / lime / white levels on top (the desk mixes those in, Light
+          // Spark wouldn't from red, green and blue alone).
+          Object.assign(st, picked);
+        } else if (rgb) {
+          const seen = rgb.map((x, j) => x + mix[j]);
+          const top = Math.max(...seen);
+          Object.assign(st, hsl(top > 255 ? seen.map(x => x * 255 / top) : seen));
+        }
         if (Object.keys(st).length) perFixture[`zos-i${f.index}`] = st;
       }
       const ids = Object.keys(perFixture);
       if (!ids.length) continue;
-      lsPalettes.push({ id: `zos-palette-${p.code}-${p.id}`, name: p.name, category, values: { ...perFixture[ids[0]] }, fixtures: ids, perFixture, zos: { kind: p.code, id: p.id }, createdAt: new Date().toISOString() });
+      lsPalettes.push({ id: `zos-palette-${p.code}-${p.id}`, name: p.name, category, values: picked ? { ...perFixture[ids[0]], ...picked } : { ...perFixture[ids[0]] }, fixtures: ids, perFixture, zos: { kind: p.code, id: p.id }, createdAt: new Date().toISOString() });
     }
     return {
       show: {
@@ -755,9 +807,9 @@
     try { for (const [k, d] of Object.entries(r.custom)) window.FixtureLibrary[k] = JSON.parse(JSON.stringify(d)); } catch (_) {}
     window.LXShowCommands?.restore?.(r.show);
     for (const c of window.State?.chases || []) if (c?.zos) c.zos.sig = chaseSig(c);
-    for (const p of window.State?.palettes || []) if (p?.zos) p.zos.sig = palSig(p);
+    for (const p of window.State?.palettes || []) if (p?.zos) { p.zos.sig = palSig(p); p.zos.lightSigs = Object.fromEntries(Object.entries(p.perFixture || {}).map(([id, st]) => [id, JSON.stringify({ ...(p.values || {}), ...st })])); }
     for (const e of Object.values(window.State?.savedEffects || {})) if (e?.zos?.kind === 0x40) e.zos.sig = fxSig(e);
-    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, [...(r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`), ...Object.values(r.show.savedEffects || {}).filter(e => e.zos?.kind === 0x40).map(e => `64:${e.zos.id}`)], (r.show.chases || []).map(c => c.zos.playback));
+    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, [...(r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`), ...Object.values(r.show.savedEffects || {}).filter(e => e.zos?.kind === 0x40 && !e.zos.builtin).map(e => `64:${e.zos.id}`)], (r.show.chases || []).map(c => c.zos.playback));
     openPath = filePath || "";
     try { window.LXShowCommands?.markSaved?.(); } catch (_) {}
     try { window.renderLibrary?.(); } catch (_) {}
@@ -1316,6 +1368,16 @@
         }
         let want = paletteWant(p, kind);
         if (!want.size) continue;
+        // A palette from the desk with some lights changed here: the lights not
+        // changed keep the desk's exact values.
+        if (p.zos?.kind === kind && p.zos.lightSigs) {
+          const desk = z.paletteMap.get(`${kind}:${p.zos.id}`);
+          for (const [i] of want) {
+            const ls = [...pair].find(([d]) => (d.index ?? 0) === i)?.[1]; if (!ls) continue;
+            const id = String(ls.id), before = p.zos.lightSigs[id];
+            if (before && before === JSON.stringify({ ...(p.values || {}), ...(p.perFixture?.[id] || {}) }) && desk?.get(i)) want.set(i, new Map(desk.get(i)));
+          }
+        }
         const desk = kind === 0x10 ? deskColour(p, want) : null;
         if (desk) want = desk.want;
         const pname = cleanText(p.name);
@@ -1593,7 +1655,7 @@
       const sameFx = (a, b) => a.size === b.size && [...b].every(([i, m]) => { const n = a.get(i); return n && n.size === m.size && [...m].every(([p, o]) => fxKey(n.get(p)) === fxKey(o)); });
       const matchedFx = new Set();
       for (const e of Object.values(S.savedEffects || {})) {
-        if (!e || !e.type || e.zos?.cue) continue;
+        if (!e || !e.type || e.zos?.cue || (e.zos?.builtin && e.fixtureMode !== "all" && !(e.fixtureIds || []).length)) continue;
         const name = cleanText(e.name || e.type);
         const own = e.zos?.kind === 0x40 ? kidsOf(fxGroup).find(x => int(one(x, 1)) === e.zos.id && !builtIn(x) && !matchedFx.has(x)) : null;
         if (own && e.zos.sig && e.zos.sig === fxSig(e)) {

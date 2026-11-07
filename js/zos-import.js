@@ -231,6 +231,55 @@
     0x30: new Set(["pan", "tilt", "panf", "tiltf"])
   };
 
+  // ---------- Effects ----------
+  // A cue value can run an effect: field 0x20 = the desk's effect palette
+  // (by number: "Circle", "Rainbow - cool"…), 0x30 speed, 0x40 size,
+  // 0x50 / 0x60 the desk's other effect settings, 0x70 this channel's
+  // phase (how a rainbow spreads over red, green and blue). 0 = no effect.
+  const FX_FIELDS = [0x20, 0x60, 0x30, 0x40, 0x50, 0x70]; // the desk's own order
+  const FX_DEFAULT = { 0x20: 0, 0x30: 32768, 0x40: 0, 0x50: 0, 0x60: 32768, 0x70: 0 };
+  const fxOfRecord = r => {
+    if (!kidsOf(r).some(k => k.field === 0x20 && k.value)) return null;
+    const o = {};
+    for (const f of FX_FIELDS) o[f] = int(kidsOf(r).find(k => k.field === f && k.value)) ?? FX_DEFAULT[f];
+    return o;
+  };
+  const fxKey = o => o && o[0x20] ? FX_FIELDS.map(f => o[f]).join(",") : "";
+  // Desk effect names → Light Spark effect types (and back).
+  const FX_TYPE_OF = name => {
+    const n = String(name || "").toLowerCase();
+    if (/^no effect/.test(n)) return null;
+    if (/rainbow|kaleidoscope/.test(n)) return "rainbow";
+    if (/chaser/.test(n)) return "chase";
+    if (/^smooth/.test(n)) return "sine";
+    if (/ramp/.test(n)) return "ramp";
+    if (/lightning/.test(n)) return "lightning";
+    if (/candle/.test(n)) return "flicker";
+    if (/double blink/.test(n)) return "heartbeat";
+    if (/figure ?8/.test(n)) return "figure8";
+    if (/ballyhoo/.test(n)) return "ballyhoo";
+    if (/fly (in|out)/.test(n)) return "fan";
+    if (/circle|square|triangle/.test(n)) return "circle";
+    if (/vert/.test(n)) return "tiltsweep";
+    if (/horiz/.test(n)) return "pansweep";
+    if (/sparkle|fireworks/.test(n)) return "sparkle";
+    if (/^fade/.test(n)) return "colourfade";
+    if (/emergency/.test(n)) return "police";
+    if (/warning/.test(n)) return "alternate";
+    if (/^fire/.test(n)) return "fire";
+    if (/iris/.test(n)) return "irispulse";
+    if (/zoom|focus/.test(n)) return "zoompulse";
+    return "sine";
+  };
+  // Speed: the desk's 0-65535 (32768 = its normal speed) ↔ Light Spark's
+  // cycles per second (1 = normal), doubling every 8192.
+  const fxSpeed = raw => Math.round(Math.pow(2, ((raw ?? 32768) - 32768) / 8192) * 1000) / 1000;
+  const fxRaw = speed => Math.max(0, Math.min(65535, Math.round(32768 + 8192 * Math.log2(Math.max(1 / 16, Math.min(16, Number(speed) || 1))))));
+  // Which channels a Light Spark effect type moves, by attribute.
+  const FX_ATTRS = type => ["circle", "figure8", "pansweep", "tiltsweep", "ballyhoo", "fan", "search"].includes(type) ? new Set(["pan", "tilt"])
+    : ["rainbow", "colourfade", "colourstep", "police", "disco", "water"].includes(type) ? new Set(["r", "g", "b"])
+    : type === "zoompulse" ? new Set(["zoom", "focus"]) : type === "irispulse" ? new Set(["iris"]) : new Set(["dimmer"]);
+
   // ---------- What a channel is ----------
   const CODES = { 86: "r", 87: "g", 88: "b", 35: "w", 60: "amber", 67: "lime", 78: "cyan", 77: "warmWhite", 62: "coolWhite" };
   function attribute(name, code, code2) {
@@ -418,12 +467,13 @@
           for (const fx of kidsOf(holder).filter(k => k.kids)) {
             const fixture = byIndex.get(int(one(fx, 1)));
             if (!fixture) continue;
-            const params = {};
+            const params = {}, effects = {};
             for (const pv of kidsOf(one(fx, 0, { kind: 0x11 }))) {
               const { param, value } = recordValue(pv, fixture.index ?? 0, paletteMap);
               if (value != null) params[param] = value;
+              if (kidsOf(pv).some(k => k.field === 0x20)) effects[param] = fxOfRecord(pv) || { ...FX_DEFAULT };
             }
-            if (Object.keys(params).length) levels.push({ number: fixture.number, index: fixture.index ?? 0, params });
+            if (Object.keys(params).length || Object.keys(effects).length) levels.push({ number: fixture.number, index: fixture.index ?? 0, params, effects });
           }
         }
         // Times in ms. Up Time[0..] / Up Delay[0..] per attribute group,
@@ -489,8 +539,29 @@
       const lights = z.fixtures.filter(f => f.type && f.addr && have.has(f.number));
       const values = new Map(lights.map(f => [f.number, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
       const before = new Map();
+      const fxNow = new Map(lights.map(f => [f.index ?? 0, new Map()])); // light → channel → desk effect
+      const fxNames = new Map(z.palettes.filter(p => p.code === 0x40).map(p => [p.id, p.name]));
       for (const c of [...pb.cues].sort((a, b) => a.number - b.number)) {
-        for (const l of c.levels) { const m = values.get(l.number); if (m) for (const [i, v] of Object.entries(l.params)) m.set(Number(i), v); }
+        for (const l of c.levels) {
+          const m = values.get(l.number); if (m) for (const [i, v] of Object.entries(l.params)) m.set(Number(i), v);
+          const e = fxNow.get(l.index); if (e) for (const [i, o] of Object.entries(l.effects || {})) { if (o[0x20]) e.set(Number(i), o); else e.delete(Number(i)); }
+        }
+        // Effects running in this cue: lights sharing an effect, speed and size together.
+        const groupsFx = new Map();
+        for (const f of lights) for (const [param, o] of fxNow.get(f.index ?? 0) || []) {
+          const type = FX_TYPE_OF(fxNames.get(o[0x20]));
+          if (!type) continue;
+          const k = `${o[0x20]}|${o[0x30]}|${o[0x40]}`;
+          const g = groupsFx.get(k) || { type, o, ids: new Set(), params: {}, lights: {} };
+          g.ids.add(`zos-i${f.index}`);
+          (g.params[f.index] = g.params[f.index] || {})[param] = o[0x70];
+          g.lights[f.index] = { f50: o[0x50], f60: o[0x60] };
+          groupsFx.set(k, g);
+        }
+        const cueEffects = [...groupsFx.values()].map(g => ({
+          type: g.type, speed: fxSpeed(g.o[0x30]), fixtureMode: "custom", fixtureIds: [...g.ids], name: fxNames.get(g.o[0x20]) || g.type,
+          zos: { effect: g.o[0x20], speed: g.o[0x30], size: g.o[0x40], params: g.params, lights: g.lights }
+        }));
         const states = [];
         for (const f of lights) {
           const out = stateFor(f, values.get(f.number));
@@ -503,7 +574,7 @@
           name: c.name || `Cue ${c.number}`, number: c.number, fade: c.up,
           timing: { up: c.up, down: c.down, upDelay: c.upDelay, downDelay: c.downDelay, colour: c.colour, colourDelay: c.colourDelay, beam: c.beam, beamDelay: c.beamDelay, focus: c.focus, focusDelay: c.focusDelay },
           follow: 0, followEnabled: false, mode: "track", fixtureStates: states, state: {}, globalState: {},
-          zosTrigger: c.trigger
+          effects: cueEffects, zosTrigger: c.trigger
         });
         // This cue runs by itself: the one before it follows on.
         const prev = cues[cues.length - 2];
@@ -1090,6 +1161,63 @@
       const at = c.kids.indexOf(kidsOf(c).find(k => k.field === 3) || like);
       c.kids.splice(at >= 0 ? at + 1 : c.kids.length, 0, leaf);
     }
+    // ---- Effects ----
+    const fxNames = new Map(z.palettes.filter(p => p.code === 0x40).map(p => [p.id, p.name]));
+    const fxIdFor = type => [...fxNames].sort((a, b) => a[0] - b[0]).find(([, n]) => FX_TYPE_OF(n) === type)?.[0] || null;
+    const applyFx = (st, c) => {
+      const h = holderOf(c); if (!h) return;
+      for (const e of entriesOf(h)) {
+        const m = st.get(int(one(e, 1)) ?? 0); if (!m) continue;
+        for (const r of kidsOf(one(e, 0, { kind: 0x11 }))) if (kidsOf(r).some(k => k.field === 0x20)) { const o = fxOfRecord(r); if (o && o[0x20]) m.set(paramOf(r), o); else m.delete(paramOf(r)); }
+      }
+    };
+    const fxParamsFor = (d, ls, type) => {
+      const want = FX_ATTRS(type), out = [];
+      for (const ch of d.type.list) { const a = attribute(ch.label, ch.code, ch.code2); if (want.has(a) && deskOff(d, ls, ch) != null) out.push([ch.index, a === "g" ? 21845 : a === "b" ? 43690 : 0]); }
+      return out;
+    };
+    const unsupportedFx = new Set();
+    function wantedFx(cue) {
+      const list = Array.isArray(cue.effects) && cue.effects.length ? cue.effects : (cue.effect?.type ? [cue.effect] : []);
+      const out = new Map();
+      for (const e of list) {
+        if (!e || !e.type) continue;
+        const sameType = e.zos?.effect && FX_TYPE_OF(fxNames.get(e.zos.effect)) === e.type;
+        const effectId = sameType ? e.zos.effect : fxIdFor(e.type);
+        if (!effectId) { unsupportedFx.add(e.name || e.type); continue; }
+        const sameSpeed = sameType && Math.abs(fxSpeed(e.zos.speed) - Number(e.speed ?? 1)) < 1e-3;
+        const ids = e.fixtureMode === "all" ? [...pair.values()].map(l => String(l.id)) : (e.fixtureIds || []).map(String);
+        for (const id of ids) {
+          const d = lsOfDesk.get(id); if (!d) continue;
+          const params = sameType && e.zos.params?.[d.index ?? 0] ? Object.entries(e.zos.params[d.index ?? 0]).map(([p, ph]) => [Number(p), ph]) : fxParamsFor(d, pair.get(d), e.type);
+          const m = out.get(d.index ?? 0) || new Map();
+          const per = (sameType && e.zos.lights?.[d.index ?? 0]) || {};
+          for (const [param, phase] of params) m.set(param, { 0x20: effectId, 0x30: sameSpeed ? e.zos.speed : fxRaw(e.speed), 0x40: sameType ? e.zos.size : FX_DEFAULT[0x40], 0x50: per.f50 ?? 0, 0x60: per.f60 ?? 32768, 0x70: phase });
+          out.set(d.index ?? 0, m);
+        }
+      }
+      return out;
+    }
+    function setFx(h, idx, param, o) {
+      let e = entriesOf(h).find(k => (int(one(k, 1)) ?? 0) === idx);
+      if (!e) {
+        e = clone(entryProto); setInt(e, 1, idx);
+        one(e, 0, { kind: 0x11 }).kids = [{ open: true }];
+        h.kids = [{ open: true }, ...[...entriesOf(h), e].sort((a, b) => (int(one(a, 1)) ?? 0) - (int(one(b, 1)) ?? 0))];
+      }
+      const pg = one(e, 0, { kind: 0x11 });
+      let r = kidsOf(pg).find(k => paramOf(k) === param);
+      if (!r) { r = clone(paramProto); setInt(r, 0x11, param); r.kids = r.kids.filter(k => k.open || k.field === 0x11); pg.kids.push(r); }
+      for (const f of FX_FIELDS) {
+        let leaf = kidsOf(r).find(k => k.field === f && k.value);
+        if (!leaf) { leaf = { ...clone(one(paramProto, 0x10)), field: f }; r.kids.push(leaf); }
+        leaf.value = intBytes(o[f]);
+      }
+    }
+    let fxState = new Map(z.fixtures.filter(d => d.type).map(d => [d.index ?? 0, new Map()]));
+    const fxWanted = new Map(); // cue (hundredths) → light → channel → effect
+    let fxChanged = 0;
+
     const baseByNumber = new Map(kidsOf(list).map(c => [int(one(c, 1)) ?? 0, c]));
     const lsCues = (S.cues || []).map((cue, i) => ({ cue, i })).filter(x => x.cue)
       .map(x => ({ ...x, number: Number(window.cueLabel ? window.cueLabel(x.i) : x.i + 1) || x.i + 1 }))
@@ -1162,7 +1290,19 @@
           }
         }
       }
+      // Effects: what Light Spark runs in this cue against what the desk would.
+      if (h) {
+        const expectFx = new Map([...fxState].map(([i, m]) => [i, new Map(m)])); applyFx(expectFx, c);
+        const want = wantedFx(cue);
+        fxWanted.set(key, want);
+        for (const [d] of pair) {
+          const i = d.index ?? 0, now = expectFx.get(i) || new Map(), w = want.get(i) || new Map();
+          for (const [param, o] of w) if (fxKey(now.get(param)) !== fxKey(o)) { setFx(h, i, param, o); fxChanged++; lightsChanged.add(d.number); }
+          for (const [param] of now) if (!w.has(param)) { setFx(h, i, param, { ...FX_DEFAULT }); fxChanged++; lightsChanged.add(d.number); }
+        }
+      }
       applyCue(state, c);
+      applyFx(fxState, c);
       newCues.push({ number, node: c });
     }
     const removed = [...baseByNumber.keys()].filter(k => !lsCues.some(x => Math.round(x.number * 100) === k)).length;
@@ -1210,8 +1350,18 @@
       const f2 = byIndex2.get(d.index ?? 0);
       if (!f2 || f2.addr !== Number(ls.addr) || f2.uni !== uniOf(ls)) problems.push(`light ${ls.fixtureNumber} would be at ${f2 ? `${f2.uni}/${f2.addr}` : "nowhere"} on the desk, ${uniOf(ls)}/${ls.addr} here`);
     }
+    const fxTrack = new Map(z2.fixtures.map(f => [f.index ?? 0, new Map()]));
     for (const c2 of cues2) {
-      for (const l of c2.levels) { const m = track.get(l.index); if (m) for (const [p, v] of Object.entries(l.params)) m.set(Number(p), v); }
+      for (const l of c2.levels) {
+        const m = track.get(l.index); if (m) for (const [p, v] of Object.entries(l.params)) m.set(Number(p), v);
+        const e = fxTrack.get(l.index); if (e) for (const [p, o] of Object.entries(l.effects || {})) { if (o[0x20]) e.set(Number(p), o); else e.delete(Number(p)); }
+      }
+      const fw = fxWanted.get(Math.round(c2.number * 100));
+      if (fw) for (const [d, ls] of pair) {
+        const now = fxTrack.get(d.index ?? 0) || new Map(), w = fw.get(d.index ?? 0) || new Map();
+        const a = [...now].filter(([, o]) => o[0x20]).map(([p, o]) => `${p}:${fxKey(o)}`).sort().join(";"), b = [...w].map(([p, o]) => `${p}:${fxKey(o)}`).sort().join(";");
+        if (a !== b && problems.length < 6) problems.push(`cue ${c2.number}, light ${ls.fixtureNumber}: the desk's effect wouldn't match Light Spark's`);
+      }
       const dmx = lsOutput.get(Math.round(c2.number * 100));
       if (!dmx) continue;
       for (const [d, ls] of pair) {
@@ -1230,7 +1380,7 @@
     }
     if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
 
-    return { bytes, name, palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
+    return { bytes, name, fxChanged, unsupportedFx: [...unsupportedFx], palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -1252,7 +1402,8 @@
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
     if (r.numberClash?.length) say(`Fixture number${r.numberClash.length === 1 ? "" : "s"} ${r.numberClash.slice(0, 8).join(", ")} ${r.numberClash.length === 1 ? "is" : "are"} used by two lights in Light Spark, so ${r.numberClash.length === 1 ? "that one wasn't" : "those weren't"} changed on the desk — every other number was`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
-    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
+    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : "", r.fxChanged ? `${r.fxChanged} effect change${r.fxChanged === 1 ? "" : "s"} in cues` : ""].filter(Boolean);
+    if (r.unsupportedFx?.length) say(`The desk show has no effect like ${r.unsupportedFx.slice(0, 4).map(n => `“${n}”`).join(", ")}, so ${r.unsupportedFx.length === 1 ? "it wasn't" : "those weren't"} saved into the FLX file`, "warn");
     if (extra.length) say(`Also saved: ${extra.join(", ")}`, "ok");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "is a" : "are"} type${r.missing.length === 1 ? "" : "s"} the desk show doesn't have yet, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch one light of that type on the desk, save, open that here, then save again`, "warn");
   }

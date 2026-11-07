@@ -34,11 +34,19 @@
  * own channel list), groups, palette names, and cues with times, brightness
  * and colour.
  *
- * Saving writes Light Spark's patch addresses and cues (the exact DMX of every
- * look, per channel) into the FLX show opened last, keeping its setup, fixture
- * types and palettes. Segment checks: a = rot(unpacked), b = rot(packed),
- * where rot adds each byte then rotates left by one. Re-saving a desk file
- * unchanged gives the same bytes.
+ * Opening: each light gets the desk's own channel layout (so every channel
+ * lines up), starts at the desk's home values (field 8 of each channel —
+ * colour channels are usually full), and every cue holds the light's whole
+ * state, worked out from the desk's tracking.
+ *
+ * Saving: only lights that came from this file are matched (id zos-i<position>,
+ * or zos-<number> from older versions); nothing is matched by guessing. Each
+ * cue starts as the desk's own cue with that number, and only channel values
+ * that differ from what the desk would output are written — effects, macros
+ * and everything Light Spark doesn't control stay exactly as they were.
+ * A patch where lights would share channels is refused. Segment checks:
+ * a = rot(unpacked), b = rot(packed), where rot adds each byte then rotates
+ * left by one. Saving with nothing changed gives the desk's file back.
  *
  * App menu → Open FLX show (.zos)… / Save as FLX show (.zos)…, or
  * "open flx" / "save flx".
@@ -199,7 +207,7 @@
       const label = text(one(c, 1));
       if (!label) continue;
       const offset = int(one(c, 4)) ?? 1;
-      list.push({ index: int(one(c, 0)) ?? 0, offset, label, code: int(one(c, 9)), code2: int(one(c, 0x11)), group: int(one(c, 2)) });
+      list.push({ index: int(one(c, 0)) ?? 0, offset, label, code: int(one(c, 9)), code2: int(one(c, 0x11)), group: int(one(c, 2)), home: int(one(c, 8)) ?? 0 });
     }
     list.sort((a, b) => a.offset - b.offset);
     list.forEach((c, i) => { c.width = Math.max(1, Math.min(2, (list[i + 1]?.offset ?? channels + 1) - c.offset)); });
@@ -207,52 +215,73 @@
     return { id, name, mode, maker, channels, list };
   }
 
-  // A matching Light Spark fixture, or a definition built from the show.
+  // Spare Light Spark channel names for desk channels it has no control for
+  // (colour macros, dimmer curves, fans…): written out as they are, so the
+  // light does exactly what the desk would. Not fog / haze (those have a
+  // safety cut-out).
+  const SPARE = ["colmacro", "macro", "effect", "speed", "preset", "mode", "zone", "shake", "rot", "fana", "blueMix", "amberMix", "magentaMix", "shutter1Insert", "shutter1Rotate", "shutter2Insert", "shutter2Rotate", "shutter3Insert", "shutter3Rotate", "shutter4Insert", "shutter4Rotate"];
+  // Desk attributes Light Spark drives directly (others go to SPARE slots).
+  const DIRECT = new Set(["dimmer", "r", "g", "b", "w", "amber", "lime", "uv", "cyan", "magenta", "yellow", "cto", "warmWhite", "coolWhite", "pan", "tilt", "panf", "tiltf", "strobe", "gobo", "gobo2", "gobor", "prism", "prismr", "focus", "zoom", "frost", "iris"]);
+
+  // Every named desk channel → the Light Spark state key that drives it.
+  function deskSlots(type) {
+    const slots = new Map(), map = {};
+    let spare = 0;
+    // Light Spark mixes red, green and blue together; a light with only some
+    // of them gets plain channels instead.
+    const named = new Set(type.list.map(c => attribute(c.label, c.code, c.code2)));
+    const trio = ["r", "g", "b"].every(k => named.has(k));
+    for (const c of type.list) {
+      let a = attribute(c.label, c.code, c.code2);
+      if (!a || !DIRECT.has(a) || a in map || (!trio && (a === "r" || a === "g" || a === "b" || a === "w"))) { while (spare < SPARE.length && SPARE[spare] in map) spare++; a = spare < SPARE.length ? SPARE[spare++] : null; }
+      if (!a) continue;
+      map[a] = c.offset - 1;
+      slots.set(c.index, a);
+    }
+    return { slots, map };
+  }
+
+  // The Light Spark fixture for a desk fixture type: always the desk's own
+  // channel layout (so every channel lines up with the desk), named after the
+  // type; a matching Light Spark library fixture lends its beam and photometrics.
   function definitionFor(type) {
     const lib = window.FixtureLibrary || {};
     const words = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const model = words(type.name), maker = words(type.maker);
     const keys = Object.keys(lib).filter(k => words(k).includes(model) && (!maker || maker === "generic" || words(k).includes(maker) || words(lib[k]?.manufacturer).includes(maker)));
-    const exact = keys.find(k => Number(lib[k]?.channels) === type.channels);
-    if (exact) {
-      // Channels the desk uses that Light Spark's version doesn't drive
-      // (e.g. amber / lime on some profiles): add them so cues look the same.
-      const libMap = lib[exact].map || {};
-      const extra = {};
-      for (const c of type.list) {
-        const a = attribute(c.label, c.code, c.code2);
-        if (a && !(a in libMap) && !(a in extra) && a !== "strobe") extra[a] = c.offset - 1;
-      }
-      if (!Object.keys(extra).length) return { key: exact, matched: true };
-      return { key: `${exact} [FLX]`, matched: false, definition: { ...JSON.parse(JSON.stringify(lib[exact])), map: { ...libMap, ...extra }, custom: true, fromZerOS: true } };
-    }
-    if (/^dimmer$/i.test(type.name) || (type.channels === 1 && type.list.every(c => attribute(c.label, c.code, c.code2) === "dimmer"))) {
-      const dim = Object.keys(lib).find(k => /^generic dimmer$/i.test(k)) || Object.keys(lib).find(k => Number(lib[k]?.channels) === 1 && /dimmer/i.test(k));
-      if (dim) return { key: dim, matched: true };
-    }
-    const map = {};
-    for (const c of type.list) {
-      const a = attribute(c.label, c.code, c.code2);
-      if (!a || a in map) continue;
-      map[a] = c.offset - 1;
-      if (c.width === 2) {
-        const fine = { dimmer: "dimmerFine", pan: "panf", tilt: "tiltf", r: "rFine", g: "gFine", b: "bFine" }[a];
-        if (fine && !(fine in map)) map[fine] = c.offset;
-      }
-    }
+    const like = lib[keys.find(k => Number(lib[k]?.channels) === type.channels) || keys[0]] || null;
+    const { map } = deskSlots(type);
     if (typeof map.dimmer === "number") map.intensity = map.dimmer;
     const rgb = ["r", "g", "b"].every(k => typeof map[k] === "number");
     const key = `${type.maker} ${type.name}${type.mode ? ` (${type.mode})` : ""} [FLX]`.replace(/\s+/g, " ").trim();
     return {
-      key, matched: false,
+      key, matched: Boolean(like),
       definition: {
-        type: typeof map.pan === "number" ? "moving" : rgb ? "rgb" : "dimmer",
+        type: typeof map.pan === "number" ? "moving" : rgb ? "rgb" : (like?.type || "dimmer"),
         channels: type.channels, map,
-        photometrics: { verified: false, sourceType: "LED", ratedLumens: null, beamAngle: null, outputScale: 1 },
+        photometrics: like?.photometrics ? JSON.parse(JSON.stringify(like.photometrics)) : { verified: false, sourceType: "LED", ratedLumens: null, beamAngle: null, outputScale: 1 },
         manufacturer: type.maker, model: type.name, custom: true, fromZerOS: true,
         channelNames: type.list.map(c => ({ offset: c.offset, name: c.label }))
       }
     };
+  }
+
+  // A desk light's channel values (index → 0-65535) as Light Spark state.
+  function stateFor(f, values) {
+    const { slots } = deskSlots(f.type);
+    const out = {};
+    let rgb = null, hasDimmer = false;
+    for (const ch of f.type.list) {
+      const key = slots.get(ch.index);
+      if (!key) continue;
+      const v = values.get(ch.index) ?? ch.home ?? 0;
+      if (key === "dimmer") { hasDimmer = true; out.intensity = Math.round(v / 65.535) / 10; }
+      else if (key === "r" || key === "g" || key === "b") { rgb = rgb || [255, 255, 255]; rgb["rgb".indexOf(key)] = v / 257; }
+      else out[key] = Math.round(v / 257);
+    }
+    if (!hasDimmer) out.intensity = 100;
+    if (rgb) Object.assign(out, hsl(rgb));
+    return out;
   }
 
   // ---------- Read a whole show ----------
@@ -361,9 +390,10 @@
       if (!d) {
         d = definitionFor(f.type);
         defs.set(f.type.id, d);
-        if (d.matched) matched++; else { rebuilt++; custom[d.key] = d.definition; }
+        if (d.matched) matched++; else rebuilt++;
+        custom[d.key] = d.definition;
       }
-      fixtures.push({ id: `zos-${f.number}`, name: d.key, uni: f.uni, addr: f.addr, fixtureNumber: f.number, label: f.label && f.label !== f.type.name ? f.label : undefined });
+      fixtures.push({ id: `zos-i${f.index}`, name: d.key, uni: f.uni, addr: f.addr, fixtureNumber: f.number, label: f.label && f.label !== f.type.name ? f.label : undefined });
     }
     const have = new Set(fixtures.map(f => f.fixtureNumber));
     const groups = z.groups.filter(g => g.name && !g.auto).map(g => ({ name: g.name, members: g.members.filter(n => have.has(n)) })).filter(g => g.members.length);
@@ -371,30 +401,22 @@
     // The main cue list: the playback with the most cues (ties: the lowest number), as saving picks it.
     const pb = [...z.playbacks].filter(p => p.cues.length).sort((a, b) => b.cues.length - a.cues.length || (a.number ?? 0) - (b.number ?? 0))[0] || null;
     if (pb) {
-      // Cues on the desk only hold what changed (tracking): carry each light's
-      // state forward so colour mixes stay whole.
-      const byNumber = new Map(z.fixtures.map(f => [f.number, f]));
-      const tracked = new Map();
+      // Desk cues hold only what changed, and a light starts at its home
+      // values (colour channels are usually full, so white). Work out every
+      // light's whole state cue by cue, and give each Light Spark cue the
+      // lights whose state changed (all of them in the first cue).
+      const lights = z.fixtures.filter(f => f.type && f.addr && have.has(f.number));
+      const values = new Map(lights.map(f => [f.number, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
+      const before = new Map();
       for (const c of [...pb.cues].sort((a, b) => a.number - b.number)) {
+        for (const l of c.levels) { const m = values.get(l.number); if (m) for (const [i, v] of Object.entries(l.params)) m.set(Number(i), v); }
         const states = [];
-        for (const l of c.levels) {
-          const f = byNumber.get(l.number);
-          if (!f || !have.has(l.number)) continue;
-          const st = tracked.get(l.number) || { intensity: 0, rgb: null };
-          for (const [idx, v] of Object.entries(l.params)) {
-            const ch = f.type?.list.find(x => x.index === Number(idx));
-            const a = ch ? attribute(ch.label, ch.code, ch.code2) : null;
-            const b8 = Math.round(v / 257);
-            if (a === "dimmer") st.intensity = Math.round(v / 65.535) / 10;
-            else if (a === "r" || a === "g" || a === "b") { st.rgb = st.rgb || [0, 0, 0]; st.rgb["rgb".indexOf(a)] = b8; }
-            else if (a && a !== "strobe") st[a] = b8;
-          }
-          if (!f.type?.list.some(x => attribute(x.label, x.code, x.code2) === "dimmer") && st.rgb) st.intensity = 100;
-          tracked.set(l.number, st);
-          const out = { intensity: st.intensity };
-          if (st.rgb) Object.assign(out, hsl(st.rgb));
-          for (const [k, v] of Object.entries(st)) if (k !== "intensity" && k !== "rgb") out[k] = v;
-          states.push([`zos-${l.number}`, out]);
+        for (const f of lights) {
+          const out = stateFor(f, values.get(f.number));
+          const key = JSON.stringify(out);
+          if (before.get(f.number) === key) continue;
+          before.set(f.number, key);
+          states.push([`zos-i${f.index}`, out]);
         }
         cues.push({
           name: c.name || `Cue ${c.number}`, number: c.number, fade: c.up ?? 3000,
@@ -436,6 +458,10 @@
     say(`Opened FLX show “${z.name}”: ${r.show.fixtures.length} lights (${r.matched} fixture type${r.matched === 1 ? "" : "s"} from Light Spark's library, ${r.rebuilt} rebuilt from the show), ${r.show.groups.length} groups, ${r.show.cues.length} cues`, "ok");
     if (r.skipped) say(`${r.skipped} light${r.skipped === 1 ? " wasn't" : "s weren't"} patched on the desk, so ${r.skipped === 1 ? "it was" : "they were"} left out`, "warn");
     if (others) say(`${others} more playback${others === 1 ? "" : "s"} with cues on the desk — only the first came across`, "info");
+    const spans = z.fixtures.filter(f => f.addr && f.type).map(f => ({ n: f.number, uni: f.uni, from: f.addr, to: f.addr + f.type.channels - 1 })).sort((a, b) => a.uni - b.uni || a.from - b.from);
+    const overlap = [];
+    for (let i = 0; i < spans.length; i++) for (let j = i + 1; j < spans.length && spans[j].uni === spans[i].uni && spans[j].from <= spans[i].to; j++) overlap.push(`${spans[i].n} & ${spans[j].n}`);
+    if (overlap.length) say(`This FLX show has lights patched on top of each other (${overlap.slice(0, 6).join(", ")}${overlap.length > 6 ? "…" : ""}), so it won't look right on the desk. An earlier Light Spark may have damaged it — the desk's own copy from before is in FLX Backups (Finder → Go → Go to Folder → ~/Library/Application Support/Lighting Console/FLX Backups)`, "warn");
     return { z, r };
   }
 
@@ -591,94 +617,83 @@
     const nameNode = top.find(n => n.section === 0 && n.field === 2 && n.value);
     if (nameNode) nameNode.value = new TextEncoder().encode(name);
 
-    // Patch: pair each light on the desk with a Light Spark light of the
-    // same type — at the same address first, then with the same number. A
-    // desk light is never moved onto a light of another type, and nothing is
-    // written if two lights would end up on the same channels.
-    const words = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    // ---- Which Light Spark light is which desk light ----
+    // Only lights that came from this FLX file (their id says which desk
+    // light: zos-i<position>, or zos-<number> from older versions), plus a
+    // light added in Light Spark with the desk's own type at a desk light's
+    // own address. Nothing is matched by guessing.
+    const defOf = ls => window.getFixtureDefinition?.(ls) || window.FixtureLibrary?.[ls.name] || null;
+    const uniOf = l => Math.max(1, Number(l.uni) || 1);
     const lsLights = (S.fixtures || []).filter(f => f && f.addr != null);
-    // looseName: at the same address, the same channel count is enough
-    // (names differ between libraries, e.g. "MKII" / "MKIII").
-    const sameType = (d, ls, looseName = false) => {
-      if (!d.type) return false;
-      const def = window.getFixtureDefinition?.(ls) || window.FixtureLibrary?.[ls.name] || {};
-      const chans = Number(def.channels ?? def.channelCount);
-      if (Number.isFinite(chans) && chans !== d.type.channels) return false;
-      if (looseName && Number.isFinite(chans)) return true;
-      const model = words(d.type.name);
-      return words(ls.name).includes(model) || words(def.model).includes(model) || (/^dimmer$/.test(model) && chans === 1 && /dimmer/.test(words(ls.name)));
-    };
-    const at = f => `${Math.max(1, Number(f.uni) || 1)}/${Number(f.addr)}`;
-    const pair = new Map(); // desk fixture → Light Spark fixture
-    const used = new Set();
-    for (const d of z.fixtures) {
-      if (!d.addr) continue;
-      const ls = lsLights.find(l => !used.has(l) && at(l) === at(d) && sameType(d, l, true));
-      if (ls) { pair.set(d, ls); used.add(ls); }
+    const deskByIndex = new Map(z.fixtures.map(d => [d.index ?? 0, d]));
+    const deskByNumber = new Map(z.fixtures.map(d => [d.number, d]));
+    const pair = new Map(), used = new Set();
+    for (const ls of lsLights) {
+      const id = String(ls.id || "");
+      let m, d = null;
+      if ((m = /^zos-i(\d+)$/.exec(id))) d = deskByIndex.get(Number(m[1]));
+      else if ((m = /^zos-(\d+)$/.exec(id))) d = deskByNumber.get(Number(m[1]));
+      if (!d || !d.type || pair.has(d)) continue;
+      pair.set(d, ls); used.add(ls);
     }
-    for (const d of z.fixtures) {
-      if (pair.has(d)) continue;
-      const ls = lsLights.find(l => !used.has(l) && Number(l.fixtureNumber) === d.number && sameType(d, l));
-      if (ls) { pair.set(d, ls); used.add(ls); }
+    for (const ls of lsLights) {
+      if (used.has(ls)) continue;
+      const def = defOf(ls);
+      const d = z.fixtures.find(x => !pair.has(x) && x.type && x.addr === Number(ls.addr) && x.uni === uniOf(ls) && String(ls.name) === definitionFor(x.type).key && Number(def?.channels) === x.type.channels);
+      if (d) { pair.set(d, ls); used.add(ls); }
     }
-    // Desk lights Light Spark doesn't have are unpatched (kept in the list,
-    // since the desk's palettes and groups still refer to them, but given no
-    // address), so the desk ends up with just Light Spark's lights patched.
-    const nodeByNumber = new Map(kidsOf(sec(0x1c)).map(n => [int(one(n, 8)), n]));
-    let unpatched = 0;
-    for (const d of z.fixtures) {
-      if (!d.addr || pair.has(d)) continue;
-      const node = nodeByNumber.get(d.number);
-      if (!node?.kids) continue;
-      node.kids = node.kids.filter(k => !(k.field === 6 && k.kids));
-      d.addr = null;
-      unpatched++;
-    }
-    // Where every desk light will be, and whether any overlap.
-    const place = new Map([...pair].map(([d, ls]) => [d, { uni: Math.max(1, Number(ls.uni) || 1), addr: Number(ls.addr) }]));
-    const spans = [...place].map(([d, p]) => ({ d, uni: p.uni, from: p.addr, to: p.addr + Math.max(1, d.type?.channels || 1) - 1 })).sort((a, b) => a.uni - b.uni || a.from - b.from);
-    const clashes = [];
-    for (let i = 1; i < spans.length; i++) {
-      const a = spans[i - 1], b = spans[i];
-      if (a.uni === b.uni && b.from <= a.to) clashes.push(`${a.d.number} and ${b.d.number} (address ${b.from})`);
-    }
-    // These overlaps are in Light Spark's own patch: save anyway, and say so.
-    let moved = 0;
-    for (const [d, ls] of pair) {
-      const p = place.get(d);
-      if (p.addr === d.addr && p.uni === d.uni) continue;
-      const patch = kidsOf(one(nodeByNumber.get(d.number), 6))[0];
-      if (!patch || !setInt(patch, 1, p.addr)) throw new Error(`couldn't move light ${d.number} on the desk patch`);
-      if (!setInt(patch, 2, p.uni - 1) && p.uni > 1) throw new Error(`couldn't move light ${d.number} to universe ${p.uni}`);
-      d.addr = p.addr; d.uni = p.uni; moved++;
-    }
-    // Fixture numbers: the desk keeps its own "user" number for each light
-    // (field 8; its position in the list, field 1, is what cues refer to).
-    // Give each paired light Light Spark's number; desk lights that would
-    // clash (ones Light Spark doesn't have) move to free numbers above.
-    const want = new Map([...pair].map(([d, ls]) => [d, Number(ls.fixtureNumber)]).filter(([, n]) => Number.isInteger(n) && n > 0));
-    const taken = new Set(want.values());
-    let spare = Math.max(0, ...z.fixtures.map(d => d.number), ...taken);
-    const renumbered = [];
-    for (const d of z.fixtures) {
-      let n = want.get(d);
-      if (n == null) { if (!taken.has(d.number)) continue; n = ++spare; }
-      if (n === d.number) continue;
-      const node = nodeByNumber.get(d.number);
-      if (node && setInt(node, 8, n)) renumbered.push(`${d.number}→${n}`);
-    }
-    for (const d of z.fixtures) { const n = want.get(d); if (n != null) d.number = n; }
     const missing = lsLights.filter(l => !used.has(l)).map(l => l.fixtureNumber);
 
-    // Cues: into the playback that has the most cues.
+    // ---- Patch: addresses you changed in Light Spark ----
+    const nodeByIndex = new Map(kidsOf(sec(0x1c)).map(n => [int(one(n, 1)) ?? 0, n]));
+    const size = d => Math.max(1, d.type?.channels || 1);
+    const where = new Map(z.fixtures.filter(d => d.addr).map(d => [d, { uni: d.uni, addr: d.addr }]));
+    const notMoved = [];
+    for (const [d, ls] of pair) {
+      const want = { uni: uniOf(ls), addr: Number(ls.addr) };
+      if (want.addr === d.addr && want.uni === d.uni) continue;
+      const chans = Number(defOf(ls)?.channels);
+      if (Number.isFinite(chans) && chans !== d.type.channels) { notMoved.push(d.number); continue; }
+      where.set(d, want);
+    }
+    const spans = [...where].map(([d, p]) => ({ d, uni: p.uni, from: p.addr, to: p.addr + size(d) - 1 })).sort((a, b) => a.uni - b.uni || a.from - b.from);
+    const clashes = [];
+    for (let i = 0; i < spans.length; i++) for (let j = i + 1; j < spans.length && spans[j].uni === spans[i].uni && spans[j].from <= spans[i].to; j++) clashes.push(`${spans[i].d.number} and ${spans[j].d.number} (from address ${spans[j].from})`);
+    if (clashes.length) throw new Error(`lights would share DMX channels on the desk: ${clashes.slice(0, 6).join(", ")}${clashes.length > 6 ? "…" : ""}. Fix the patch first — nothing was saved`);
+    let moved = 0;
+    for (const [d, p] of where) {
+      if (p.addr === d.addr && p.uni === d.uni) continue;
+      const patch = kidsOf(one(nodeByIndex.get(d.index ?? 0), 6))[0];
+      if (!patch || !setInt(patch, 1, p.addr)) throw new Error(`couldn't move light ${d.number} on the desk patch — nothing was saved`);
+      if (!setInt(patch, 2, p.uni - 1) && p.uni > 1) throw new Error(`couldn't move light ${d.number} to universe ${p.uni} — nothing was saved`);
+      d.addr = p.addr; d.uni = p.uni; moved++;
+    }
+
+    // ---- Fixture numbers you changed (and the desk's groups with them) ----
+    const finalNumber = new Map(z.fixtures.map(d => [d, d.number]));
+    for (const [d, ls] of pair) { const n = Number(ls.fixtureNumber); if (Number.isInteger(n) && n > 0) finalNumber.set(d, n); }
+    const counts = new Map();
+    for (const n of finalNumber.values()) counts.set(n, (counts.get(n) || 0) + 1);
+    const numberClash = [...counts].filter(([, c]) => c > 1).map(([n]) => n);
+    const renumbered = [];
+    if (!numberClash.length) {
+      const change = new Map();
+      for (const [d, n] of finalNumber) if (n !== d.number && setInt(nodeByIndex.get(d.index ?? 0), 8, n)) { change.set(d.number, n); renumbered.push(`${d.number}→${n}`); }
+      if (change.size) for (const g of kidsOf(sec(0x1f))) for (const m of kidsOf(one(g, 0, { kind: 0x11 }))) {
+        const ref = kidsOf(m).find(k => k.kids);
+        const num = ref ? kidsOf(ref).find(x => x.field === 1 && x.value) : null;
+        if (num && change.has(int(num))) num.value = intBytes(change.get(int(num)));
+      }
+      for (const [d, n] of finalNumber) d.number = n;
+    }
+
+    // ---- Cues: only what's different from the desk's show is written ----
     const stacks = top.find(n => n.section === 0x50 && n.kids);
     const pbs = kidsOf(stacks).filter(pb => !/^grand master$/i.test(text(one(pb, 2))) && one(pb, 0, { kind: 0x10 }));
     const pb = pbs.sort((a, b) => kidsOf(one(b, 0, { kind: 0x10 })).length - kidsOf(one(a, 0, { kind: 0x10 })).length || (int(one(a, 1)) ?? 0) - (int(one(b, 1)) ?? 0))[0];
     const list = pb ? one(pb, 0, { kind: 0x10 }) : null;
     const proto = list ? kidsOf(list)[0] : null;
     if (!proto) throw new Error("the FLX show needs at least one cue in a playback to copy from — record one cue on the desk, save, and use that file");
-
-    // Shapes to copy: a cue's "lights" holder, one light, one channel value.
     let entryProto = null, paramProto = null;
     for (const c of kidsOf(list)) for (const h of kidsOf(one(c, 0xf))) for (const e of kidsOf(h)) {
       const pg = one(e, 0, { kind: 0x11 });
@@ -688,48 +703,88 @@
     }
     if (!entryProto || !paramProto) throw new Error("couldn't find a lit light in the FLX show's cues to copy the layout from");
 
-    const looks = (S.cues || []).map((cue, i) => ({ cue, i })).filter(x => x.cue);
-    const fixturesForCue = z.fixtures.filter(f => f.type && f.addr && pair.has(f));
-    const newCues = [];
-    for (const { cue, i } of looks) {
-      const look = window.cueLook?.(i)?.fixtureMap || new Map();
-      const dmx = window.LXAscii?.dmxFor?.(look);
-      if (!dmx) throw new Error("couldn't work out the cue levels");
-      const c = clone(proto);
-      const number = Number(window.cueLabel ? window.cueLabel(i) : i + 1) || (i + 1);
-      setInt(c, 1, Math.round(number * 100));
-      const timing = cue.timing && typeof cue.timing === "object" ? cue.timing : {};
-      const up = timing.up ?? cue.fade ?? 3000, down = timing.down ?? cue.fade ?? 3000;
-      setInt(c, 0xd, up); setInt(c, 0x1e, down); setInt(c, 0xb, up);
-      const holder = kidsOf(one(c, 0xf))[0];
-      const entries = [];
-      for (const f of fixturesForCue.sort((a, b) => a.index - b.index)) {
-        const baseAddr = (f.uni - 1) * 512 + f.addr - 1;
-        const params = [];
-        for (const ch of f.type.list) {
-          if (!attribute(ch.label, ch.code, ch.code2)) continue;
-          const at = baseAddr + ch.offset - 1;
-          const v = ch.width === 2 ? dmx[at] * 256 + dmx[at + 1] : dmx[at] * 257;
-          const r = clone(paramProto);
-          setInt(r, 0x11, ch.index); setInt(r, 0x10, v);
-          params.push(r);
-        }
-        if (!params.length) continue;
-        const e = clone(entryProto);
-        setInt(e, 1, f.index);
-        const pg = one(e, 0, { kind: 0x11 });
-        pg.kids = [{ open: true }, ...params];
-        entries.push(e);
+    const holderOf = c => kidsOf(one(c, 0xf))[0] || null;
+    const entriesOf = h => kidsOf(h).filter(k => k.kids);
+    const paramOf = r => int(kidsOf(r).find(x => x.field === 0x11 && x.value)) ?? 0;
+    const valueOf = r => int(kidsOf(r).find(x => x.field === 0x10 && x.value));
+    const homes = () => new Map(z.fixtures.filter(d => d.type).map(d => [d.index ?? 0, new Map(d.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
+    const copyState = st => new Map([...st].map(([i, m]) => [i, new Map(m)]));
+    const applyCue = (st, c) => {
+      const h = holderOf(c); if (!h) return;
+      for (const e of entriesOf(h)) {
+        const m = st.get(int(one(e, 1)) ?? 0); if (!m) continue;
+        for (const r of kidsOf(one(e, 0, { kind: 0x11 }))) { const v = valueOf(r); if (v != null) m.set(paramOf(r), v); }
       }
-      holder.kids = [{ open: true }, ...entries];
+    };
+    function setParam(h, idx, param, v) {
+      let e = entriesOf(h).find(k => (int(one(k, 1)) ?? 0) === idx);
+      if (!e) {
+        e = clone(entryProto); setInt(e, 1, idx);
+        one(e, 0, { kind: 0x11 }).kids = [{ open: true }];
+        h.kids = [{ open: true }, ...[...entriesOf(h), e].sort((a, b) => (int(one(a, 1)) ?? 0) - (int(one(b, 1)) ?? 0))];
+      }
+      const pg = one(e, 0, { kind: 0x11 });
+      const r = kidsOf(pg).find(k => paramOf(k) === param);
+      if (r) {
+        if (one(r, 0x10)) setInt(r, 0x10, v);
+        else { const vn = clone(one(paramProto, 0x10)); vn.value = intBytes(v); const at = r.kids.indexOf(one(r, 0x11)); r.kids.splice(at >= 0 ? at + 1 : r.kids.length, 0, vn); }
+        return;
+      }
+      const nr = clone(paramProto); setInt(nr, 0x11, param); setInt(nr, 0x10, v);
+      pg.kids.push(nr);
+    }
+
+    const baseByNumber = new Map(kidsOf(list).map(c => [int(one(c, 1)) ?? 0, c]));
+    const lsCues = (S.cues || []).map((cue, i) => ({ cue, i })).filter(x => x.cue)
+      .map(x => ({ ...x, number: Number(window.cueLabel ? window.cueLabel(x.i) : x.i + 1) || x.i + 1 }))
+      .sort((a, b) => a.number - b.number);
+    let state = homes(), changed = 0, kept = 0, added = 0;
+    const lightsChanged = new Set();
+    const newCues = [];
+    for (const { cue, i, number } of lsCues) {
+      const key = Math.round(number * 100);
+      const baseCue = baseByNumber.get(key);
+      const c = clone(baseCue || proto);
+      setInt(c, 1, key);
+      const h = holderOf(c);
+      if (!baseCue && h) h.kids = [{ open: true }];
+      const timing = cue.timing && typeof cue.timing === "object" ? cue.timing : {};
+      const up = Number(timing.up ?? cue.fade ?? 3000), down = Number(timing.down ?? cue.fade ?? up);
+      if (!baseCue || Math.abs((int(one(c, 0xd)) ?? 0) - up) > 50) setInt(c, 0xd, up);
+      if (!baseCue || Math.abs((int(one(c, 0x1e)) ?? 0) - down) > 50) setInt(c, 0x1e, down);
+      if (baseCue) kept++; else added++;
+      if (h) {
+        const expect = copyState(state); applyCue(expect, c);
+        const dmx = window.LXAscii?.dmxFor?.(window.cueLook?.(i)?.fixtureMap || new Map());
+        if (!dmx) throw new Error("couldn't work out the cue levels — nothing was saved");
+        for (const [d, ls] of pair) {
+          const m = expect.get(d.index ?? 0); if (!m) continue;
+          const def = defOf(ls), own = def?.fromZerOS && Number(def.channels) === d.type.channels;
+          const lsBase = (uniOf(ls) - 1) * 512 + Number(ls.addr) - 1;
+          for (const ch of d.type.list) {
+            let off = null;
+            if (own) off = ch.offset - 1;
+            else { const a = attribute(ch.label, ch.code, ch.code2); if (a && typeof def?.map?.[a] === "number") off = def.map[a]; }
+            if (off == null) continue;
+            const coarse = dmx[lsBase + off] ?? 0;
+            if (Math.abs(((m.get(ch.index) ?? ch.home ?? 0) >> 8) - coarse) <= 1) continue;
+            setParam(h, d.index ?? 0, ch.index, ch.width === 2 ? coarse * 256 + (own ? (dmx[lsBase + off + 1] ?? 0) : 0) : coarse * 257);
+            changed++; lightsChanged.add(d.number);
+          }
+        }
+      }
+      applyCue(state, c);
       newCues.push({ number, node: c });
     }
+    const removed = [...baseByNumber.keys()].filter(k => !lsCues.some(x => Math.round(x.number * 100) === k)).length;
     // The desk writes cues last-first.
     newCues.sort((a, b) => b.number - a.number);
     list.kids = [{ open: true }, ...newCues.map(x => x.node)];
+    const fixturesForCue = [...pair.keys()];
+    const unpatched = 0;
 
     const data = writeData(raw, top);
-    return { bytes: pack(data), name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes };
+    return { bytes: pack(data), name, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash };
   }
 
   function download(bytes, file) {
@@ -746,10 +801,12 @@
   let openPath = "";          // the FLX file the open show came from: Save writes back to it
 
   function report(r, where) {
-    say(`Saved FLX show “${where}”: ${r.cues} cues for ${r.lights} lights${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}${r.unpatched ? `, ${r.unpatched} desk light${r.unpatched === 1 ? "" : "s"} Light Spark doesn't have unpatched` : ""}`, "ok");
-    if (r.renumbered.length) say(`Fixture numbers changed on the desk to match Light Spark (desk old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — check the desk's groups still hold the right lights`, "info");
+    const what = r.changed ? `${r.changed} value${r.changed === 1 ? "" : "s"} changed on ${r.lightsChanged} light${r.lightsChanged === 1 ? "" : "s"}` : "no light levels changed";
+    say(`Saved FLX show “${where}”: ${r.cues} cues (${what}${r.added ? `, ${r.added} new cue${r.added === 1 ? "" : "s"}` : ""}${r.removed ? `, ${r.removed} cue${r.removed === 1 ? "" : "s"} deleted` : ""})${r.moved ? `, ${r.moved} address change${r.moved === 1 ? "" : "s"}` : ""}. Everything else is exactly as the desk had it`, "ok");
+    if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
+    if (r.numberClash?.length) say(`Fixture numbers weren't changed on the desk: ${r.numberClash.slice(0, 8).join(", ")} would be used twice`, "warn");
+    if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "isn't" : "aren't"} in the FLX show, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch ${r.missing.length === 1 ? "it" : "them"} on the desk, save, open that here, then save again`, "warn");
-    if (r.clashes?.length) say(`Lights share DMX channels in this show: ${r.clashes.slice(0, 6).join(", ")}${r.clashes.length > 6 ? "…" : ""} — check the patch before using it on the desk`, "warn");
   }
 
   // Write to a file (Light Spark app), or download it (no file access).

@@ -422,6 +422,11 @@
     if (!f) return false;
     return int(f) === 1 || Boolean(int(one(pb, 3)));
   }
+  // What a palette is, to tell whether it changed since it came from the desk.
+  const palSig = p => JSON.stringify([p.name, p.category, p.values || {}, p.fixtures || [], p.perFixture || {}]);
+  // Light Spark chases aren't saved into FLX shows, and the desk's playbacks
+  // aren't opened as chases.
+  const FLX_CHASES = false;
   // What a chase is, to tell whether it changed since it came from the desk.
   const chaseSig = c => JSON.stringify([c.name, c.mode, c.loop !== false, Number(window.LXChaseSpeed?.bpmOf?.(c) ?? c.bpm) || 0, c.fixtureIds || [], c.snapshots || [], c.steps || [], (c.steps || []).map(i => window.State?.cues?.[i] || null), Number(c.fade) || 0]);
   // The main cue list: the playback with the most cues (ties: the lowest
@@ -611,7 +616,8 @@
     // Chases: each desk chase playback becomes a recorded chase, one look a
     // step, for the lights it uses.
     const chases = [];
-    for (const p of z.playbacks.filter(p => p.chase && p.cues.length).sort((a, b) => (a.number ?? 0) - (b.number ?? 0))) {
+    // Chases stay out of FLX shows (FLX_CHASES): the desk's own playbacks are left as they are.
+    for (const p of z.playbacks.filter(p => FLX_CHASES && p.chase && p.cues.length).sort((a, b) => (a.number ?? 0) - (b.number ?? 0))) {
       const steps = [...p.cues].sort((a, b) => a.number - b.number);
       const usedBy = new Set(steps.flatMap(c => c.levels.map(l => l.number)));
       const mine = z.fixtures.filter(f => f.type && f.addr && have.has(f.number) && usedBy.has(f.number));
@@ -695,6 +701,7 @@
     try { for (const [k, d] of Object.entries(r.custom)) window.FixtureLibrary[k] = JSON.parse(JSON.stringify(d)); } catch (_) {}
     window.LXShowCommands?.restore?.(r.show);
     for (const c of window.State?.chases || []) if (c?.zos) c.zos.sig = chaseSig(c);
+    for (const p of window.State?.palettes || []) if (p?.zos) p.zos.sig = palSig(p);
     keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, (r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`), (r.show.chases || []).map(c => c.zos.playback));
     openPath = filePath || "";
     try { window.LXShowCommands?.markSaved?.(); } catch (_) {}
@@ -1019,9 +1026,11 @@
     const gsec = sec(0x1f);
     const deskNumbers = new Set([...pair.keys()].map(d => d.number));
     const memberNumber = m => { const f = allLs.find(x => String(x.id) === String(m)); return f ? Number(f.fixtureNumber) : Number(m); };
-    const lsGroups = (S.groups || []).filter(g => g && g.name && !g.auto && !g.deskAuto)
+    const lsGroups = (S.groups || []).filter(g => g && g.name && !g.deskAuto)
       .map(g => ({ name: cleanText(g.name), members: [...new Set((g.members || []).map(memberNumber))].filter(n => deskNumbers.has(n)) }))
-      .filter(g => g.name);
+      .filter(g => g.name)
+      // One desk group per name (the desk matches groups by name); the first wins.
+      .filter((g, i, all) => all.findIndex(x => x.name.trim().toLowerCase() === g.name.trim().toLowerCase()) === i);
     const userGroups = kidsOf(gsec).filter(g => int(one(g, 7)) !== 1);
     const groupLike = userGroups[0] || kidsOf(gsec).find(g => kidsOf(one(g, 0, { kind: 0x11 })).length) || null;
     const memberLike = (() => { for (const g of kidsOf(gsec)) { const m = kidsOf(one(g, 0, { kind: 0x11 }))[0]; if (m) return m; } return null; })();
@@ -1109,7 +1118,7 @@
       for (const [i, m] of now) if (!want.has(i) && managed(i, m, kind)) return false;
       return true;
     }
-    function writePalette(e, want) {
+    function writePalette(e, want, exact = false) {
       const holder = kidsOf(one(e, 0xa))[0];
       const keep = lightsOf(e).filter(l => { const i = int(one(l, 1)) ?? 0; return !want.has(i) && !managed(i, valuesOf(l), e.__kind); });
       const lights = new Map(lightsOf(e).map(l => [int(one(l, 1)) ?? 0, l]));
@@ -1119,7 +1128,7 @@
         const pg = one(l, 0, { kind: 0x11 });
         for (const [param, v] of m) {
           let r = kidsOf(pg).find(x => (int(one(x, 0x11)) ?? 0) === param);
-          if (!r && Math.abs((homeOf(i, param) >> 8) - (v >> 8)) <= 1) continue; // the desk leaves default channels out
+          if (!r && !exact && Math.abs((homeOf(i, param) >> 8) - (v >> 8)) <= 1) continue; // the desk leaves default channels out
           if (r) { r.kids = r.kids.filter(k => k.open || k.field !== 0x12); if (one(r, 0x10)) setInt(r, 0x10, v); else { const vn = clone(one(recProto.rec, 0x10)); vn.value = intBytes(v); r.kids.push(vn); } }
           else { r = clone(recProto.rec); setInt(r, 0x11, param); setInt(r, 0x10, v); pg.kids.splice(1, 0, r); }
         }
@@ -1152,7 +1161,78 @@
       sw.forEach((v, f) => { const k = one(block, f); if (k) k.value = u32(v); });
       const four = one(block, 4); if (four) four.value = u32(65535);
     }
-    let palAdded = 0, palChanged = 0, palRemoved = 0;
+    // The desk's own colour-picker palettes: its exact values for each
+    // fixture type at that colour. The desk only shows a palette's colour
+    // strip when every light's values are exactly what its colour picker
+    // works out, so a Light Spark palette of the same colour borrows them.
+    const u32of = v => v && v.length >= 4 ? (v[0] | (v[1] << 8) | (v[2] << 16) | (v[3] << 24)) >>> 0 : null;
+    const colourRefs = [];
+    {
+      const cg = kidsOf(palSec).find(g => g.kids && g.kind === 0x10);
+      for (const e of kidsOf(cg)) {
+        const block = one(e, 0x10); if (!block?.kids) continue;
+        const sw = [0, 1, 2, 3, 4].map(f => u32of(one(block, f)?.value));
+        if (sw.some(v => v == null)) continue;
+        const byType = new Map();
+        for (const [i, m] of z.paletteMap.get(`16:${int(one(e, 1))}`) || []) {
+          const d = z.fixtures.find(x => (x.index ?? 0) === i);
+          if (d?.type && !byType.has(d.type.id)) byType.set(d.type.id, new Map(m));
+        }
+        if (byType.size) colourRefs.push({ sw, byType, raw: kidsOf(block).map(k => ({ field: k.field, value: k.value.slice() })) });
+      }
+    }
+    // The desk's colour picker for plain RGB and RGBW lights (checked against
+    // every value in the desk's own palettes): HSV, scaled by the white point
+    // (colour temperature), white = the smallest of red, green and blue.
+    const WHITE_POINT = { 6600: [65535, 65535, 65535], 10000: [51636, 56787, 65535], 3200: [65535, 47101, 18819] };
+    function pickerValues(type, sw) {
+      const L = type.list, find = c => L.find(x => x.code === c || x.code2 === c);
+      const R = find(86), G = find(87), B = find(88), W = find(35);
+      if (!R || !G || !B || L.some(x => [60, 67, 78, 77, 62].includes(x.code) || [60, 67, 78].includes(x.code2))) return null;
+      const wp = WHITE_POINT[sw[3]]; if (!wp) return null;
+      const h = sw[0] / 4294967296, sat = sw[1] / 65535, v = sw[2] / 65535;
+      let i = Math.floor(h * 6); const f = h * 6 - i; i %= 6;
+      const pp = v * (1 - sat), q = v * (1 - sat * f), t = v * (1 - sat * (1 - f));
+      const rgb = [[v, t, pp], [q, v, pp], [pp, v, t], [pp, q, v], [t, pp, v], [v, pp, q]][i].map((x, j) => Math.round(x * wp[j]));
+      const m = W ? Math.min(...rgb) : 0;
+      const out = new Map([[R.index, rgb[0] - m], [G.index, rgb[1] - m], [B.index, rgb[2] - m]]);
+      if (W) out.set(W.index, m);
+      return out;
+    }
+    function deskColour(p, want) {
+      const sw = swatchOf(p); if (!sw) return null;
+      const hueDeg = sw[0] / 4294967296 * 360, sat = sw[1] / 65535;
+      const near = colourRefs.find(r => {
+        const rs = r.sw[1] / 65535;
+        if (sat < 0.05 || rs < 0.05) return sat < 0.05 && rs < 0.05 && r.sw[3] === sw[3];
+        const dh = Math.abs(((r.sw[0] / 4294967296 * 360 - hueDeg) % 360 + 540) % 360 - 180);
+        return dh <= 10 && Math.abs(rs - sat) <= 0.12;
+      });
+      const ref = near || { sw: [...sw, 65535], byType: new Map(), raw: [0, 1, 2, 3, 4].map(f => ({ field: f, value: u32([...sw, 65535][f]) })) };
+      // Only a palette that's one colour on every light (not one with lights
+      // set to different colours).
+      const same = (x, y) => {
+        if (!x || !y) return false;
+        const xs = x[1] / 65535, ys = y[1] / 65535;
+        if (xs < 0.05 || ys < 0.05) return xs < 0.05 && ys < 0.05 && x[3] === y[3];
+        const dh = Math.abs(((x[0] - y[0]) / 4294967296 * 360 % 360 + 540) % 360 - 180);
+        return dh <= 3 && Math.abs(xs - ys) <= 0.04;
+      };
+      for (const id of Object.keys(p.perFixture || {})) if (!same(swatchOf({ name: p.name, values: { ...(p.values || {}), ...p.perFixture[id] } }), sw)) return null;
+      const out = new Map();
+      for (const [i] of want) {
+        const d = z.fixtures.find(x => (x.index ?? 0) === i);
+        const m = d?.type && (ref.byType.get(d.type.id) || pickerValues(d.type, ref.sw));
+        if (!m) return null; // a fixture type whose colour mixing isn't known here
+        out.set(i, new Map(m));
+      }
+      return { want: out, ref };
+    }
+    function setSwatchRaw(e, ref) {
+      const block = one(e, 0x10); if (!block?.kids) return;
+      for (const r of ref.raw) { const k = one(block, r.field); if (k) k.value = r.value.slice(); }
+    }
+    let palAdded = 0, palChanged = 0, palRemoved = 0, palStrips = 0;
     const palWant = [];
     if (palSec && recProto) for (const kind of [0x10, 0x20, 0x30]) {
       const group = kidsOf(palSec).find(g => g.kids && g.kind === kind);
@@ -1161,11 +1241,21 @@
       const brought = new Set((S.zos?.palettes || []).filter(k => k.startsWith(`${kind}:`)));
       const matched = new Set();
       for (const p of mine) {
-        const want = paletteWant(p, kind);
+        // A palette that hasn't changed since it came from the desk stays exactly as the desk has it.
+        const own = p.zos?.kind === kind && p.zos.sig && p.zos.sig === palSig(p) ? kidsOf(group).find(x => int(one(x, 1)) === p.zos.id && !matched.has(x)) : null;
+        if (own) {
+          matched.add(own);
+          palWant.push({ kind, id: p.zos.id, name: text(one(own, 0xb)), want: new Map([...(z.paletteMap.get(`${kind}:${p.zos.id}`) || [])].filter(([i]) => [...pair.keys()].some(d => (d.index ?? 0) === i))) });
+          continue;
+        }
+        let want = paletteWant(p, kind);
         if (!want.size) continue;
+        const desk = kind === 0x10 ? deskColour(p, want) : null;
+        if (desk) want = desk.want;
         const pname = cleanText(p.name);
         let e = (p.zos?.kind === kind && kidsOf(group).find(x => int(one(x, 1)) === p.zos.id && !matched.has(x))) || kidsOf(group).find(x => !matched.has(x) && text(one(x, 0xb)).trim().toLowerCase() === pname.toLowerCase());
         if (e) e.__kind = kind;
+        const isNew = !e;
         if (!e) {
           const like = kidsOf(group).find(x => one(x, 0xa));
           if (!like) continue;
@@ -1173,11 +1263,11 @@
           setInt(e, 1, Math.max(0, ...kidsOf(group).map(x => int(one(x, 1)) ?? 0)) + 1);
           kidsOf(one(e, 0xa))[0].kids = [{ open: true }];
           group.kids.splice(1, 0, e);
-          writePalette(e, want);
-          if (kind === 0x10) setSwatch(e, p);
+          writePalette(e, want, Boolean(desk));
+          if (desk) { setSwatchRaw(e, desk.ref); palStrips++; } else if (kind === 0x10) setSwatch(e, p);
           palAdded++;
-        } else if (!samePalette(e, want, kind)) { writePalette(e, want); if (kind === 0x10) setSwatch(e, p); palChanged++; }
-        if (text(one(e, 0xb)) !== pname && one(e, 0xb)) { one(e, 0xb).value = new TextEncoder().encode(pname); palChanged++; }
+        } else if (!samePalette(e, want, kind)) { writePalette(e, want, Boolean(desk)); if (desk) { setSwatchRaw(e, desk.ref); palStrips++; } else if (kind === 0x10) setSwatch(e, p); palChanged++; }
+        if (text(one(e, 0xb)) !== pname && one(e, 0xb)) { one(e, 0xb).value = new TextEncoder().encode(pname); if (!isNew) palChanged++; }
         matched.add(e);
         delete e.__kind;
         palWant.push({ kind, id: int(one(e, 1)), name: pname, want });
@@ -1273,8 +1363,15 @@
         const deskType = FX_TYPE_OF(fxNames.get(effectId));
         const sameSpeed = sameType && Math.abs(fxSpeed(e.zos.speed) - Number(e.speed ?? 1)) < 1e-3;
         const ids = e.fixtureMode === "all" ? [...pair.values()].map(l => String(l.id)) : (e.fixtureIds || []).map(String);
+        // As the desk records an effect: full size, the lights spread out
+        // one after another (Forward offset), its second speed setting
+        // following the speed.
+        const onDesk = ids.filter(id => lsOfDesk.has(id));
+        let k = -1;
         for (const id of ids) {
           const d = lsOfDesk.get(id); if (!d) continue;
+          k++;
+          const spread = Math.round(65535 * (onDesk.length - k) / onDesk.length);
           let params = sameType && e.zos.params?.[d.index ?? 0] ? Object.entries(e.zos.params[d.index ?? 0]).map(([p, ph]) => [Number(p), ph]) : fxParamsFor(d, pair.get(d), deskType);
           let useId = effectId;
           // A light without what this effect moves (a rainbow on a white-only
@@ -1286,7 +1383,8 @@
           if (useId === effectId && params.length && deskType !== e.type) fxSubstituted.set(e.name || e.type, fxNames.get(effectId));
           const m = out.get(d.index ?? 0) || new Map();
           const per = (sameType && e.zos.lights?.[d.index ?? 0]) || {};
-          for (const [param, phase] of params) m.set(param, { 0x20: useId, 0x30: sameSpeed ? e.zos.speed : fxRaw(e.speed), 0x40: sameType ? e.zos.size : FX_DEFAULT[0x40], 0x50: per.f50 ?? 0, 0x60: per.f60 ?? 32768, 0x70: phase });
+          const speedRaw = sameSpeed ? e.zos.speed : fxRaw(e.speed);
+          for (const [param, phase] of params) m.set(param, { 0x20: useId, 0x30: speedRaw, 0x40: sameType && e.zos.size ? e.zos.size : 65535, 0x50: per.f50 ?? spread, 0x60: per.f60 ?? Math.max(0, Math.min(65535, Math.round(21616 + 0.4296 * speedRaw))), 0x70: phase });
           out.set(d.index ?? 0, m);
         }
       }
@@ -1452,7 +1550,7 @@
       const at = node.kids.indexOf(one(node, 0, { kind: 0x10 }));
       node.kids.splice(at >= 0 ? at : node.kids.length, 0, leaf);
     }
-    const lsChases = (S.chases || []).filter(Boolean);
+    const lsChases = FLX_CHASES ? (S.chases || []).filter(Boolean) : [];
     for (const chase of lsChases) {
       const old = chase.zos?.playback != null && chaseNumbers.has(Number(chase.zos.playback)) ? chaseNodes.get(Number(chase.zos.playback)) : null;
       if (old && chase.zos.sig && chase.zos.sig === chaseSig(chase)) { chasesKept++; keptChases.add(old); chaseAssign.push({ chase, number: Number(chase.zos.playback), kept: true }); continue; }
@@ -1508,7 +1606,7 @@
       chasesWritten++;
     }
     // Chases that came from this FLX file and were deleted in Light Spark.
-    for (const [n, node] of chaseNodes) if (chaseNumbers.has(n) && !keptChases.has(node)) { stacks.kids = stacks.kids.filter(k => k !== node); chasesRemoved++; }
+    if (FLX_CHASES) for (const [n, node] of chaseNodes) if (chaseNumbers.has(n) && !keptChases.has(node)) { stacks.kids = stacks.kids.filter(k => k !== node); chasesRemoved++; }
     // The desk keeps playbacks highest number first.
     if (chasesWritten || chasesRemoved) stacks.kids = [{ open: true }, ...kidsOf(stacks).sort((a, b) => (int(one(b, 1)) ?? 0) - (int(one(a, 1)) ?? 0))];
 
@@ -1597,10 +1695,10 @@
         }
       });
     }
-    for (const [n] of chaseNodes) if (chaseNumbers.has(n) && !chaseAssign.some(a => a.number === n) && chases2.has(n)) problems.push(`a deleted chase would still be on the desk`);
+    if (FLX_CHASES) for (const [n] of chaseNodes) if (chaseNumbers.has(n) && !chaseAssign.some(a => a.number === n) && chases2.has(n)) problems.push(`a deleted chase would still be on the desk`);
     if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
 
-    return { bytes, name, fxSubstituted: [...fxSubstituted].map(([a, b]) => `${a} → ${b}`), chaseAssign, chasesNow: chaseAssign.map(a => a.number), chasesKept, chasesWritten, chasesRemoved, fxChanged, unsupportedFx: [...unsupportedFx], palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
+    return { bytes, name, palStrips, fxSubstituted: [...fxSubstituted].map(([a, b]) => `${a} → ${b}`), chaseAssign, chasesNow: chaseAssign.map(a => a.number), chasesKept, chasesWritten, chasesRemoved, fxChanged, unsupportedFx: [...unsupportedFx], palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -1625,6 +1723,7 @@
     const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : "", r.fxChanged ? `${r.fxChanged} effect change${r.fxChanged === 1 ? "" : "s"} in cues` : "", r.chasesWritten ? `${r.chasesWritten} chase${r.chasesWritten === 1 ? "" : "s"} (playback${r.chasesWritten === 1 ? "" : "s"} ${(r.chaseAssign || []).filter(x => !x.kept).map(x => x.number).join(", ")})` : "", r.chasesRemoved ? `${r.chasesRemoved} chase${r.chasesRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
     if (r.unsupportedFx?.length) say(`The desk show has no effect like ${r.unsupportedFx.slice(0, 4).map(n => `“${n}”`).join(", ")}, so ${r.unsupportedFx.length === 1 ? "it wasn't" : "those weren't"} saved into the FLX file`, "warn");
     if (extra.length) say(`Also saved: ${extra.join(", ")}`, "ok");
+    if (r.palAdded + r.palChanged > (r.palStrips || 0) && r.palStrips != null) say(`${r.palStrips} of the new or changed colour palettes show the desk's colour strip. The others work the same but show no strip: the desk only draws one when a palette matches its own colour picker, and Light Spark can only match it for RGB and RGBW lights or the desk's own colours`, "info");
     if (r.fxSubstituted?.length) say(`The desk has no effect exactly like ${r.fxSubstituted.length === 1 ? "this one" : "these"}, so the closest desk effect was used: ${r.fxSubstituted.slice(0, 6).join(", ")}`, "info");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "is a" : "are"} type${r.missing.length === 1 ? "" : "s"} the desk show doesn't have yet, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch one light of that type on the desk, save, open that here, then save again`, "warn");
   }

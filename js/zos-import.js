@@ -273,8 +273,32 @@
   };
   // Speed: the desk's 0-65535 (32768 = its normal speed) ↔ Light Spark's
   // cycles per second (1 = normal), doubling every 8192.
-  const fxSpeed = raw => Math.round(Math.pow(2, ((raw ?? 32768) - 32768) / 8192) * 1000) / 1000;
-  const fxRaw = speed => Math.max(0, Math.min(65535, Math.round(32768 + 8192 * Math.log2(Math.max(1 / 16, Math.min(16, Number(speed) || 1))))));
+  // Speed: 41301 is the desk's own default (shown as speed 20), taken as
+  // Light Spark's speed 1; each 8192 doubles it.
+  const FX_SPEED_1 = 41301;
+  const fxSpeed = raw => Math.round(Math.pow(2, ((raw ?? FX_SPEED_1) - FX_SPEED_1) / 8192) * 1000) / 1000;
+  const fxRaw = speed => Math.max(0, Math.min(65535, Math.round(FX_SPEED_1 + 8192 * Math.log2(Math.max(1 / 16, Math.min(16, Number(speed) || 1))))));
+  // The desk's offset for light k of n in an effect ("Forward offset").
+  const fxSpread = (k, n) => 65535 - Math.floor(k * 65535 / n);
+  // What a saved effect is, to tell whether it changed since it came from the desk.
+  const fxSig = e => JSON.stringify([e.name, e.type, Number(e.speed) || 1, e.fixtureMode || "", e.fixtureIds || []]);
+  // Recorded effect palettes: id → light → channel → effect settings.
+  function fxPaletteValues(main) {
+    const out = new Map();
+    const sec = main ? kidsOf(main, { section: 0x1d }).find(k => k.kids) : null;
+    const group = kidsOf(sec).find(g => g.kids && g.kind === 0x40);
+    for (const e of kidsOf(group)) {
+      if (one(e, 0xe) || !one(e, 0xa)) continue; // the desk's built-in effects
+      const lights = new Map();
+      for (const holder of kidsOf(one(e, 0xa))) for (const l of kidsOf(holder).filter(k => k.kids)) {
+        const m = new Map();
+        for (const r of kidsOf(one(l, 0, { kind: 0x11 }))) { const o = fxOfRecord(r); if (o) m.set(int(kidsOf(r).find(k => k.field === 0x11 && k.value)) ?? 0, o); }
+        if (m.size) lights.set(int(one(l, 1)) ?? 0, m);
+      }
+      out.set(int(one(e, 1)), { name: text(one(e, 0xb)), lights });
+    }
+    return out;
+  }
   // Which channels a Light Spark effect type moves, by attribute.
   // Light Spark effects the desk has nothing exactly like: the closest desk effect.
   const FX_NEAREST = {
@@ -480,6 +504,7 @@
     }
 
     const paletteMap = paletteValues(main);
+    const fxPalettes = fxPaletteValues(main);
     const playbacks = [];
     const stacks = top.find(n => n.section === 0x50 && n.kids);
     const byIndex = new Map(fixtures.map(f => [f.index, f]));
@@ -519,7 +544,7 @@
       playbacks.push({ number: int(one(pb, 1)), name: label, cues, chase, bpm: chase ? (int(one(pb, 0x27)) || 60000) / 1000 : null, shots: chase ? int(one(pb, 0x24)) ?? 0 : null });
     }
     playbacks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-    return { name, fixtures, types: [...types.values()], groups, palettes, paletteMap, playbacks, damaged };
+    return { name, fixtures, types: [...types.values()], groups, palettes, paletteMap, fxPalettes, playbacks, damaged };
   }
 
   // r, g, b (0-255) → Light Spark's hue / sat / light (light 50 = full colour).
@@ -555,6 +580,7 @@
       fixtures.push({ id: `zos-i${f.index}`, name: d.key, uni: f.uni, addr: f.addr, fixtureNumber: f.number, label: f.label && f.label !== f.type.name ? f.label : undefined });
     }
     const have = new Set(fixtures.map(f => f.fixtureNumber));
+    const lightByIndexAll = new Map(z.fixtures.filter(f => f.type && f.addr && have.has(f.number)).map(f => [f.index ?? 0, f]));
     // Your groups first, then the desk's automatic ones ("All - …", "Odd - …"),
     // marked deskAuto so saving leaves those to the desk.
     const groups = [
@@ -633,13 +659,27 @@
     // effect and set of lights, named as on the desk.
     const savedEffects = {};
     const seenFx = new Map();
+    const fxNamesAll = new Map(z.palettes.filter(p => p.code === 0x40).map(p => [p.id, p.name]));
+    for (const [id, fp] of z.fxPalettes || []) {
+      const ids = [], params = {}, lights = {};
+      let first = null;
+      for (const [index, m] of fp.lights) {
+        const f = lightByIndexAll.get(index); if (!f) continue;
+        ids.push(`zos-i${index}`);
+        for (const [param, o] of m) { first = first || o; (params[index] = params[index] || {})[param] = o[0x70]; lights[index] = { f50: o[0x50], f60: o[0x60] }; }
+      }
+      const type = first && FX_TYPE_OF(fxNamesAll.get(first[0x20]));
+      if (!type || !ids.length) continue;
+      const name = fp.name || `Effect ${id}`;
+      savedEffects[name] = { name, type, speed: fxSpeed(first[0x30]), fixtureMode: "custom", fixtureIds: ids, zos: { kind: 0x40, id, effect: first[0x20], speed: first[0x30], size: first[0x40], params, lights } };
+    }
     for (const c of cues) for (const e of c.effects || []) {
       const key = `${e.zos?.effect}|${e.speed}|${[...e.fixtureIds].sort()}`;
       if (seenFx.has(key)) continue;
       let name = e.name || e.type, k = 2;
       while (savedEffects[name]) name = `${e.name || e.type} (${k++})`;
       seenFx.set(key, name);
-      savedEffects[name] = { name, type: e.type, speed: e.speed, fixtureMode: "custom", fixtureIds: [...e.fixtureIds], zos: { effect: e.zos?.effect } };
+      savedEffects[name] = { name, type: e.type, speed: e.speed, fixtureMode: "custom", fixtureIds: [...e.fixtureIds], zos: { ...e.zos, cue: true } };
     }
     // Palettes: colour, beam and position, each light's own values.
     const lsPalettes = [];
@@ -702,7 +742,8 @@
     window.LXShowCommands?.restore?.(r.show);
     for (const c of window.State?.chases || []) if (c?.zos) c.zos.sig = chaseSig(c);
     for (const p of window.State?.palettes || []) if (p?.zos) p.zos.sig = palSig(p);
-    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, (r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`), (r.show.chases || []).map(c => c.zos.playback));
+    for (const e of Object.values(window.State?.savedEffects || {})) if (e?.zos?.kind === 0x40) e.zos.sig = fxSig(e);
+    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, [...(r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`), ...Object.values(r.show.savedEffects || {}).filter(e => e.zos?.kind === 0x40).map(e => `64:${e.zos.id}`)], (r.show.chases || []).map(c => c.zos.playback));
     openPath = filePath || "";
     try { window.LXShowCommands?.markSaved?.(); } catch (_) {}
     try { window.renderLibrary?.(); } catch (_) {}
@@ -1348,7 +1389,7 @@
     };
     const fxParamsFor = (d, ls, type) => {
       const want = FX_ATTRS(type), out = [];
-      for (const ch of d.type.list) { const a = attribute(ch.label, ch.code, ch.code2); if (want.has(a) && deskOff(d, ls, ch) != null) out.push([ch.index, a === "g" ? 21845 : a === "b" ? 43690 : 0]); }
+      for (const ch of d.type.list) { const a = attribute(ch.label, ch.code, ch.code2); if (want.has(a) && deskOff(d, ls, ch) != null) out.push([ch.index, a === "r" ? 32768 : a === "g" ? 54399 : a === "b" ? 10367 : 0]); } // the desk's own rainbow phases
       return out;
     };
     const unsupportedFx = new Set();
@@ -1371,7 +1412,7 @@
         for (const id of ids) {
           const d = lsOfDesk.get(id); if (!d) continue;
           k++;
-          const spread = Math.round(65535 * (onDesk.length - k) / onDesk.length);
+          const spread = fxSpread(k, onDesk.length);
           let params = sameType && e.zos.params?.[d.index ?? 0] ? Object.entries(e.zos.params[d.index ?? 0]).map(([p, ph]) => [Number(p), ph]) : fxParamsFor(d, pair.get(d), deskType);
           let useId = effectId;
           // A light without what this effect moves (a rainbow on a white-only
@@ -1502,6 +1543,62 @@
     newCues.sort((a, b) => b.number - a.number);
     list.kids = [{ open: true }, ...newCues.map(x => x.node)];
     const fixturesForCue = [...pair.keys()];
+
+    // ---- The Effects page: each saved effect is a recorded effect palette ----
+    // Laid out as the desk records one (Effects → pick an effect → Record →
+    // a palette): every light, every channel the effect moves, with the
+    // effect, its speed, size and each light's offset. Effects that came
+    // from the desk's cues (zos.cue) stay in their cues only, and an effect
+    // that hasn't changed since it came from the desk is left as it was.
+    const fxGroup = kidsOf(palSec).find(g => g.kids && g.kind === 0x40);
+    const fxBrought = new Set((S.zos?.palettes || []).filter(k => String(k).startsWith("64:")));
+    const fxPalWant = [], fxSkipped = [], fxAssign = [];
+    let fxPalAdded = 0, fxPalChanged = 0, fxPalRemoved = 0;
+    if (fxGroup) {
+      const builtIn = x => Boolean(one(x, 0xe)) || !one(x, 0xa);
+      const tag = kidsOf(fxGroup)[0];
+      const leafLike = one(tag, 1);
+      const leaf = (field, v, kind = leafLike?.kind ?? 0, section = leafLike?.section ?? 0x1d) => ({ field, kind, section, raw: 0, value: typeof v === "string" ? new TextEncoder().encode(v) : intBytes(v) });
+      const grp = (field, kind, section, kids) => ({ field, kind, section, raw: 0x80000000, kids: [{ open: true }, ...kids] });
+      const lightNode = (index, m) => grp(0, 0x10, 0x71, [
+        leaf(1, index, 0x10, 0x71),
+        grp(0, 0x11, 0x71, [...m].sort((a, b) => b[0] - a[0]).map(([param, o]) => grp(0x10, 0x11, 0x71, [leaf(0x11, param, 0x11, 0x71), ...FX_FIELDS.map(f => leaf(f, o[f], 0x12, 0x71))])))
+      ]);
+      const nowOf = x => fxPaletteValues({ kids: [{ section: 0x1d, kids: [{ kind: 0x40, kids: [x] }] }] }).get(int(one(x, 1)))?.lights || new Map();
+      const sameFx = (a, b) => a.size === b.size && [...b].every(([i, m]) => { const n = a.get(i); return n && n.size === m.size && [...m].every(([p, o]) => fxKey(n.get(p)) === fxKey(o)); });
+      const matchedFx = new Set();
+      for (const e of Object.values(S.savedEffects || {})) {
+        if (!e || !e.type || e.zos?.cue) continue;
+        const name = cleanText(e.name || e.type);
+        const own = e.zos?.kind === 0x40 ? kidsOf(fxGroup).find(x => int(one(x, 1)) === e.zos.id && !builtIn(x) && !matchedFx.has(x)) : null;
+        if (own && e.zos.sig && e.zos.sig === fxSig(e)) {
+          matchedFx.add(own);
+          fxPalWant.push({ id: e.zos.id, name, want: nowOf(own) });
+          fxAssign.push({ e, id: e.zos.id });
+          continue;
+        }
+        const ids = e.fixtureMode === "all" ? [...pair.values()].map(l => String(l.id)) : (e.fixtureIds || []).map(String);
+        const want = ids.length ? wantedFx({ effects: [{ ...e, fixtureMode: "custom", fixtureIds: ids }] }) : new Map();
+        if (!want.size) { fxSkipped.push(name); continue; }
+        let node = own || kidsOf(fxGroup).find(x => !builtIn(x) && !matchedFx.has(x) && text(one(x, 0xb)).trim().toLowerCase() === name.toLowerCase());
+        if (!node) {
+          const id = Math.max(45, ...kidsOf(fxGroup).map(x => int(one(x, 1)) ?? 0)) + 1;
+          node = { ...tag, kids: [{ open: true }, leaf(1, id), leaf(0xb, name), leaf(0xc, 4), grp(0xa, leafLike?.kind ?? 0, leafLike?.section ?? 0x1d, [grp(0, 0, 0x71, [])])] };
+          fxGroup.kids.splice(1, 0, node);
+          fxPalAdded++;
+        } else if (!sameFx(nowOf(node), want) || text(one(node, 0xb)) !== name) {
+          if (one(node, 0xb)) one(node, 0xb).value = new TextEncoder().encode(name);
+          fxPalChanged++;
+        }
+        matchedFx.add(node);
+        const holder = kidsOf(one(node, 0xa))[0];
+        if (!sameFx(nowOf(node), want)) holder.kids = [{ open: true }, ...[...want].sort((a, b) => a[0] - b[0]).map(([i, m]) => lightNode(i, m))];
+        fxPalWant.push({ id: int(one(node, 1)), name, want });
+        fxAssign.push({ e, id: int(one(node, 1)) });
+      }
+      // Recorded effects that came from this FLX file and were deleted here.
+      for (const x of kidsOf(fxGroup)) if (!builtIn(x) && !matchedFx.has(x) && fxBrought.has(`64:${int(one(x, 1))}`)) { fxGroup.kids = fxGroup.kids.filter(k => k !== x); fxPalRemoved++; }
+    }
 
     // ---- Chases: each Light Spark chase is a chase playback on the desk ----
     // One step (cue) per look, holding every channel of the chase's lights,
@@ -1677,6 +1774,11 @@
         }
       }
     }
+    // The Effects page: each saved effect a recorded effect palette with the same settings.
+    for (const fw of fxPalWant) {
+      const got = z2.fxPalettes.get(fw.id)?.lights || new Map();
+      for (const [i, m] of fw.want) for (const [param, o] of m) if (fxKey(got.get(i)?.get(param)) !== fxKey(o) && problems.length < 6) problems.push(`effect “${fw.name}” light ${byIndex2.get(i)?.number}: the desk's effect wouldn't match Light Spark's`);
+    }
     // Chases: each one a chase playback on the desk, its speed, how it
     // repeats, and every step's values.
     const chases2 = new Map(z2.playbacks.filter(p => p.chase).map(p => [p.number, p]));
@@ -1698,7 +1800,7 @@
     if (FLX_CHASES) for (const [n] of chaseNodes) if (chaseNumbers.has(n) && !chaseAssign.some(a => a.number === n) && chases2.has(n)) problems.push(`a deleted chase would still be on the desk`);
     if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
 
-    return { bytes, name, palStrips, fxSubstituted: [...fxSubstituted].map(([a, b]) => `${a} → ${b}`), chaseAssign, chasesNow: chaseAssign.map(a => a.number), chasesKept, chasesWritten, chasesRemoved, fxChanged, unsupportedFx: [...unsupportedFx], palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
+    return { bytes, name, palStrips, fxAssign, fxPalAdded, fxPalChanged, fxPalRemoved, fxSkipped, palettesNowFx: fxPalWant.map(f => `64:${f.id}`), fxSubstituted: [...fxSubstituted].map(([a, b]) => `${a} → ${b}`), chaseAssign, chasesNow: chaseAssign.map(a => a.number), chasesKept, chasesWritten, chasesRemoved, fxChanged, unsupportedFx: [...unsupportedFx], palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -1720,10 +1822,11 @@
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
     if (r.numberClash?.length) say(`Fixture number${r.numberClash.length === 1 ? "" : "s"} ${r.numberClash.slice(0, 8).join(", ")} ${r.numberClash.length === 1 ? "is" : "are"} used by two lights in Light Spark, so ${r.numberClash.length === 1 ? "that one wasn't" : "those weren't"} changed on the desk — every other number was`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
-    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : "", r.fxChanged ? `${r.fxChanged} effect change${r.fxChanged === 1 ? "" : "s"} in cues` : "", r.chasesWritten ? `${r.chasesWritten} chase${r.chasesWritten === 1 ? "" : "s"} (playback${r.chasesWritten === 1 ? "" : "s"} ${(r.chaseAssign || []).filter(x => !x.kept).map(x => x.number).join(", ")})` : "", r.chasesRemoved ? `${r.chasesRemoved} chase${r.chasesRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
+    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : "", r.fxChanged ? `${r.fxChanged} effect change${r.fxChanged === 1 ? "" : "s"} in cues` : "", r.fxPalAdded ? `${r.fxPalAdded} new effect${r.fxPalAdded === 1 ? "" : "s"} from the Effects page` : "", r.fxPalChanged ? `${r.fxPalChanged} effect${r.fxPalChanged === 1 ? "" : "s"} changed` : "", r.fxPalRemoved ? `${r.fxPalRemoved} effect${r.fxPalRemoved === 1 ? "" : "s"} deleted` : "", r.chasesWritten ? `${r.chasesWritten} chase${r.chasesWritten === 1 ? "" : "s"} (playback${r.chasesWritten === 1 ? "" : "s"} ${(r.chaseAssign || []).filter(x => !x.kept).map(x => x.number).join(", ")})` : "", r.chasesRemoved ? `${r.chasesRemoved} chase${r.chasesRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
     if (r.unsupportedFx?.length) say(`The desk show has no effect like ${r.unsupportedFx.slice(0, 4).map(n => `“${n}”`).join(", ")}, so ${r.unsupportedFx.length === 1 ? "it wasn't" : "those weren't"} saved into the FLX file`, "warn");
     if (extra.length) say(`Also saved: ${extra.join(", ")}`, "ok");
     if (r.palAdded + r.palChanged > (r.palStrips || 0) && r.palStrips != null) say(`${r.palStrips} of the new or changed colour palettes show the desk's colour strip. The others work the same but show no strip: the desk only draws one when a palette matches its own colour picker, and Light Spark can only match it for RGB and RGBW lights or the desk's own colours`, "info");
+    if (r.fxSkipped?.length) say(`${r.fxSkipped.slice(0, 6).map(n => `“${n}”`).join(", ")} ${r.fxSkipped.length === 1 ? "has" : "have"} no lights of ${r.fxSkipped.length === 1 ? "its" : "their"} own (set to run on whatever is selected), so ${r.fxSkipped.length === 1 ? "it wasn't" : "they weren't"} saved to the desk — pick lights for ${r.fxSkipped.length === 1 ? "it" : "them"} on the Effects page`, "warn");
     if (r.fxSubstituted?.length) say(`The desk has no effect exactly like ${r.fxSubstituted.length === 1 ? "this one" : "these"}, so the closest desk effect was used: ${r.fxSubstituted.slice(0, 6).join(", ")}`, "info");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "is a" : "are"} type${r.missing.length === 1 ? "" : "s"} the desk show doesn't have yet, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch one light of that type on the desk, save, open that here, then save again`, "warn");
   }
@@ -1743,7 +1846,9 @@
         out = await b.zosSave(target, r.bytes);
       }
       openPath = out.filePath;
-      keepBase(r.bytes, baseName(out.filePath), out.filePath, r.palettesNow, r.chasesNow);
+      keepBase(r.bytes, baseName(out.filePath), out.filePath, [...(r.palettesNow || []), ...(r.palettesNowFx || [])], r.chasesNow);
+      // The effects now on the desk, so saving again updates them in place.
+      for (const a of r.fxAssign || []) { a.e.zos = { ...(a.e.zos || {}), kind: 0x40, id: a.id }; delete a.e.zos.cue; a.e.zos.sig = fxSig(a.e); }
       // The chases now on the desk, so saving again updates them in place.
       for (const a of r.chaseAssign || []) { a.chase.zos = { playback: a.number }; a.chase.zos.sig = chaseSig(a.chase); }
       window.LXShowCommands?.markSaved?.();

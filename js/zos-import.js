@@ -238,10 +238,24 @@
   // phase (how a rainbow spreads over red, green and blue). 0 = no effect.
   const FX_FIELDS = [0x20, 0x60, 0x30, 0x40, 0x50, 0x70]; // the desk's own order
   const FX_DEFAULT = { 0x20: 0, 0x30: 32768, 0x40: 0, 0x50: 0, 0x60: 32768, 0x70: 0 };
-  const fxOfRecord = r => {
+  // A setting can instead point at an effect palette (field + 2 = 4): the
+  // desk stores a cue that way when an effect palette was tapped. Then the
+  // value is the palette's number, and the setting is the palette's own for
+  // that light (a recorded palette), or the desk's default for one of its
+  // built-in effects.
+  const FX_BUILT_IN = { 0x30: 41301, 0x40: 65535, 0x60: 39359, 0x70: 0 };
+  const fxOfRecord = (r, fxPalettes = null, light = 0) => {
     if (!kidsOf(r).some(k => k.field === 0x20 && k.value)) return null;
+    const param = int(kidsOf(r).find(k => k.field === 0x11 && k.value)) ?? 0;
     const o = {};
-    for (const f of FX_FIELDS) o[f] = int(kidsOf(r).find(k => k.field === f && k.value)) ?? FX_DEFAULT[f];
+    for (const f of FX_FIELDS) {
+      let v = int(kidsOf(r).find(k => k.field === f && k.value));
+      if (v != null && int(kidsOf(r).find(k => k.field === f + 2 && k.value)) === 4) {
+        const own = fxPalettes?.get(v)?.lights?.get(light)?.get(param);
+        v = own ? own[f] : f === 0x20 ? v : FX_BUILT_IN[f] ?? FX_DEFAULT[f];
+      }
+      o[f] = v ?? FX_DEFAULT[f];
+    }
     return o;
   };
   const fxKey = o => o && o[0x20] ? FX_FIELDS.map(f => o[f]).join(",") : "";
@@ -523,7 +537,7 @@
             for (const pv of kidsOf(one(fx, 0, { kind: 0x11 }))) {
               const { param, value } = recordValue(pv, fixture.index ?? 0, paletteMap);
               if (value != null) params[param] = value;
-              if (kidsOf(pv).some(k => k.field === 0x20)) effects[param] = fxOfRecord(pv) || { ...FX_DEFAULT };
+              if (kidsOf(pv).some(k => k.field === 0x20)) effects[param] = fxOfRecord(pv, fxPalettes, fixture.index ?? 0) || { ...FX_DEFAULT };
             }
             if (Object.keys(params).length || Object.keys(effects).length) levels.push({ number: fixture.number, index: fixture.index ?? 0, params, effects });
           }
@@ -1153,9 +1167,18 @@
     const homeOf = (i, param) => { const d = z.fixtures.find(x => (x.index ?? 0) === i); return d?.type?.list.find(c => c.index === param)?.home ?? 0; };
     // Does a desk palette light hold any channel Light Spark controls here?
     const managed = (i, m, kind) => { const d = z.fixtures.find(x => (x.index ?? 0) === i); const ls = d && pair.get(d); return !!ls && d.type.list.some(ch => m.has(ch.index) && PALETTE_ATTRS[kind].has(attribute(ch.label, ch.code, ch.code2)) && deskOff(d, ls, ch) != null); };
+    const EMITTERS = new Set(["r", "g", "b", "w", "amber", "lime", "cyan", "uv", "warmWhite", "coolWhite"]);
+    const emitterParam = (i, p) => { const d = z.fixtures.find(x => (x.index ?? 0) === i); const ch = d?.type?.list.find(c => c.index === p); return Boolean(ch) && EMITTERS.has(attribute(ch.label, ch.code, ch.code2)); };
     function samePalette(e, want, kind) {
       const now = new Map(lightsOf(e).map(l => [int(one(l, 1)) ?? 0, valuesOf(l)]));
-      for (const [i, m] of want) { const n = now.get(i); if (!n) return false; for (const [p, v] of m) if (Math.abs(((n.get(p) ?? homeOf(i, p)) >> 8) - (v >> 8)) > 1) return false; }
+      for (const [i, m] of want) {
+        const n = now.get(i); if (!n) return false;
+        for (const [p, v] of m) {
+          // The desk's own palettes always hold every emitter channel; one left out (by an older Light Spark) needs writing.
+          if (!n.has(p) && kind === 0x10 && emitterParam(i, p)) return false;
+          if (Math.abs(((n.get(p) ?? homeOf(i, p)) >> 8) - (v >> 8)) > 1) return false;
+        }
+      }
       for (const [i, m] of now) if (!want.has(i) && managed(i, m, kind)) return false;
       return true;
     }
@@ -1169,7 +1192,9 @@
         const pg = one(l, 0, { kind: 0x11 });
         for (const [param, v] of m) {
           let r = kidsOf(pg).find(x => (int(one(x, 0x11)) ?? 0) === param);
-          if (!r && !exact && Math.abs((homeOf(i, param) >> 8) - (v >> 8)) <= 1) continue; // the desk leaves default channels out
+          // Every channel the palette sets is written, even one at its default
+          // (red at full in pink): leaving it out would let the colour before
+          // it show through, the way the desk's own palettes never do.
           if (r) { r.kids = r.kids.filter(k => k.open || k.field !== 0x12); if (one(r, 0x10)) setInt(r, 0x10, v); else { const vn = clone(one(recProto.rec, 0x10)); vn.value = intBytes(v); r.kids.push(vn); } }
           else { r = clone(recProto.rec); setInt(r, 0x11, param); setInt(r, 0x10, v); pg.kids.splice(1, 0, r); }
         }
@@ -1384,7 +1409,7 @@
       const h = holderOf(c); if (!h) return;
       for (const e of entriesOf(h)) {
         const m = st.get(int(one(e, 1)) ?? 0); if (!m) continue;
-        for (const r of kidsOf(one(e, 0, { kind: 0x11 }))) if (kidsOf(r).some(k => k.field === 0x20)) { const o = fxOfRecord(r); if (o && o[0x20]) m.set(paramOf(r), o); else m.delete(paramOf(r)); }
+        for (const r of kidsOf(one(e, 0, { kind: 0x11 }))) if (kidsOf(r).some(k => k.field === 0x20)) { const o = fxOfRecord(r, z.fxPalettes, int(one(e, 1)) ?? 0); if (o && o[0x20]) m.set(paramOf(r), o); else m.delete(paramOf(r)); }
       }
     };
     const fxParamsFor = (d, ls, type) => {

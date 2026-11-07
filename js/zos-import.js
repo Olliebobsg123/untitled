@@ -406,6 +406,21 @@
   }
 
   // ---------- Read a whole show ----------
+  // A playback the desk runs as a chase (Playback Setup → Turn into Chase):
+  // field 0x19 = 1 (older shows: 0x19 = 0 with field 3 set). A chase also has
+  // its speed in beats per minute × 1000 (0x27) and how many times it runs
+  // (0x24 "Shots", 0 = round and round).
+  function isChaseNode(pb) {
+    const f = one(pb, 0x19);
+    if (!f) return false;
+    return int(f) === 1 || Boolean(int(one(pb, 3)));
+  }
+  // What a chase is, to tell whether it changed since it came from the desk.
+  const chaseSig = c => JSON.stringify([c.name, c.mode, c.loop !== false, Number(window.LXChaseSpeed?.bpmOf?.(c) ?? c.bpm) || 0, c.fixtureIds || [], c.snapshots || [], c.steps || [], (c.steps || []).map(i => window.State?.cues?.[i] || null), Number(c.fade) || 0]);
+  // The main cue list: the playback with the most cues (ties: the lowest
+  // number) that isn't a chase. Opening and saving both pick it this way.
+  const mainOf = list => [...list].filter(p => p.cues.length && !p.chase).sort((a, b) => b.cues.length - a.cues.length || (a.number ?? 0) - (b.number ?? 0))[0] || null;
+
   function read(buffer) {
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     let damaged = [];
@@ -488,7 +503,8 @@
           trigger: t(0x3) ?? 1, wait: t(0x4) ?? 0, levels
         });
       }
-      playbacks.push({ number: int(one(pb, 1)), name: label, cues });
+      const chase = isChaseNode(pb);
+      playbacks.push({ number: int(one(pb, 1)), name: label, cues, chase, bpm: chase ? (int(one(pb, 0x27)) || 60000) / 1000 : null, shots: chase ? int(one(pb, 0x24)) ?? 0 : null });
     }
     playbacks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
     return { name, fixtures, types: [...types.values()], groups, palettes, paletteMap, playbacks, damaged };
@@ -529,8 +545,7 @@
     const have = new Set(fixtures.map(f => f.fixtureNumber));
     const groups = z.groups.filter(g => g.name && !g.auto).map(g => ({ name: g.name, members: g.members.filter(n => have.has(n)) })).filter(g => g.members.length);
     const cues = [];
-    // The main cue list: the playback with the most cues (ties: the lowest number), as saving picks it.
-    const pb = [...z.playbacks].filter(p => p.cues.length).sort((a, b) => b.cues.length - a.cues.length || (a.number ?? 0) - (b.number ?? 0))[0] || null;
+    const pb = mainOf(z.playbacks);
     if (pb) {
       // Desk cues hold only what changed, and a light starts at its home
       // values (colour channels are usually full, so white). Work out every
@@ -581,6 +596,21 @@
         if (prev && (c.trigger === 6 || c.trigger === 0)) Object.assign(prev, { followEnabled: true, followMode: c.trigger === 6 ? "go" : "complete", follow: Math.round((c.wait || 0) / 10) / 100 });
       }
     }
+    // Chases: each desk chase playback becomes a recorded chase, one look a
+    // step, for the lights it uses.
+    const chases = [];
+    for (const p of z.playbacks.filter(p => p.chase && p.cues.length).sort((a, b) => (a.number ?? 0) - (b.number ?? 0))) {
+      const steps = [...p.cues].sort((a, b) => a.number - b.number);
+      const usedBy = new Set(steps.flatMap(c => c.levels.map(l => l.number)));
+      const mine = z.fixtures.filter(f => f.type && f.addr && have.has(f.number) && usedBy.has(f.number));
+      if (!mine.length) continue;
+      const values = new Map(mine.map(f => [f.number, new Map(f.type.list.map(ch => [ch.index, ch.home ?? 0]))]));
+      const snapshots = steps.map(c => {
+        for (const l of c.levels) { const m = values.get(l.number); if (m) for (const [i, v] of Object.entries(l.params)) m.set(Number(i), v); }
+        return { globalState: {}, fixtureStates: mine.map(f => [`zos-i${f.index}`, stateFor(f, values.get(f.number))]) };
+      });
+      chases.push({ name: p.name || `Chase ${p.number}`, mode: "snapshot", steps: [], snapshots, fixtureIds: mine.map(f => `zos-i${f.index}`), loop: !p.shots, bpm: Math.max(6, Math.min(1200, p.bpm || 60)), fade: 0, zos: { playback: p.number } });
+    }
     // Palettes: colour, beam and position, each light's own values.
     const lsPalettes = [];
     const lightByIndex = new Map(z.fixtures.filter(f => f.type && f.addr && have.has(f.number)).map(f => [f.index ?? 0, f]));
@@ -612,7 +642,7 @@
     return {
       show: {
         format: "lx-console-show", version: 8, savedAt: new Date().toISOString(), fromZerOS: true,
-        fixtures, groups, cues, chases: [], savedEffects: [], palettes: lsPalettes, fixtureStates: [], selected: [],
+        fixtures, groups, cues, chases, savedEffects: [], palettes: lsPalettes, fixtureStates: [], selected: [],
         current: { __lxCustomFixtures: custom }, currentCue: -1
       },
       custom, matched, rebuilt, playback: pb, skipped: z.fixtures.length - fixtures.length
@@ -631,20 +661,21 @@
       say(`“${z.name}” is damaged — check it before using it on the desk`, "warn");
     }
     const r = toShow(z);
-    const others = z.playbacks.filter(p => p.cues.length && p !== r.playback).length;
+    const others = z.playbacks.filter(p => p.cues.length && p !== r.playback && !p.chase).length;
     const ok = await window.LXAsk?.(`Open FLX show “${z.name}”`, [], {
       ok: "Open",
       safe: true,
-      message: `${z.fixtures.length} lights, ${r.show.groups.length} groups, ${r.show.cues.length} cues${r.playback ? ` (from playback ${r.playback.number}${r.playback.name ? ` “${r.playback.name}”` : ""})` : ""}, ${z.palettes.filter(p => p.kind !== "Intensity").length} palette names (names only for now). This replaces the show that's open now — save it first if you want to keep it. Brightness and colour come across.`
+      message: `${z.fixtures.length} lights, ${r.show.groups.length} groups, ${r.show.cues.length} cues${r.show.chases.length ? `, ${r.show.chases.length} chase${r.show.chases.length === 1 ? "" : "s"}` : ""}${r.playback ? ` (from playback ${r.playback.number}${r.playback.name ? ` “${r.playback.name}”` : ""})` : ""}, ${z.palettes.filter(p => p.kind !== "Intensity").length} palette names (names only for now). This replaces the show that's open now — save it first if you want to keep it. Brightness and colour come across.`
     });
     if (window.LXAsk && !ok) { say("Open FLX show cancelled — nothing was changed", "info"); return null; }
     try { for (const [k, d] of Object.entries(r.custom)) window.FixtureLibrary[k] = JSON.parse(JSON.stringify(d)); } catch (_) {}
     window.LXShowCommands?.restore?.(r.show);
-    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, (r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`));
+    for (const c of window.State?.chases || []) if (c?.zos) c.zos.sig = chaseSig(c);
+    keepBase(bytes, String(label || z.name).replace(/\.zos$/i, ""), filePath, (r.show.palettes || []).map(p => `${p.zos.kind}:${p.zos.id}`), (r.show.chases || []).map(c => c.zos.playback));
     openPath = filePath || "";
     try { window.LXShowCommands?.markSaved?.(); } catch (_) {}
     try { window.renderLibrary?.(); } catch (_) {}
-    say(`Opened FLX show “${z.name}”: ${r.show.fixtures.length} lights (${r.matched} fixture type${r.matched === 1 ? "" : "s"} from Light Spark's library, ${r.rebuilt} rebuilt from the show), ${r.show.groups.length} groups, ${r.show.cues.length} cues`, "ok");
+    say(`Opened FLX show “${z.name}”: ${r.show.fixtures.length} lights (${r.matched} fixture type${r.matched === 1 ? "" : "s"} from Light Spark's library, ${r.rebuilt} rebuilt from the show), ${r.show.groups.length} groups, ${r.show.cues.length} cues${r.show.chases.length ? `, ${r.show.chases.length} chase${r.show.chases.length === 1 ? "" : "s"}` : ""}`, "ok");
     if (r.skipped) say(`${r.skipped} light${r.skipped === 1 ? " wasn't" : "s weren't"} patched on the desk, so ${r.skipped === 1 ? "it was" : "they were"} left out`, "warn");
     if (others) say(`${others} more playback${others === 1 ? "" : "s"} with cues on the desk — only the first came across`, "info");
     const spans = z.fixtures.filter(f => f.addr && f.type).map(f => ({ n: f.number, uni: f.uni, from: f.addr, to: f.addr + f.type.channels - 1 })).sort((a, b) => a.uni - b.uni || a.from - b.from);
@@ -783,10 +814,11 @@
   let base = null;
   // palettes: the desk palettes ("kind:id") this show has, so only those
   // can be deleted from the desk by deleting them here.
-  function keepBase(bytes, name, filePath = "", palettes) {
+  // chases: the desk chase playbacks (numbers) this show has, likewise.
+  function keepBase(bytes, name, filePath = "", palettes, chases) {
     base = { bytes: bytes.slice(), name, path: filePath };
     const S = window.State || (window.State = {});
-    S.zos = { name, path: filePath, data: b64(bytes), savedAt: new Date().toISOString(), palettes: palettes || S.zos?.palettes || [] };
+    S.zos = { name, path: filePath, data: b64(bytes), savedAt: new Date().toISOString(), palettes: palettes || S.zos?.palettes || [], chases: chases || S.zos?.chases || [] };
   }
   function loadBase() {
     const z = window.State?.zos;
@@ -1105,7 +1137,7 @@
 
     // ---- Cues: only what's different from the desk's show is written ----
     const stacks = top.find(n => n.section === 0x50 && n.kids);
-    const pbs = kidsOf(stacks).filter(pb => !/^grand master$/i.test(text(one(pb, 2))) && one(pb, 0, { kind: 0x10 }));
+    const pbs = kidsOf(stacks).filter(pb => !/^grand master$/i.test(text(one(pb, 2))) && one(pb, 0, { kind: 0x10 }) && !isChaseNode(pb));
     const pb = pbs.sort((a, b) => kidsOf(one(b, 0, { kind: 0x10 })).length - kidsOf(one(a, 0, { kind: 0x10 })).length || (int(one(a, 1)) ?? 0) - (int(one(b, 1)) ?? 0))[0];
     const list = pb ? one(pb, 0, { kind: 0x10 }) : null;
     const proto = list ? kidsOf(list)[0] : null;
@@ -1311,6 +1343,113 @@
     list.kids = [{ open: true }, ...newCues.map(x => x.node)];
     const fixturesForCue = [...pair.keys()];
 
+    // ---- Chases: each Light Spark chase is a chase playback on the desk ----
+    // One step (cue) per look, holding every channel of the chase's lights,
+    // run at the chase's speed in beats per minute, round and round or once.
+    // A chase that hasn't changed since it came from the desk is left alone.
+    const chaseNodes = new Map(kidsOf(stacks).filter(isChaseNode).map(n => [int(one(n, 1)) ?? 0, n]));
+    const chaseNumbers = new Set((S.zos?.chases || []).map(Number));
+    const takenNumbers = new Set(kidsOf(stacks).map(n => int(one(n, 1)) ?? 0));
+    const nextNumber = () => { let n = 1; while (takenNumbers.has(n)) n++; takenNumbers.add(n); return n; };
+    const chaseWant = [], chaseAssign = [];
+    let chasesKept = 0, chasesWritten = 0, chasesRemoved = 0;
+    const keptChases = new Set();
+    function chaseLooks(chase) {
+      const all = [...pair.values()].map(l => String(l.id));
+      const ids = (Array.isArray(chase.fixtureIds) && chase.fixtureIds.length ? chase.fixtureIds.map(String) : all).filter(id => lsOfDesk.has(id));
+      const idSet = new Set(ids);
+      const pick = (m, id) => { for (const [k, st] of m || []) if (String(k) === id) return [k, st]; return null; };
+      if (chase.mode === "snapshot") {
+        return { ids, looks: (chase.snapshots || []).map(sn => new Map((sn?.fixtureStates || []).filter(x => Array.isArray(x) && x.length > 1 && idSet.has(String(x[0]))).map(([k, st]) => [k, st]))) };
+      }
+      const steps = (chase.steps || []).map(Number).filter(i => S.cues?.[i]);
+      const lookOf = i => window.cueLook?.(i)?.fixtureMap || new Map();
+      return { ids, looks: steps.map((_, k) => {
+        const out = new Map();
+        ids.forEach((id, j) => { const hit = pick(lookOf(chase.mode === "spread" ? steps[(j + k) % steps.length] : steps[k]), id); if (hit) out.set(hit[0], hit[1]); });
+        return out;
+      }) };
+    }
+    // Every channel's desk value for a light, from Light Spark's DMX.
+    function lightValues(d, ls, dmx) {
+      const def = defOf(ls), own = def?.fromZerOS && Number(def.channels) === d.type.channels;
+      const lsBase = (uniOf(ls) - 1) * 512 + Number(ls.addr) - 1;
+      const out = new Map();
+      for (const ch of d.type.list) {
+        const off = deskOff(d, ls, ch);
+        if (off == null) continue;
+        const coarse = dmx[lsBase + off] ?? 0;
+        out.set(ch.index, ch.width === 2 ? coarse * 256 + (own ? (dmx[lsBase + off + 1] ?? 0) : 0) : coarse * 257);
+      }
+      return out;
+    }
+    function setPbLeaf(node, field, v) {
+      if (setInt(node, field, v)) return;
+      const like = one(node, 1);
+      const leaf = { field, kind: like?.kind ?? 0, section: like?.section ?? 0x51, raw: 0, value: intBytes(v) };
+      const at = node.kids.indexOf(one(node, 0, { kind: 0x10 }));
+      node.kids.splice(at >= 0 ? at : node.kids.length, 0, leaf);
+    }
+    const lsChases = (S.chases || []).filter(Boolean);
+    for (const chase of lsChases) {
+      const old = chase.zos?.playback != null && chaseNumbers.has(Number(chase.zos.playback)) ? chaseNodes.get(Number(chase.zos.playback)) : null;
+      if (old && chase.zos.sig && chase.zos.sig === chaseSig(chase)) { chasesKept++; keptChases.add(old); chaseAssign.push({ chase, number: Number(chase.zos.playback), kept: true }); continue; }
+      const { ids, looks } = chaseLooks(chase);
+      if (!ids.length || !looks.length) continue;
+      if (looks.length > 999) throw new Error(`chase “${chase.name}” has more than 999 steps, more than the desk can hold — nothing was saved`);
+      const number = old ? Number(chase.zos.playback) : nextNumber();
+      const node = clone(old || pb);
+      setInt(node, 1, number);
+      // Its name, after the playback number.
+      node.kids = node.kids.filter(k => k.open || k.kids || k.field !== 2);
+      const pname = String(chase.name || "").replace(/[^\x20-\x7e]/g, "").slice(0, 31);
+      if (pname) { const like = one(node, 1); node.kids.splice(node.kids.indexOf(like) + 1, 0, { field: 2, kind: like?.kind ?? 0, section: like?.section ?? 0x51, raw: 0, value: new TextEncoder().encode(pname) }); }
+      const bpm = Math.max(1, Math.min(600, Number(window.LXChaseSpeed?.bpmOf?.(chase) ?? chase.bpm) || 60));
+      // The desk's own chase settings, in its own order (Playback Setup → Chase).
+      const settings = old
+        ? [[0x27, Math.round(bpm * 1000)], [0x0e, Math.round(bpm)], [0x24, chase.loop === false ? 1 : 0]]
+        : [[0x19, 1], [0x03, 1], [0x08, 0], [0x2c, 0], [0x27, Math.round(bpm * 1000)], [0x04, 3], [0x09, 0], [0x0e, Math.round(bpm)], [0x24, chase.loop === false ? 1 : 0], [0x25, 1000], [0x32, 0], [0x26, 0], [0x0b, 0]];
+      for (const [f, v] of settings) setPbLeaf(node, f, v);
+      // Its steps.
+      const stepList = one(node, 0, { kind: 0x10 });
+      const fadeMs = Math.round(Math.max(0, Math.min(60000 / bpm, Number(chase.fade) || 0)));
+      const want = [];
+      const steps = looks.map((look, k) => {
+        const c = clone(proto);
+        setInt(c, 1, (k + 1) * 100);
+        c.kids = c.kids.filter(x => x.open || x.kids || (x.field !== 2 && x.field !== 4));
+        for (const f of [0xa, 0x1c, 0xb, 0xc, 0xd]) setLeaf(c, f, fadeMs);
+        for (const f of [0x6, 0x1d, 0x7, 0x8, 0x9]) setLeaf(c, f, 0);
+        if ((int(one(c, 3)) ?? 1) !== 1) setLeaf(c, 3, 1);
+        const h = holderOf(c);
+        if (!h) throw new Error("couldn't find how the desk stores a cue's levels — nothing was saved");
+        h.kids = [{ open: true }];
+        const dmx = window.LXAscii?.dmxFor?.(look);
+        if (!dmx) throw new Error(`couldn't work out the levels for chase “${chase.name}” — nothing was saved`);
+        const stepWant = new Map();
+        for (const id of ids) {
+          const d = lsOfDesk.get(id), ls = pair.get(d);
+          const vals = lightValues(d, ls, dmx);
+          for (const [ch, v] of vals) setParam(h, d.index ?? 0, ch, v);
+          stepWant.set(d.index ?? 0, vals);
+        }
+        want.push(stepWant);
+        return c;
+      });
+      // The desk writes cues last-first.
+      stepList.kids = [{ open: true }, ...steps.reverse()];
+      if (old) { stacks.kids[stacks.kids.indexOf(old)] = node; keptChases.add(old); }
+      else stacks.kids.push(node);
+      keptChases.add(node);
+      chaseWant.push({ name: chase.name, number, bpm, loop: chase.loop !== false, steps: want });
+      chaseAssign.push({ chase, number });
+      chasesWritten++;
+    }
+    // Chases that came from this FLX file and were deleted in Light Spark.
+    for (const [n, node] of chaseNodes) if (chaseNumbers.has(n) && !keptChases.has(node)) { stacks.kids = stacks.kids.filter(k => k !== node); chasesRemoved++; }
+    // The desk keeps playbacks highest number first.
+    if (chasesWritten || chasesRemoved) stacks.kids = [{ open: true }, ...kidsOf(stacks).sort((a, b) => (int(one(b, 1)) ?? 0) - (int(one(a, 1)) ?? 0))];
+
     const data = writeData(raw, top);
     const bytes = pack(data);
 
@@ -1318,7 +1457,7 @@
     // every cue; each matched light must output what Light Spark does. ----
     const z2 = read(bytes);
     if (z2.damaged.length) throw new Error("the new file failed its own checks — nothing was saved");
-    const pb2 = [...z2.playbacks].filter(p => p.cues.length).sort((a, b) => b.cues.length - a.cues.length || (a.number ?? 0) - (b.number ?? 0))[0];
+    const pb2 = mainOf(z2.playbacks);
     const cues2 = pb2 ? [...pb2.cues].sort((a, b) => a.number - b.number) : [];
     if (cues2.length !== lsCues.length || cues2.some((c, k) => Math.round(c.number * 100) !== Math.round(lsCues[k].number * 100)))
       throw new Error(`self-check: the desk would see ${cues2.length} cues, Light Spark has ${lsCues.length} — nothing was saved`);
@@ -1378,9 +1517,28 @@
         }
       }
     }
+    // Chases: each one a chase playback on the desk, its speed, how it
+    // repeats, and every step's values.
+    const chases2 = new Map(z2.playbacks.filter(p => p.chase).map(p => [p.number, p]));
+    if (pb2 && pb2.number !== (int(one(pb, 1)) ?? 0)) problems.push("the desk would pick a different playback as the main cue list");
+    for (const cw of chaseWant) {
+      const p2 = chases2.get(cw.number);
+      if (!p2) { problems.push(`chase “${cw.name}” wouldn't be a chase on the desk`); continue; }
+      if (Math.abs(p2.bpm - Math.round(cw.bpm * 1000) / 1000) > 0.01 || !p2.shots !== cw.loop) problems.push(`chase “${cw.name}” wouldn't run at the right speed on the desk`);
+      const steps2 = [...p2.cues].sort((a, b) => a.number - b.number);
+      if (steps2.length !== cw.steps.length) { problems.push(`chase “${cw.name}” would have ${steps2.length} steps on the desk, ${cw.steps.length} here`); continue; }
+      steps2.forEach((st, k) => {
+        const got = new Map(st.levels.map(l => [l.index, l.params]));
+        for (const [i, vals] of cw.steps[k]) for (const [ch, v] of vals) {
+          const g = got.get(i)?.[ch];
+          if ((g == null || Math.abs((g >> 8) - (v >> 8)) > 1) && problems.length < 6) problems.push(`chase “${cw.name}” step ${k + 1}, light ${byIndex2.get(i)?.number}: desk ${g == null ? "nothing" : g >> 8}, Light Spark ${v >> 8}`);
+        }
+      });
+    }
+    for (const [n] of chaseNodes) if (chaseNumbers.has(n) && !chaseAssign.some(a => a.number === n) && chases2.has(n)) problems.push(`a deleted chase would still be on the desk`);
     if (problems.length) throw new Error(`self-check failed, so nothing was saved: ${problems.join("; ")}`);
 
-    return { bytes, name, fxChanged, unsupportedFx: [...unsupportedFx], palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
+    return { bytes, name, chaseAssign, chasesNow: chaseAssign.map(a => a.number), chasesKept, chasesWritten, chasesRemoved, fxChanged, unsupportedFx: [...unsupportedFx], palettesNow: palWant.map(p => `${p.kind}:${p.id}`), palAdded, palChanged, palRemoved, groupsChanged: false, groupsAdded, groupsEdited: groupsChanged, groupsRemoved, renamed, newLights, cues: newCues.length, lights: fixturesForCue.length, moved, missing, renumbered, unpatched, clashes: [], changed, named, lightsChanged: lightsChanged.size, kept, added, removed, notMoved, numberClash, checked: true };
   }
 
   function download(bytes, file) {
@@ -1402,7 +1560,7 @@
     if (r.renumbered.length) say(`Fixture numbers changed on the desk (old → new): ${r.renumbered.slice(0, 12).join(", ")}${r.renumbered.length > 12 ? "…" : ""} — the desk's groups were updated to match`, "info");
     if (r.numberClash?.length) say(`Fixture number${r.numberClash.length === 1 ? "" : "s"} ${r.numberClash.slice(0, 8).join(", ")} ${r.numberClash.length === 1 ? "is" : "are"} used by two lights in Light Spark, so ${r.numberClash.length === 1 ? "that one wasn't" : "those weren't"} changed on the desk — every other number was`, "warn");
     if (r.notMoved?.length) say(`Light${r.notMoved.length === 1 ? "" : "s"} ${r.notMoved.slice(0, 12).join(", ")} kept ${r.notMoved.length === 1 ? "its" : "their"} desk address — the Light Spark fixture has a different number of channels`, "warn");
-    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : "", r.fxChanged ? `${r.fxChanged} effect change${r.fxChanged === 1 ? "" : "s"} in cues` : ""].filter(Boolean);
+    const extra = [r.newLights?.length ? `${r.newLights.length} new light${r.newLights.length === 1 ? "" : "s"} (${r.newLights.slice(0, 8).join(", ")})` : "", r.renamed ? `${r.renamed} light name${r.renamed === 1 ? "" : "s"}` : "", r.groupsAdded ? `${r.groupsAdded} new group${r.groupsAdded === 1 ? "" : "s"}` : "", r.groupsEdited ? `${r.groupsEdited} group${r.groupsEdited === 1 ? "" : "s"} changed` : "", r.groupsRemoved ? `${r.groupsRemoved} group${r.groupsRemoved === 1 ? "" : "s"} deleted` : "", r.palAdded ? `${r.palAdded} new palette${r.palAdded === 1 ? "" : "s"}` : "", r.palChanged ? `${r.palChanged} palette change${r.palChanged === 1 ? "" : "s"}` : "", r.palRemoved ? `${r.palRemoved} palette${r.palRemoved === 1 ? "" : "s"} deleted` : "", r.fxChanged ? `${r.fxChanged} effect change${r.fxChanged === 1 ? "" : "s"} in cues` : "", r.chasesWritten ? `${r.chasesWritten} chase${r.chasesWritten === 1 ? "" : "s"} (playback${r.chasesWritten === 1 ? "" : "s"} ${(r.chaseAssign || []).filter(x => !x.kept).map(x => x.number).join(", ")})` : "", r.chasesRemoved ? `${r.chasesRemoved} chase${r.chasesRemoved === 1 ? "" : "s"} deleted` : ""].filter(Boolean);
     if (r.unsupportedFx?.length) say(`The desk show has no effect like ${r.unsupportedFx.slice(0, 4).map(n => `“${n}”`).join(", ")}, so ${r.unsupportedFx.length === 1 ? "it wasn't" : "those weren't"} saved into the FLX file`, "warn");
     if (extra.length) say(`Also saved: ${extra.join(", ")}`, "ok");
     if (r.missing.length) say(`Light${r.missing.length === 1 ? "" : "s"} ${r.missing.slice(0, 12).join(", ")}${r.missing.length > 12 ? "…" : ""} ${r.missing.length === 1 ? "is a" : "are"} type${r.missing.length === 1 ? "" : "s"} the desk show doesn't have yet, so ${r.missing.length === 1 ? "it was" : "they were"} left out — patch one light of that type on the desk, save, open that here, then save again`, "warn");
@@ -1423,7 +1581,9 @@
         out = await b.zosSave(target, r.bytes);
       }
       openPath = out.filePath;
-      keepBase(r.bytes, baseName(out.filePath), out.filePath, r.palettesNow);
+      keepBase(r.bytes, baseName(out.filePath), out.filePath, r.palettesNow, r.chasesNow);
+      // The chases now on the desk, so saving again updates them in place.
+      for (const a of r.chaseAssign || []) { a.chase.zos = { playback: a.number }; a.chase.zos.sig = chaseSig(a.chase); }
       window.LXShowCommands?.markSaved?.();
       report(r, out.filePath);
       if (out.verified) say(`Checked: the file on disk is exactly what was saved (${Math.round(out.bytes / 1024)} KB)`, "ok");

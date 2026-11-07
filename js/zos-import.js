@@ -1127,6 +1127,31 @@
       }
       holder.kids = [{ open: true }, ...out.sort((a, b) => (int(one(a, 1)) ?? 0) - (int(one(b, 1)) ?? 0))];
     }
+    // The colour strip the desk shows for a colour palette (field 0x10):
+    // 0 hue (a fraction of a turn, 32-bit), 1 saturation, 2 brightness
+    // (0-65535), 3 colour temperature for whites (K), 4 always full.
+    const u32 = v => Uint8Array.of(v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff);
+    function swatchOf(p) {
+      const name = String(p.name || "").toLowerCase();
+      const first = Object.values(p.perFixture || {})[0] || {};
+      const v = { ...first, ...(p.values || {}) };
+      if (/white/.test(name) && !/blue|pink|green|red/.test(name)) return [0, 0, 65535, /warm/.test(name) ? 3200 : /cool/.test(name) ? 10000 : 6600];
+      let hue = Number(v.hue), sat = Number(v.sat ?? v.saturation), light = Number(v.light ?? v.lightness);
+      if (!Number.isFinite(hue) && [v.r, v.g, v.b].some(x => Number.isFinite(Number(x)))) {
+        const hs = hsl([Number(v.r) || 0, Number(v.g) || 0, Number(v.b) || 0]); hue = hs.hue; sat = hs.sat; light = hs.light;
+      }
+      if (!Number.isFinite(hue)) return null;
+      sat = Number.isFinite(sat) ? sat / 100 : 1; light = Number.isFinite(light) ? light / 100 : 0.5;
+      // HSL → the desk's hue / saturation / brightness (HSV).
+      const val = light + sat * Math.min(light, 1 - light), sv = val ? 2 * (1 - light / val) : 0;
+      return [Math.round((((hue % 360) + 360) % 360) / 360 * 4294967296) >>> 0, Math.round(Math.max(0, Math.min(1, sv)) * 65535), 65535, 6600];
+    }
+    function setSwatch(e, p) {
+      const block = one(e, 0x10); if (!block?.kids) return;
+      const sw = swatchOf(p); if (!sw) return;
+      sw.forEach((v, f) => { const k = one(block, f); if (k) k.value = u32(v); });
+      const four = one(block, 4); if (four) four.value = u32(65535);
+    }
     let palAdded = 0, palChanged = 0, palRemoved = 0;
     const palWant = [];
     if (palSec && recProto) for (const kind of [0x10, 0x20, 0x30]) {
@@ -1149,8 +1174,9 @@
           kidsOf(one(e, 0xa))[0].kids = [{ open: true }];
           group.kids.splice(1, 0, e);
           writePalette(e, want);
+          if (kind === 0x10) setSwatch(e, p);
           palAdded++;
-        } else if (!samePalette(e, want, kind)) { writePalette(e, want); palChanged++; }
+        } else if (!samePalette(e, want, kind)) { writePalette(e, want); if (kind === 0x10) setSwatch(e, p); palChanged++; }
         if (text(one(e, 0xb)) !== pname && one(e, 0xb)) { one(e, 0xb).value = new TextEncoder().encode(pname); palChanged++; }
         matched.add(e);
         delete e.__kind;

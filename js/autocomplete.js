@@ -61,7 +61,7 @@
     ["palette <palette>", "apply a palette", "Palettes"], ["record palette <text>", "save the selection's look as a palette", "Palettes"],
     ["update palette <palette>", "re-record a palette", "Palettes"], ["delete palette <palette>", "remove a palette", "Palettes"],
     ["run chase <chase>", "start a chase", "Chases"], ["chase <chase>", "start a chase", "Chases"], ["stop chase", "stop the chase", "Chases"],
-    ["delete chase <chase>", "remove a chase", "Chases"], ["new chase", "make a chase", "Chases"], ["chase <number> = <cuelist>", "a chase through cues", "Chases"],
+    ["delete chase <chase>", "remove a chase", "Chases"], ["delete chases 1 thru 5", "delete several chases (also: delete palettes / groups / effects / cues 1 thru 70, 1,2,3 or all)", "Chases"], ["delete palettes 1 thru 10", "delete several palettes at once", "Palettes"], ["delete groups 1,2,3", "delete several groups at once", "Groups"], ["delete effects 1 thru 5", "delete several effects at once", "Effects"], ["new chase", "make a chase", "Chases"], ["chase <number> = <cuelist>", "a chase through cues", "Chases"],
     ["run effect <effect>", "start an effect", "Effects"], ["effect <effect>", "start an effect", "Effects"], ["stop effect", "stop effects", "Effects"],
     ["new effect", "make an effect", "Effects"], ["delete effect <effect>", "remove an effect", "Effects"],
     ["targets", "list targets", "Targets"], ["target create <text>", "a new target", "Targets"], ["target aim <target>", "aim the selection at a target", "Targets"],

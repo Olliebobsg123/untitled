@@ -1,5 +1,5 @@
 // Pictures and videos of the stage, to send to a director or keep with the
-// paperwork. Both go to the Downloads folder.
+// paperwork. Both go to the Shows folder (main.js, will-download).
 //
 //   📷 Picture   the 3D view as it is now, full quality (beams, haze, bloom)
 //   ⏺ Record     the 3D view until Stop, as a video (MP4 where it can, so
@@ -27,7 +27,7 @@ export function createCapture({ renderer, renderNow, mainRect, keepDrawing, say 
     out.width = Math.round(m.w * pr); out.height = Math.round(m.h * pr);
     out.getContext("2d").drawImage(source, Math.round(m.x * pr), Math.round(m.y * pr), out.width, out.height, 0, 0, out.width, out.height);
     const name = `Light Spark ${stamp()}.png`;
-    out.toBlob(blob => { if (!blob) { say("Couldn't take the picture"); return; } save(blob, name); say(`${name} saved to your Downloads folder`); }, "image/png");
+    out.toBlob(blob => { if (!blob) { say("Couldn't take the picture"); return; } save(blob, name); say(`${name} saved in your Shows folder`); }, "image/png");
     return name;
   }
 
@@ -67,7 +67,7 @@ export function createCapture({ renderer, renderNow, mainRect, keepDrawing, say 
       const ext = type.startsWith("video/mp4") ? "mp4" : "webm";
       const name = `Light Spark ${stamp()}.${ext}`;
       save(new Blob(chunks, { type: type.split(";")[0] }), name);
-      say(`${name} saved to your Downloads folder`);
+      say(`${name} saved in your Shows folder`);
       chunks = [];
     };
     keepDrawing(true);

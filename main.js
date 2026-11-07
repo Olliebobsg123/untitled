@@ -239,11 +239,29 @@ function backupBeforeReplace(filePath, nextText) {
   const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}.${p2(d.getSeconds())}`;
   const backup = path.join(dir, `${name} before ${stamp}.json`);
   fs.writeFileSync(backup, old, 'utf8');
-  // Keep the newest 20 for this show.
+  keepNewest(dir, `${name} before `, '.json');
+  return backup;
+}
+// Backups: the newest 10 of each file, all in <Shows folder>/Backups.
+function keepNewest(dir, prefix, ext, n = 10) {
   try {
-    const mine = fs.readdirSync(dir).filter(f => f.startsWith(`${name} before `) && f.endsWith('.json')).sort();
-    for (const f of mine.slice(0, Math.max(0, mine.length - 20))) fs.unlinkSync(path.join(dir, f));
+    const mine = fs.readdirSync(dir).filter(f => f.startsWith(prefix) && f.endsWith(ext)).sort();
+    for (const f of mine.slice(0, Math.max(0, mine.length - n))) fs.unlinkSync(path.join(dir, f));
   } catch (_) {}
+}
+// Any file about to be written over (an export, a visualiser file, an FLX
+// show) is copied to Backups first, so one file per name is kept with your
+// shows and nothing is lost.
+function backupFile(filePath) {
+  if (!fs.existsSync(filePath)) return '';
+  const dir = path.join(getShowDirectory(), 'Backups');
+  fs.mkdirSync(dir, { recursive: true });
+  const ext = path.extname(filePath), name = path.basename(filePath, ext);
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}.${p2(d.getSeconds())}`;
+  const backup = path.join(dir, `${name} before ${stamp}${ext}`);
+  try { fs.copyFileSync(filePath, backup); } catch (_) { return ''; }
+  keepNewest(dir, `${name} before `, ext);
   return backup;
 }
 ipcMain.handle('lx-show-save', (_event, payload) => {
@@ -296,7 +314,7 @@ ipcMain.handle('lx-show-open-dialog', async event => {
 let lastZosDir = '';
 ipcMain.handle('lx-zos-open-dialog', async event => {
   const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-  const result = await dialog.showOpenDialog(win, { title: 'Open FLX Show', defaultPath: lastZosDir || app.getPath('downloads'), properties: ['openFile'], filters: [{ name: 'Zero 88 FLX / ZerOS show', extensions: ['zos'] }] });
+  const result = await dialog.showOpenDialog(win, { title: 'Open FLX Show', defaultPath: lastZosDir || getShowDirectory(), properties: ['openFile'], filters: [{ name: 'Zero 88 FLX / ZerOS show', extensions: ['zos'] }] });
   if (result.canceled || !result.filePaths?.[0]) return null;
   const filePath = result.filePaths[0];
   lastZosDir = path.dirname(filePath);
@@ -310,7 +328,7 @@ ipcMain.handle('lx-zos-read', (_event, payload) => {
 ipcMain.handle('lx-zos-save-dialog', async (event, payload) => {
   const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
   const name = String(payload?.name || 'FLX show').replace(/\.(zos|json)$/ig, '').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'FLX show';
-  const result = await dialog.showSaveDialog(win, { title: 'Save FLX Show', defaultPath: path.join(payload?.dir || lastZosDir || app.getPath('downloads'), `${name}.zos`), filters: [{ name: 'Zero 88 FLX / ZerOS show', extensions: ['zos'] }] });
+  const result = await dialog.showSaveDialog(win, { title: 'Save FLX Show', defaultPath: path.join(payload?.dir || getShowDirectory(), `${name}.zos`), filters: [{ name: 'Zero 88 FLX / ZerOS show', extensions: ['zos'] }] });
   if (result.canceled || !result.filePath) return null;
   lastZosDir = path.dirname(result.filePath);
   return /\.zos$/i.test(result.filePath) ? result.filePath : `${result.filePath}.zos`;
@@ -320,14 +338,7 @@ ipcMain.handle('lx-zos-save', (_event, payload) => {
   if (!/\.zos$/i.test(filePath)) throw new Error('Not an FLX show file name (.zos)');
   const data = Buffer.from(payload?.data || []);
   if (data.length < 64 || data.toString('latin1', 0, 4) !== 'Z88C') throw new Error('Nothing valid to save');
-  let backup = '';
-  if (fs.existsSync(filePath)) {
-    const dir = path.join(app.getPath('userData'), 'FLX Backups');
-    fs.mkdirSync(dir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    backup = path.join(dir, `${path.basename(filePath, '.zos')} ${stamp}.zos`);
-    fs.copyFileSync(filePath, backup);
-  }
+  const backup = backupFile(filePath);
   // Written straight to the file (USB sticks formatted FAT / exFAT don't
   // always allow renaming over a file), flushed, then read back to check.
   const fd = fs.openSync(filePath, 'w');
@@ -398,6 +409,22 @@ ipcMain.handle('lx-find-read-text', (_event, payload) => {
   return fs.readFileSync(file, 'utf8');
 });
 
+ipcMain.handle('lx-shows-reveal', (_event, payload) => {
+  const target = String(payload?.filePath || '');
+  if (target && fs.existsSync(target)) require('electron').shell.showItemInFolder(target);
+  else require('electron').shell.openPath(getShowDirectory());
+  return getShowDirectory();
+});
+// Open… for visualiser files and other Light Spark files: the system dialog,
+// starting in the Shows folder.
+ipcMain.handle('lx-file-open-dialog', async (event, payload) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const exts = Array.isArray(payload?.extensions) && payload.extensions.length ? payload.extensions.map(String) : ['json'];
+  const result = await dialog.showOpenDialog(win, { title: String(payload?.title || 'Open'), defaultPath: getShowDirectory(), properties: ['openFile'], filters: [{ name: String(payload?.kind || 'Light Spark file'), extensions: exts }] });
+  if (result.canceled || !result.filePaths?.[0]) return null;
+  const filePath = result.filePaths[0];
+  return { filePath, name: path.basename(filePath), text: fs.readFileSync(filePath, 'utf8') };
+});
 ipcMain.handle('lx-zos-reveal', (_event, payload) => { try { require('electron').shell.showItemInFolder(String(payload?.filePath || '')); } catch (_) {} });
 
 ipcMain.handle('lx-show-load', async (_event, payload) => {
@@ -786,15 +813,17 @@ function createWindow() {
 app.on('before-quit', () => step('quitting'));
 app.on('child-process-gone', (_e, d) => mark(`${d.type} process gone: ${d.reason}${d.name ? ` (${d.name})` : ''}`));
 app.whenReady().then(() => {
-  // Files the app saves (the visualiser's Lights CSV, pictures and videos of
-  // a cue) go straight to Downloads, as a browser does: no dialog, and a
-  // number added if the name is taken.
+  // Every file the app saves (visualiser files, FLX / ASCII exports, the
+  // Lights CSV, pictures and videos of a cue…) goes into the one Shows folder,
+  // with your shows — never Downloads. A file with the same name is replaced
+  // (the old one is kept in Backups), so there's one of each, not "name 2",
+  // "name 3"…; only pictures and videos get a number, as each is different.
   require('electron').session.defaultSession.on('will-download', (_event, item) => {
-    const dir = app.getPath('downloads');
-    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    const dir = getShowDirectory();
     const ext = path.extname(item.getFilename()), base = path.basename(item.getFilename(), ext);
     let file = path.join(dir, item.getFilename());
-    for (let n = 2; fs.existsSync(file) && n < 1000; n++) file = path.join(dir, `${base} ${n}${ext}`);
+    if (/^\.(png|jpe?g|webm|mp4|mov|gif)$/i.test(ext)) for (let n = 2; fs.existsSync(file) && n < 1000; n++) file = path.join(dir, `${base} ${n}${ext}`);
+    else backupFile(file);
     item.setSavePath(file);
   });
   // A lighting console must keep full speed when it isn't the front app

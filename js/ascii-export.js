@@ -221,7 +221,7 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    say(`${file} saved to your Downloads folder: ${r.lights} lights${full ? ` (+${r.extras} colour / position / beam channels from ${r.firstExtra})` : ""}, ${r.cues} cues, ${r.groups} groups. Copy it to a USB stick → FLX S: Setup → Load File`, "ok");
+    say(`${file} saved in your Shows folder: ${r.lights} lights${full ? ` (+${r.extras} colour / position / beam channels from ${r.firstExtra})` : ""}, ${r.cues} cues, ${r.groups} groups. Copy it to a USB stick → FLX S: Setup → Load File`, "ok");
     if (r.skipped) say(`${r.skipped} light${r.skipped === 1 ? " wasn't" : "s weren't"} included (not patched, or no whole fixture number)`, "warn");
     if (r.universe2) say(`${r.universe2} channel${r.universe2 === 1 ? " is" : "s are"} on universe 2 — an FLX S only has universe 1 unless it's been upgraded`, "warn");
     return r;

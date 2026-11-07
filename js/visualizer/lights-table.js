@@ -95,7 +95,7 @@ export function createLightsTable({ fixtures, typeOf, patchOf, select, selected,
     a.href = url; a.download = "Lights.csv";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    say("Lights.csv saved to your Downloads folder");
+    say("Lights.csv saved in your Shows folder");
   });
 
   function toggle(on = panel.hidden) {

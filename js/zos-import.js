@@ -461,7 +461,7 @@
     const spans = z.fixtures.filter(f => f.addr && f.type).map(f => ({ n: f.number, uni: f.uni, from: f.addr, to: f.addr + f.type.channels - 1 })).sort((a, b) => a.uni - b.uni || a.from - b.from);
     const overlap = [];
     for (let i = 0; i < spans.length; i++) for (let j = i + 1; j < spans.length && spans[j].uni === spans[i].uni && spans[j].from <= spans[i].to; j++) overlap.push(`${spans[i].n} & ${spans[j].n}`);
-    if (overlap.length) say(`This FLX show has lights patched on top of each other (${overlap.slice(0, 6).join(", ")}${overlap.length > 6 ? "…" : ""}), so it won't look right on the desk. An earlier Light Spark may have damaged it — the desk's own copy from before is in FLX Backups (Finder → Go → Go to Folder → ~/Library/Application Support/Lighting Console/FLX Backups)`, "warn");
+    if (overlap.length) say(`This FLX show has lights patched on top of each other (${overlap.slice(0, 6).join(", ")}${overlap.length > 6 ? "…" : ""}), so it won't look right on the desk. An earlier Light Spark may have damaged it — the copy from before is in the Backups folder in your Shows folder (App menu → Show my files), or for saves before this update in Finder → Go → Go to Folder → ~/Library/Application Support/Lighting Console/FLX Backups`, "warn");
     return { z, r };
   }
 
@@ -828,12 +828,12 @@
       window.LXShowCommands?.markSaved?.();
       report(r, out.filePath);
       if (out.verified) say(`Checked: the file on disk is exactly what was saved (${Math.round(out.bytes / 1024)} KB)`, "ok");
-      if (out.backup) say(`The previous version is kept in Light Spark's FLX Backups folder`, "info");
+      if (out.backup) say(`The previous version is kept in Backups, in your Shows folder`, "info");
       return r;
     }
     const file = `${(r.name || "FLX show").replace(/[^\w .-]/g, "") || "FLX show"}.zos`;
     download(r.bytes, file);
-    report(r, `${file}” in your Downloads folder, “${file}`);
+    report(r, `${file}” in your Shows folder, “${file}`);
     return r;
   }
 

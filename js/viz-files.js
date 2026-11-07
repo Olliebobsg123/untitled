@@ -64,7 +64,7 @@
     const base = (data.show || "Visualiser").replace(/\.json$/i, "").replace(/[^\w .-]/g, "") || "Visualiser";
     const file = `${base}.lsviz`;
     download(JSON.stringify(data, null, 2), file);
-    say(`${file} saved to your Downloads folder: the stage, set and ${Object.keys(data.visualizer.positions || {}).length} light positions`, "ok");
+    say(`${file} saved in your Shows folder: the stage, set and ${Object.keys(data.visualizer.positions || {}).length} light positions`, "ok");
     return data;
   }
 
@@ -84,7 +84,15 @@
     return r;
   }
 
-  function open() {
+  async function open() {
+    const files = window.LXShowFiles;
+    if (files?.openFileDialog) {
+      try {
+        const f = await files.openFileDialog("Open Visualiser File", "Visualiser file or show", ["lsviz", "json"]);
+        if (f) await openFile({ name: f.name, text: async () => f.text });
+      } catch (e) { console.error("[VIZ FILE]", e); say(`Couldn't open that visualiser file: ${e.message || e}`, "error"); }
+      return;
+    }
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".lsviz,.json";
@@ -101,6 +109,7 @@
   function command(c) {
     if (/^(save|export)( as)? (viz|vis|visuali[sz]er)( file)?$/.test(c)) { save(); return true; }
     if (/^(open|load|import) (viz|vis|visuali[sz]er)( file)?$/.test(c)) { open(); return true; }
+    if (/^(my files|show files|show my files|files|where are my files|finder)$/.test(c)) { window.LXShowFiles?.revealShows?.("").then(dir => say(`Your files are all in ${dir}`, "info")); return true; }
     return false;
   }
 

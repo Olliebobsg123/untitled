@@ -1242,7 +1242,7 @@ function vizCommand(action, arg) {
     case "save view": { const box = $("saveViewName"); if (!arg) return "Name the view: viz save view Wide"; box.value = ""; saveView(String(arg)); return `View “${arg}” saved`; }
     case "picture": return `Saving a picture: ${capture.picture()}`;
     case "record": if (capture.recording()) return "Already recording — viz stop to finish"; capture.start(); return capture.recording() ? "Recording the visualiser — viz stop to finish" : "Couldn't start recording";
-    case "stop": if (!capture.recording()) return "Not recording"; capture.stop(); return "Recording saved to Downloads";
+    case "stop": if (!capture.recording()) return "Not recording"; capture.stop(); return "Recording saved in your Shows folder";
     case "lights": lightsTable.toggle(on(arg) ?? undefined); return lightsTable.isOpen() ? "Lights table open" : "Lights table closed";
     case "plot": $("plotButton").click(); return "Lighting plot opened";
     case "build": return flip("buildMode", on(arg)) ? "Build mode on" : "Build mode off";

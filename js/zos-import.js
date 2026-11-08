@@ -260,9 +260,30 @@
   };
   const fxKey = o => o && o[0x20] ? FX_FIELDS.map(f => o[f]).join(",") : "";
   // Desk effect names → Light Spark effect types (and back).
+  // The desk's colour effects: which Light Spark effect looks like each, and its colours.
+  const W = (h, s = 0, l = 100) => ({ h, s, l });
+  const FX_LOOK = n => {
+    n = String(n || "").toLowerCase();
+    const hue = { red: 0, orange: 30, yellow: 55, green: 120, cyan: 180, blue: 230, magenta: 300, white: null };
+    const col = name => name === "white" ? W(0) : hue[name] ?? null;
+    let m;
+    if (n === "rainbow - cool") return { type: "colourfade", options: { colours: [170, 195, 220, 245, 270, 245, 220, 195] } };
+    if (n === "rainbow - warm") return { type: "colourfade", options: { colours: [0, 15, 30, 45, 60, 45, 30, 15] } };
+    if (n === "rainbow - pastel") return { type: "colourfade", options: { colours: [0, 60, 120, 180, 240, 300].map(h => W(h, 100, 75)) } };
+    if (n === "kaleidoscope") return { type: "colourstep", options: { colours: [0, 60, 120, 180, 240, 300] } };
+    if ((m = n.match(/^fade - (\w+)\/(\w+)/)) && col(m[1]) != null && col(m[2]) != null) return { type: "colourfade", options: { colours: [col(m[1]), col(m[2])] } };
+    if ((m = n.match(/^sparkle - (\w+)/)) && col(m[1]) != null) return { type: "sparkle", options: { hue: col(m[1]) } };
+    if (n === "fireworks") return { type: "sparkle", options: { hues: [0, 30, 55, 120, 230, 300, W(0)], density: 0.35 } };
+    if (n === "emergency - red/blue") return { type: "police", options: { colours: [0, 230] } };
+    if (n === "emergency - blue") return { type: "police", options: { colours: [230, 230] } };
+    if (n === "warning") return { type: "alternate", options: { hue: 38 } };
+    return null;
+  };
+  const FX_OPTIONS_OF = name => ({ ...(FX_LOOK(name)?.options || {}) });
   const FX_TYPE_OF = name => {
     const n = String(name || "").toLowerCase();
     if (/^no effect/.test(n)) return null;
+    if (FX_LOOK(n)?.type) return FX_LOOK(n).type;
     if (/rainbow|kaleidoscope/.test(n)) return "rainbow";
     if (/chaser/.test(n)) return "chase";
     if (/^smooth/.test(n)) return "sine";
@@ -652,7 +673,7 @@
           groupsFx.set(k, g);
         }
         const cueEffects = [...groupsFx.values()].map(g => ({
-          type: g.type, speed: fxSpeed(g.o[0x30]), fixtureMode: "custom", fixtureIds: [...g.ids], name: fxNames.get(g.o[0x20]) || g.type,
+          ...FX_OPTIONS_OF(fxNames.get(g.o[0x20])), type: g.type, speed: fxSpeed(g.o[0x30]), fixtureMode: "custom", fixtureIds: [...g.ids], name: fxNames.get(g.o[0x20]) || g.type,
           zos: { effect: g.o[0x20], speed: g.o[0x30], size: g.o[0x40], params: g.params, lights: g.lights }
         }));
         const states = [];
@@ -713,7 +734,7 @@
       const type = first && FX_TYPE_OF(fxNamesAll.get(first[0x20]));
       if (!type || !ids.length) continue;
       const name = fp.name || `Effect ${id}`;
-      savedEffects[name] = { name, type, speed: fxSpeed(first[0x30]), fixtureMode: "custom", fixtureIds: ids, zos: { kind: 0x40, id, effect: first[0x20], speed: first[0x30], size: first[0x40], params, lights } };
+      savedEffects[name] = { ...FX_OPTIONS_OF(fxNamesAll.get(first[0x20])), name, type, speed: fxSpeed(first[0x30]), fixtureMode: "custom", fixtureIds: ids, zos: { kind: 0x40, id, effect: first[0x20], speed: first[0x30], size: first[0x40], params, lights } };
     }
     for (const c of cues) for (const e of c.effects || []) {
       const key = `${e.zos?.effect}|${e.speed}|${[...e.fixtureIds].sort()}`;
@@ -721,7 +742,7 @@
       let name = e.name || e.type, k = 2;
       while (savedEffects[name]) name = `${e.name || e.type} (${k++})`;
       seenFx.set(key, name);
-      savedEffects[name] = { name, type: e.type, speed: e.speed, fixtureMode: "custom", fixtureIds: [...e.fixtureIds], zos: { ...e.zos, cue: true } };
+      savedEffects[name] = { ...e, name, type: e.type, speed: e.speed, fixtureMode: "custom", fixtureIds: [...e.fixtureIds], zos: { ...e.zos, cue: true } };
     }
     // The desk's own effects (Circle, Rainbow, Fly in…), as on its Effects
     // page: they run on whatever is selected, like on the desk.
@@ -729,7 +750,7 @@
       if (z.fxPalettes?.has(p.id)) continue; // recorded ones are above
       const type = FX_TYPE_OF(p.name);
       if (!type || savedEffects[p.name]) continue;
-      savedEffects[p.name] = { name: p.name, type, speed: 1, fixtureMode: "selected", fixtureIds: [], zos: { kind: 0x40, id: p.id, effect: p.id, builtin: true } };
+      savedEffects[p.name] = { ...FX_OPTIONS_OF(p.name), name: p.name, type, speed: 1, fixtureMode: "selected", fixtureIds: [], zos: { kind: 0x40, id: p.id, effect: p.id, builtin: true } };
     }
     // Palettes: colour, beam and position, each light's own values.
     const lsPalettes = [];
@@ -1463,9 +1484,12 @@
     }
     // ---- Effects ----
     const fxNames = new Map(z.palettes.filter(p => p.code === 0x40).map(p => [p.id, p.name]));
-    const fxIdFor = type => [...fxNames].sort((a, b) => a[0] - b[0]).find(([, n]) => FX_TYPE_OF(n) === type)?.[0]
+    const FX_PREFER = { colourfade: /^fade/, colourstep: /^kaleidoscope/, sparkle: /^sparkle - blue/, police: /^emergency - red/ };
+    const fxIdFor = type => (FX_PREFER[type] && [...fxNames].sort((a, b) => a[0] - b[0]).find(([, n]) => FX_TYPE_OF(n) === type && FX_PREFER[type].test(n.toLowerCase()))?.[0])
+      || [...fxNames].sort((a, b) => a[0] - b[0]).find(([, n]) => FX_TYPE_OF(n) === type)?.[0]
       || (FX_NEAREST[type] && [...fxNames].sort((a, b) => a[0] - b[0]).find(([, n]) => FX_NEAREST[type].test(n.toLowerCase()))?.[0]) || null;
-    const fxFits = (id, type) => { const n = fxNames.get(id); return Boolean(n) && (FX_TYPE_OF(n) === type || Boolean(FX_NEAREST[type]?.test(n.toLowerCase()))); };
+    // (Shows opened before the desk's colour effects had their own looks call them all "rainbow".)
+    const fxFits = (id, type) => { const n = fxNames.get(id); return Boolean(n) && (FX_TYPE_OF(n) === type || Boolean(FX_NEAREST[type]?.test(n.toLowerCase())) || (type === "rainbow" && /rainbow|kaleidoscope/i.test(n))); };
     const fxSubstituted = new Map();
     const applyFx = (st, c) => {
       const h = holderOf(c); if (!h) return;
@@ -1489,7 +1513,7 @@
         const effectId = sameType ? e.zos.effect : fxIdFor(e.type);
         if (!effectId) { unsupportedFx.add(e.name || e.type); continue; }
         const deskType = FX_TYPE_OF(fxNames.get(effectId));
-        const sameSpeed = sameType && Math.abs(fxSpeed(e.zos.speed) - Number(e.speed ?? 1)) < 1e-3;
+        const sameSpeed = sameType && e.zos.speed != null && Math.abs(fxSpeed(e.zos.speed) - Number(e.speed ?? 1)) < 1e-3;
         const ids = e.fixtureMode === "all" ? [...pair.values()].map(l => String(l.id)) : (e.fixtureIds || []).map(String);
         // As the desk records an effect: full size, the lights spread out
         // one after another (Forward offset), its second speed setting

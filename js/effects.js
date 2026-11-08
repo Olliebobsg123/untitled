@@ -361,6 +361,8 @@ function fxCanMove(fixture) {
 }
 // Colour by hue for every kind of fixture: RGB and wheels take hue/sat/light;
 // CMY fixtures subtract from white.
+// An effect colour: a hue (0-360), or { h, s, l } for whites and pastels.
+function fxColourOf(x) { return x && typeof x === "object" ? { h: fxNumber(x.h, 0), s: fxNumber(x.s, 100), l: fxNumber(x.l, x.s === 0 ? 100 : 50) } : { h: fxNumber(x, 0), s: 100, l: 50 }; }
 function fxSetColour(fixture, state, hue, sat = 100, light = 50) {
   state.hue = ((hue % 360) + 360) % 360; state.sat = sat; state.light = light;
   if ("w" in state) state.w = 0;
@@ -395,7 +397,7 @@ function fxSmooth(seed, x) { const i = Math.floor(x), m = x - i, e = m * m * (3 
 // speed, phase (0-1 position x spread), index, count, o (options), base.
 const FX_TYPES = {
   // ---- intensity
-  sparkle: ["all", (st, f, c) => { const k = Math.floor(c.t * c.speed * 8); st.intensity = fxApplyIntensity(fxRandom(c.index + 1, k) < (c.o.density ?? 0.25) ? 100 : 0); }],
+  sparkle: ["all", (st, f, c) => { const k = Math.floor(c.t * c.speed * 8); const on = fxRandom(c.index + 1, k) < (c.o.density ?? 0.25); st.intensity = fxApplyIntensity(on ? 100 : 0); const hues = c.o.hues?.length ? c.o.hues : c.o.hue != null ? [c.o.hue] : null; if (hues && fxCanColour(f)) { const pick = fxColourOf(hues[Math.floor(fxRandom(c.index + 9, k) * hues.length) % hues.length]); fxSetColour(f, st, pick.h, pick.s, pick.l); } }],
   flicker: ["all", (st, f, c) => { const k = c.t * c.speed * 12; const n = fxRandom(c.index + 1, Math.floor(k)) * 0.6 + fxRandom(c.index + 7, Math.floor(k * 2.3)) * 0.4; st.intensity = fxApplyIntensity(55 + n * 45); }],
   bounce: ["all", (st, f, c) => { const span = Math.max(1, c.count - 1); const p = (c.t * c.speed) % (span * 2); const at = p <= span ? p : span * 2 - p; st.intensity = fxApplyIntensity(Math.max(0, 100 - Math.abs(c.index - at) * 100)); }],
   build: ["all", (st, f, c) => { const step = Math.floor(c.t * c.speed) % (c.count + 1); st.intensity = fxApplyIntensity(c.order < step ? 100 : 0); }],
@@ -403,14 +405,14 @@ const FX_TYPES = {
   sine: ["all", (st, f, c) => { const lo = c.o.min ?? 0; st.intensity = fxApplyIntensity(lo + fxWave01(c.t * c.speed + c.phase) * (100 - lo)); }],
   random: ["all", (st, f, c) => { st.intensity = fxApplyIntensity(Math.round(fxRandom(c.index + 3, Math.floor(c.t * c.speed)) * 100)); }],
   heartbeat: ["all", (st, f, c) => { const x = (c.t * c.speed + c.phase) % 1; const beat = Math.exp(-Math.pow((x - 0.1) / 0.05, 2)) + 0.7 * Math.exp(-Math.pow((x - 0.32) / 0.05, 2)); st.intensity = fxApplyIntensity(8 + Math.min(1, beat) * 92); }],
-  alternate: ["all", (st, f, c) => { const on = (Math.floor(c.t * c.speed) + c.index) % 2 === 0; st.intensity = fxApplyIntensity(on ? 100 : 0); }],
+  alternate: ["all", (st, f, c) => { const on = (Math.floor(c.t * c.speed) + c.index) % 2 === 0; st.intensity = fxApplyIntensity(on ? 100 : 0); if (c.o.hue != null && fxCanColour(f)) { const k = fxColourOf(c.o.hue); fxSetColour(f, st, k.h, k.s, k.l); } }],
   lightning: ["all", (st, f, c) => { const k = Math.floor(c.t * 20); const strike = fxRandom(Math.floor(c.t * c.speed), 9) < 0.35 && fxRandom(k, c.index + 1) < 0.5 && (k % 7) < 3; st.intensity = fxApplyIntensity(strike ? 100 : 0); if (fxCanColour(f)) fxSetColour(f, st, 220, 25, 90); }],
   // ---- colour (keeps the light up)
-  colourfade: ["colour", (st, f, c) => { const hues = c.o.colours?.length ? c.o.colours : [0, 240]; const x = (c.t * c.speed + c.phase) * hues.length; const i = Math.floor(x), m = x - i; const a = hues[i % hues.length], b = hues[(i + 1) % hues.length]; let d = b - a; if (d > 180) d -= 360; if (d < -180) d += 360; const blend = (1 - Math.cos(m * Math.PI)) / 2; fxSetColour(f, st, a + d * blend); st.intensity = fxGetLiveIntensity(); }],
-  colourstep: ["colour", (st, f, c) => { const hues = c.o.colours?.length ? c.o.colours : [0, 120, 240]; const i = Math.floor(c.t * c.speed + c.phase * hues.length); fxSetColour(f, st, hues[((i % hues.length) + hues.length) % hues.length]); st.intensity = fxGetLiveIntensity(); }],
+  colourfade: ["colour", (st, f, c) => { const list = (c.o.colours?.length ? c.o.colours : [0, 240]).map(fxColourOf); const x = (c.t * c.speed + c.phase) * list.length; const i = Math.floor(x), m = x - i; const a = list[((i % list.length) + list.length) % list.length], b = list[(((i + 1) % list.length) + list.length) % list.length]; let d = b.h - a.h; if (d > 180) d -= 360; if (d < -180) d += 360; const blend = (1 - Math.cos(m * Math.PI)) / 2; fxSetColour(f, st, a.h + d * blend, a.s + (b.s - a.s) * blend, a.l + (b.l - a.l) * blend); st.intensity = fxGetLiveIntensity(); }],
+  colourstep: ["colour", (st, f, c) => { const list = (c.o.colours?.length ? c.o.colours : [0, 120, 240]).map(fxColourOf); const i = Math.floor(c.t * c.speed + c.phase * list.length); const k = list[((i % list.length) + list.length) % list.length]; fxSetColour(f, st, k.h, k.s, k.l); st.intensity = fxGetLiveIntensity(); }],
   fire: ["colour", (st, f, c) => { const k = c.t * c.speed * 10; const n = fxRandom(c.index + 1, Math.floor(k)) * 0.5 + fxRandom(c.index + 5, Math.floor(k * 1.7)) * 0.5; fxSetColour(f, st, 4 + n * 30); st.intensity = fxApplyIntensity(50 + n * 50); }],
   water: ["colour", (st, f, c) => { const w = fxWave01(c.t * c.speed + c.phase); fxSetColour(f, st, 185 + w * 50, 100, 45 + w * 15); st.intensity = fxApplyIntensity(55 + w * 45); }],
-  police: ["colour", (st, f, c) => { const flash = Math.floor(c.t * c.speed * 6) % 6; const half = c.index < c.count / 2; const redTurn = Math.floor(c.t * c.speed) % 2 === 0; fxSetColour(f, st, half ? 0 : 230); st.intensity = fxApplyIntensity(half === redTurn && flash % 2 === 0 && flash < 4 ? 100 : 0); }],
+  police: ["colour", (st, f, c) => { const flash = Math.floor(c.t * c.speed * 6) % 6; const half = c.index < c.count / 2; const redTurn = Math.floor(c.t * c.speed) % 2 === 0; const pair = (c.o.colours?.length ? c.o.colours : [0, 230]).map(fxColourOf); const k = half ? pair[0] : pair[1] || pair[0]; fxSetColour(f, st, k.h, k.s, k.l); st.intensity = fxApplyIntensity(half === redTurn && flash % 2 === 0 && flash < 4 ? 100 : 0); }],
   disco: ["colour", (st, f, c) => { const k = Math.floor(c.t * c.speed); fxSetColour(f, st, Math.floor(fxRandom(c.index + 1, k) * 12) * 30); st.intensity = fxGetLiveIntensity(); }],
   // ---- Frozen: snow, ice and warmth (lights without colour just do the intensity)
   snowfall: ["all", (st, f, c) => { const n = fxSmooth(c.index + 1, c.t * c.speed * 1.4 + c.index * 0.37); st.intensity = fxApplyIntensity(35 + n * 65); if (fxCanColour(f)) fxSetColour(f, st, 205, 22, 82); }],

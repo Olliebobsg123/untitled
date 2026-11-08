@@ -171,6 +171,9 @@ function snapshotCueEffects() {
         if (Number(e.beats) > 0) snap.beats = Number(e.beats);
         if (e.name) snap.name = String(e.name);
         if (e.levels instanceof Map) snap.levels = Object.fromEntries(e.levels);
+        // Its look: colours (desk colour effects like "Fade - red/white"), density, size…
+        const o = e.options || {};
+        for (const k of ["colours", "hue", "hues", "sat", "density", "min", "direction", "size", "spread", "order", "zos"]) if (o[k] != null) snap[k] = JSON.parse(JSON.stringify(o[k]));
         return snap;
     }).filter(e => e.type && e.fixtureIds.length);
 }

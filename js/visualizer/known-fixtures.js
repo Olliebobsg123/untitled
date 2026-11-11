@@ -20,11 +20,10 @@ const KNOWN = [
   // 19° / 26° lenses or 15-30° / 25-50° zooms (26° is the measured lens).
   // Measured: 60,800 lux at 1 m with the 26° lens.
   { match: /performer\s*profile\s*650\s*q5/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6800, candela: 60800, candelaAt: 26 },
-  // Showtec Performer Profile 600 (MKII) DDT: dim-to-warm white ellipsoidal,
-  // ~6,500 lm, 3200K, same lens range.
-  // (No official figure found for the MKIII DDT; the 10,665 lm in some
-  // libraries is the plain MKIII. 6,500 lm is the MKII DDT figure.)
-  { match: /performer\s*profile\s*600.*ddt/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6500, kelvin: 3200 },
+  // Showtec Performer Profile 600 DDT: 250 W warm white COB, 3200K. Showtec
+  // quote 10,000 lm for the LED; 6,522 lm measured out of the front, which is
+  // what lands on stage.
+  { match: /performer\s*profile\s*600.*ddt/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6522, kelvin: 3200 },
   // Performer Profile 600 MKIII: 10,665 lm.
   { match: /performer\s*profile\s*600.*mk\s*iii/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 10665 },
   { match: /performer\s*profile\s*600/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 3800, kelvin: 3200 },

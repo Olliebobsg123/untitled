@@ -54,6 +54,18 @@ function solidAngle(halfAngle, gaussian) {
   solidAngles.set(key, omega);
   return omega;
 }
+// Saturated colours look much brighter in the room than a screen can show
+// them: full blue on a monitor is nearly black, while a blue LED par on stage
+// is vivid (the eye judges strong colours brighter than their light alone,
+// the Helmholtz-Kohlrausch effect, and adapts to a dark room). So a deep
+// colour is drawn brighter, by up to ~2.4x for pure blue; white is unchanged.
+export function colourPunch(rgb) {
+  const [r, g, b] = Array.isArray(rgb) ? rgb : [1, 1, 1];
+  const peak = Math.max(r, g, b);
+  if (!(peak > 0)) return 1;
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / peak;
+  return Math.max(1, Math.min(2.4, Math.sqrt(0.42 / Math.max(0.05, luminance))));
+}
 export function candelaFor(lumens, halfAngle, gaussian) {
   return lumens / Math.max(1e-5, solidAngle(Math.max(halfAngle, 0.005), gaussian));
 }
@@ -211,6 +223,18 @@ export class Fixture {
     this.place(position);
   }
 
+  // Brightness at the centre of the beam: the maker's measured figure where
+  // known (known-fixtures.js), spread over a wider beam (or squeezed into a
+  // narrower one) as the angle changes; otherwise from its lumens.
+  peakCandela(halfAngle, gaussian) {
+    const p = this.def?.photometrics || {};
+    const measured = Number(p.peakCandela);
+    if (!(measured > 0)) return candelaFor(this.lumens, halfAngle, gaussian);
+    const at = ((Number(p.peakCandelaAngle) || 25) * Math.PI) / 360;
+    const scale = Number(p.outputScale) > 0 ? Number(p.outputScale) : 1;
+    return measured * scale * Math.pow(Math.tan(at) / Math.tan(Math.max(0.005, halfAngle)), 2);
+  }
+
   // Point a fixed fixture at a point in the room.
   aimAt(point) {
     this.target.copy(point);
@@ -327,7 +351,7 @@ export class Fixture {
     const gaussian = GAUSSIAN.has(this.kind);
     const spread = Math.min(1.5, gaussian ? halfAngle * FIELD_RATIO : halfAngle); // where the light ends
     const softness = edgeSoftness(this.kind, state, this.beamLength, Number.isFinite(this.fixture.edge) ? this.fixture.edge : null);
-    const candela = candelaFor(this.lumens, halfAngle, gaussian) * level;
+    const candela = this.peakCandela(halfAngle, gaussian) * colourPunch(rgb) * level;
     const [r, g, b] = rgb;
 
     // Gobo / framing / prism mask, blurred by focus and frost.

@@ -10,12 +10,16 @@
 //   min / max   the zoom or lens range, for the Beam Angle card
 //   lumens      light output
 //   kelvin      colour of a plain white source
+//   candela     measured brightness at the centre of the beam (lux x distance²),
+//               at the angle candelaAt: used rather than working it out from lumens
+//   scale       extra brightness where the paper figure undersells it in the room
 //
 // Matched on the fixture's name, so it works for library and FLX fixtures.
 const KNOWN = [
   // Showtec Performer Profile 650 Q5: RGBAL LED ellipsoidal, 6,800 lm; fixed
   // 19° / 26° lenses or 15-30° / 25-50° zooms (26° is the measured lens).
-  { match: /performer\s*profile\s*650\s*q5/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6800 },
+  // Measured: 60,800 lux at 1 m with the 26° lens.
+  { match: /performer\s*profile\s*650\s*q5/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6800, candela: 60800, candelaAt: 26 },
   // Showtec Performer Profile 600 (MKII) DDT: dim-to-warm white ellipsoidal,
   // ~6,500 lm, 3200K, same lens range.
   { match: /performer\s*profile\s*600.*ddt/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6500, kelvin: 3200 },
@@ -27,13 +31,15 @@ const KNOWN = [
   { match: /performer\s*\d+\s*fresnel/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50 },
   // Chauvet EVE E-50Z: a warm white LED *ellipsoidal* (hard edge), 20-39° zoom,
   // 7,910 lux at 2 m at 20° (≈ 2,500 lm).
-  { match: /\beve\s*e-?50z/i, kind: "profile", beamAngle: 26, min: 20, max: 39, lumens: 2500, kelvin: 3200 },
+  { match: /\beve\s*e-?50z/i, kind: "profile", beamAngle: 26, min: 20, max: 39, lumens: 2500, kelvin: 3200, candela: 31640, candelaAt: 20 },
   // Chauvet EVE F-50Z: the fresnel version, 17-50°.
   { match: /\beve\s*f-?50z/i, kind: "fresnel", beamAngle: 30, min: 17, max: 50, lumens: 2500, kelvin: 3200 },
   // Chauvet COREpar 40 USB: RGB COB par, 40° (85° field) bare, 20° with its lens.
-  { match: /corepar\s*40/i, kind: "par", beamAngle: 40, min: 20, max: 40, lumens: 1200 },
-  // Showtec Compact Par 18 Q4: 18 x 7 W RGBW, 15°, 4,997 lm.
-  { match: /compact\s*par\s*18\s*q4/i, kind: "par", beamAngle: 15, lumens: 4997 },
+  // Measured: 243 lux at 2 m bare (40°).
+  { match: /corepar\s*40/i, kind: "par", beamAngle: 40, min: 20, max: 40, lumens: 1200, candela: 972, candelaAt: 40 },
+  // Showtec Compact Par 18 Q4: 18 x 7 W RGBW, 15° fixed, 4,997 lm,
+  // 10,000 lux at 2 m (40,000 cd at the centre).
+  { match: /compact\s*par\s*18\s*q4/i, kind: "par", beamAngle: 15, lumens: 4997, candela: 40000, candelaAt: 15 },
   // A dimmer channel drives an ordinary lamp: tungsten, warm.
   { match: /\bgeneric\s*dimmer\b|^dimmer\b/i, kind: "fresnel", beamAngle: 30, lumens: 5000, kelvin: 3000 }
 ];
@@ -58,6 +64,8 @@ export function withKnownSpecs(def, name) {
   if (known.max && !(Number(p.beamAngleMax) > 0)) p.beamAngleMax = known.max;
   if (known.lumens) p.ratedLumens = known.lumens;
   if (known.kelvin) p.colorTemp = known.kelvin;
+  if (known.scale) p.outputScale = known.scale;
+  if (known.candela) { p.peakCandela = known.candela; p.peakCandelaAngle = known.candelaAt || known.beamAngle; }
   const out = { ...def, photometrics: p, vizKind: known.kind };
   byName.set(name, out);
   return out;

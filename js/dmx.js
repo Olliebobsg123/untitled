@@ -309,11 +309,11 @@ if(typeof map.dimmer==="number")write(base,map.dimmer,255*level);
 // already carries master*intensity, so these are only ever zeroed by blackout.
 const hasWhite=typeof map.warmWhite==="number"||typeof map.naturalWhite==="number"||typeof map.coolWhite==="number";
 if(hasWhite){
-if(typeof map.warmWhite==="number")write(base,map.warmWhite,blackout?0:(saved.warmWhite??255));
+if(typeof map.warmWhite==="number")write(base,map.warmWhite,blackout?0:(saved.warmWhite??def.homes?.warmWhite??255));
 if(typeof map.warmWhiteFine==="number")write(base,map.warmWhiteFine,0);
 if(typeof map.naturalWhite==="number")write(base,map.naturalWhite,blackout?0:(saved.naturalWhite??0));
 if(typeof map.naturalWhiteFine==="number")write(base,map.naturalWhiteFine,0);
-if(typeof map.coolWhite==="number")write(base,map.coolWhite,blackout?0:(saved.coolWhite??0));
+if(typeof map.coolWhite==="number")write(base,map.coolWhite,blackout?0:(saved.coolWhite??def.homes?.coolWhite??0));
 if(typeof map.cct==="number")write(base,map.cct,blackout?0:clamp255(saved.cct??State.current?.cct??0));
 }
 

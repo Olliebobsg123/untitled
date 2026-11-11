@@ -216,8 +216,8 @@
     const map = def?.map || {};
     const state = getState(representative) || {};
     const threeChannel = typeof map.warmWhite === "number" && typeof map.coolWhite === "number";
-    const warm = clamp255(state.warmWhite ?? 255);
-    const second = clamp255(threeChannel ? (state.coolWhite ?? 0) : (state.naturalWhite ?? 0));
+    const warm = clamp255(state.warmWhite ?? def?.homes?.warmWhite ?? 255);
+    const second = clamp255(threeChannel ? (state.coolWhite ?? def?.homes?.coolWhite ?? 0) : (state.naturalWhite ?? 0));
     const cct = Math.max(2700, Math.min(4500, Number(state.cctKelvin ?? dmxToCct(state.cct ?? 0)) || 2700));
 
     const root = document.createElement("div");

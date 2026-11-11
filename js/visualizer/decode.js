@@ -136,7 +136,9 @@ export function decodeColour(def, read, name = "") {
     const natural = has("naturalWhite") ? level("naturalWhite") : 0;
     const cool = has("coolWhite") ? level("coolWhite") : 0;
     const total = warm + natural + cool;
-    const kelvin = total > 0 ? (warm * 2700 + natural * 4300 + cool * 6500) / total : 3200;
+    // The fixture's own white range (e.g. 2700-4500K on the Performer 1500 Fresnel).
+    const [kWarm, kCool] = whiteRange(def);
+    const kelvin = total > 0 ? (warm * kWarm + natural * (kWarm + kCool) / 2 + cool * kCool) / total : kWarm;
     result = { rgb: kelvinToRgb(kelvin), carriesLevel: !has("dimmer") && !has("intensity"), level: Math.min(1, Math.max(warm, natural, cool)) };
   } else if (!has("colour")) {
     // A plain white source: tungsten glows warm, LED/discharge cooler.
@@ -151,8 +153,9 @@ export function decodeColour(def, read, name = "") {
   const tint = (rgb, filter) => rgb.map((v, i) => v * filter[i]);
   if (has("colour")) result.rgb = tint(result.rgb, wheelColour(def, read.raw("colour")));
   if (has("cct") && read.raw("cct") > 0) {
-    // Tunable white: 0 = off/native, then 2700K → 6500K.
-    const kelvin = 2700 + ((read.raw("cct") - 1) / 254) * 3800;
+    // Tunable white: 0 = off/native, then warmest → coolest the fixture can do.
+    const [kWarm, kCool] = whiteRange(def);
+    const kelvin = kWarm + ((read.raw("cct") - 1) / 254) * (kCool - kWarm);
     result.rgb = hasEmitters ? tint(result.rgb, kelvinToRgb(kelvin).map(v => 0.5 + v / 2)) : kelvinToRgb(kelvin);
   }
   if (has("cto")) result.rgb = tint(result.rgb, kelvinToRgb(5600 - level("cto") * 2400));
@@ -164,6 +167,14 @@ export function decodeColour(def, read, name = "") {
     }
   }
   return result;
+}
+
+// The warmest and coolest white a fixture makes, from its specs (2700-6500K if unknown).
+function whiteRange(def) {
+  const p = def?.photometrics || {};
+  const lo = Number(p.colourTemperatureMin ?? p.colorTempMin) > 0 ? Number(p.colourTemperatureMin ?? p.colorTempMin) : 2700;
+  const hi = Number(p.colourTemperatureMax ?? p.colorTempMax) > 0 ? Number(p.colourTemperatureMax ?? p.colorTempMax) : 6500;
+  return hi > lo ? [lo, hi] : [2700, 6500];
 }
 
 // Shutter/strobe: { rate: flashes per second (0 = steady), closed }.

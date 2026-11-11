@@ -22,12 +22,19 @@ const KNOWN = [
   { match: /performer\s*profile\s*650\s*q5/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6800, candela: 60800, candelaAt: 26 },
   // Showtec Performer Profile 600 (MKII) DDT: dim-to-warm white ellipsoidal,
   // ~6,500 lm, 3200K, same lens range.
+  // (No official figure found for the MKIII DDT; the 10,665 lm in some
+  // libraries is the plain MKIII. 6,500 lm is the MKII DDT figure.)
   { match: /performer\s*profile\s*600.*ddt/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 6500, kelvin: 3200 },
+  // Performer Profile 600 MKIII: 10,665 lm.
+  { match: /performer\s*profile\s*600.*mk\s*iii/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 10665 },
   { match: /performer\s*profile\s*600/i, kind: "profile", beamAngle: 26, min: 15, max: 50, lumens: 3800, kelvin: 3200 },
   { match: /performer\s*profile/i, kind: "profile", beamAngle: 26, min: 15, max: 50 },
-  // Showtec Performer 1500 Fresnel (Q6 RGBALC / tungsten-look): 10-50° zoom.
-  { match: /performer\s*1500\s*fresnel\s*q6/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50, lumens: 4200 },
-  { match: /performer\s*1500\s*fresnel/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50, lumens: 4800 },
+  // Showtec Performer 1500 Fresnel Q6 (RGBALC): 10-50° zoom, 3,111 lm,
+  // 12,195 lux at 2 m at 10° (manual, item 41252).
+  { match: /performer\s*1500\s*fresnel\s*q6/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50, lumens: 3111, candela: 48780, candelaAt: 10 },
+  // Showtec Performer 1500 Fresnel (tungsten-look, warm + cool white):
+  // 10-50° zoom, 4,781 lm, 22,163 lux at 2 m at 10°, 2700-4500K (manual, item 33131).
+  { match: /performer\s*1500\s*fresnel/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50, lumens: 4781, candela: 88652, candelaAt: 10, kelvinMin: 2700, kelvinMax: 4500 },
   { match: /performer\s*\d+\s*fresnel/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50 },
   // Chauvet EVE E-50Z: a warm white LED *ellipsoidal* (hard edge), 20-39° zoom,
   // 7,910 lux at 2 m at 20° (≈ 2,500 lm).
@@ -64,6 +71,8 @@ export function withKnownSpecs(def, name) {
   if (known.max && !(Number(p.beamAngleMax) > 0)) p.beamAngleMax = known.max;
   if (known.lumens) p.ratedLumens = known.lumens;
   if (known.kelvin) p.colorTemp = known.kelvin;
+  if (known.kelvinMin) p.colourTemperatureMin = known.kelvinMin;
+  if (known.kelvinMax) p.colourTemperatureMax = known.kelvinMax;
   if (known.scale) p.outputScale = known.scale;
   if (known.candela) { p.peakCandela = known.candela; p.peakCandelaAngle = known.candelaAt || known.beamAngle; }
   const out = { ...def, photometrics: p, vizKind: known.kind };

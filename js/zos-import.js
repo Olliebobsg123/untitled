@@ -437,15 +437,20 @@
     const model = words(type.name), maker = words(type.maker);
     const keys = Object.keys(lib).filter(k => words(k).includes(model) && (!maker || maker === "generic" || words(k).includes(maker) || words(lib[k]?.manufacturer).includes(maker)));
     const like = lib[keys.find(k => Number(lib[k]?.channels) === type.channels) || keys[0]] || null;
-    const { map } = deskSlots(type);
+    const { map, slots } = deskSlots(type);
     if (typeof map.dimmer === "number") map.intensity = map.dimmer;
+    // The desk's own starting values for the white arrays (the Performer
+    // 1500 Fresnel starts with warm AND cool white at full), so a light that
+    // is only brought up behaves as it does on the desk.
+    const homes = {};
+    for (const c of type.list) { const k = slots.get(c.index); if (k === "warmWhite" || k === "coolWhite") homes[k] = Math.round((c.home ?? 0) / 257); }
     const rgb = ["r", "g", "b"].every(k => typeof map[k] === "number");
     const key = `${type.maker} ${type.name}${type.mode ? ` (${type.mode})` : ""} [FLX]`.replace(/\s+/g, " ").trim();
     return {
       key, matched: Boolean(like),
       definition: {
         type: typeof map.pan === "number" ? "moving" : rgb ? "rgb" : (like?.type || "dimmer"),
-        channels: type.channels, map,
+        channels: type.channels, map, ...(Object.keys(homes).length ? { homes } : {}),
         photometrics: like?.photometrics ? JSON.parse(JSON.stringify(like.photometrics)) : { verified: false, sourceType: "LED", ratedLumens: null, beamAngle: null, outputScale: 1 },
         manufacturer: type.maker, model: type.name, custom: true, fromZerOS: true,
         channelNames: type.list.map(c => ({ offset: c.offset, name: c.label }))

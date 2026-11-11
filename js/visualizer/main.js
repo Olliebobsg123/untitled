@@ -48,7 +48,11 @@ const send = message => { try { consoleWindow?.postMessage(message, "*"); } catc
 //                  per unit of haze (a hazer at full ≈ 0.1/m: typical
 //                  theatre haze is 0.02-0.15/m)
 // The Exposure slider moves both by the same number of stops.
-const LIGHT_SCALE = 0.055;
+// Calibrated so a well-lit stage (~1,000 lux on a mid-grey floor) shows just
+// under white, as a camera exposed for the stage sees it: the faint edge of a
+// beam then looks faint, not white, and pools are the size they really are.
+// (It was ~6x this, so every lit area clipped to white and spread.)
+const LIGHT_SCALE = 0.009;
 const BEAM_SCALE = LIGHT_SCALE * 0.045 / (4 * Math.PI);
 // Light bouncing off the stage lights everything else a little: the room's
 // surfaces (~500 m², reflecting ~15% on average) share what the lit

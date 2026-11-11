@@ -199,6 +199,18 @@ export class Fixture {
     if (!this.moving) this.aimAt(this.target);
   }
 
+  // Move it by hand: a fixed light keeps pointing the same way, so its aim
+  // moves across and up/down stage with it (sliding a light along its bar
+  // used to leave it twisted back at the old spot).
+  move(position) {
+    if (!this.moving && !this.onFloor) {
+      const p = this.root.position;
+      this.target.x += position.x - p.x;
+      this.target.z += position.z - p.z;
+    }
+    this.place(position);
+  }
+
   // Point a fixed fixture at a point in the room.
   aimAt(point) {
     this.target.copy(point);

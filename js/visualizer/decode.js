@@ -140,7 +140,9 @@ export function decodeColour(def, read, name = "") {
     result = { rgb: kelvinToRgb(kelvin), carriesLevel: !has("dimmer") && !has("intensity"), level: Math.min(1, Math.max(warm, natural, cool)) };
   } else if (!has("colour")) {
     // A plain white source: tungsten glows warm, LED/discharge cooler.
-    result = { rgb: isTungsten(def, name) ? kelvinToRgb(3000) : kelvinToRgb(5600), carriesLevel: false };
+    // Its own colour temperature when known; a dimmer channel drives an ordinary (tungsten) lamp.
+    const kelvin = Number(def?.photometrics?.colorTemp) > 0 ? Number(def.photometrics.colorTemp) : isTungsten(def, name) || def?.type === "dimmer" ? 3000 : 5600;
+    result = { rgb: kelvinToRgb(kelvin), carriesLevel: false };
   } else {
     result = { rgb: [1, 1, 1], carriesLevel: false };
   }
@@ -230,6 +232,8 @@ export function archetype(def, name = "") {
   if (/\bhaze/i.test(name) && !isChannel(map.pan)) return "hazer";
   if (/\b(fog|smoke)\b/i.test(name) && !isChannel(map.pan)) return "fogger";
   // Library types are sometimes generic ("moving", "rgb"), so the name decides too.
+  // A fixed light whose real optics are known (known-fixtures.js): that.
+  if (def?.vizKind && !isChannel(map.pan) && !isChannel(map.tilt)) return def.vizKind;
   if (isChannel(map.pan) || isChannel(map.tilt)) {
     if (def?.type === "beam" || /\bbeam\b/i.test(name)) return "movingBeam";
     if (def?.type === "wash" || /wash/i.test(name)) return "movingWash";

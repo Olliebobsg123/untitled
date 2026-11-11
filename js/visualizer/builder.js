@@ -262,7 +262,7 @@ export function createBuilder(ctx) {
       const p = model.root.position;
       if (!hangsOn(fromItem, p)) continue;
       const next = p.clone().applyMatrix4(move);
-      model.place({ x: next.x, y: next.y, z: next.z });
+      if (model.move) model.move({ x: next.x, y: next.y, z: next.z }); else model.place({ x: next.x, y: next.y, z: next.z });
       moved++;
     }
     return moved;

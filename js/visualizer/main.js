@@ -14,6 +14,7 @@
 // it freely). Select a fixed fixture and
 // drag its green handle to aim it. Left-drag the empty room to orbit,
 // right-drag to pan, scroll to zoom.
+import { withKnownSpecs } from "./known-fixtures.js";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -327,7 +328,8 @@ const settings = () => {
   if (IS_MAC && saved.qualityUltra !== true) { saved.quality = "ultra"; saved.qualityUltra = true; if (layout.settings) layout.settings = { ...layout.settings, quality: "ultra", qualityUltra: true }; }
   return { ...DEFAULT_SETTINGS, ...saved, beams: true };
 };
-const definitionOf = fixture => library[fixture?.name] || fixture?.definition || null;
+// With the real specs of known fixtures filled in (js/visualizer/known-fixtures.js).
+const definitionOf = fixture => withKnownSpecs(library[fixture?.name] || fixture?.definition || null, fixture?.name);
 
 const exposureText = ev => { ev = Number(ev) || 0; return ev === 0 ? "0" : `${ev > 0 ? "+" : "−"}${Math.abs(ev).toFixed(1)}`; };
 function setStatus(text) { $("status").textContent = text; }
@@ -375,7 +377,11 @@ function defaultFloorSpot(index) {
 
 function defaultAim(position) {
   if (position.z > 2) return new THREE.Vector3(position.x * 0.6, STAGE_TOP + 1.2, -2);
-  return new THREE.Vector3(position.x * 0.85, STAGE_TOP, Math.min(position.z + 1.5, -0.5));
+  // Over the stage: a little downstage of where it hangs, kept on the stage
+  // (a pool's edge stays off the front lip and the back wall).
+  const z = Math.max(STAGE.frontZ - STAGE.depth + 1.5, Math.min(position.z + 1.2, STAGE.frontZ - 1.8));
+  const x = Math.max(-STAGE.width / 2 + 1.2, Math.min(STAGE.width / 2 - 1.2, position.x * 0.85));
+  return new THREE.Vector3(x, STAGE_TOP, z);
 }
 
 function rebuild() {
@@ -918,7 +924,7 @@ renderer.domElement.addEventListener("pointermove", event => {
   } else if (drag.mode === "free" && model instanceof Fixture) {
     position = snapToBar(position);
   }
-  model.place(position);
+  if (model.move) model.move(position); else model.place(position);
 });
 
 const endDrag = () => {
@@ -943,7 +949,7 @@ for (const field of ["selX", "selY", "selZ"]) {
       const onStage = Math.abs(position.x) < STAGE.width / 2 && position.z < STAGE.frontZ && position.z > STAGE.frontZ - STAGE.depth;
       position.y = onStage ? STAGE_TOP : 0;
     }
-    model.place(position);
+    if (model.move) model.move(position); else model.place(position);
     saveLayout();
   });
   $(field).addEventListener("keydown", event => event.stopPropagation());
@@ -960,7 +966,7 @@ const lightsTable = createLightsTable({
     const model = modelFor(id);
     if (!model) return;
     const p = { x: Math.max(ROOM.minX + 0.5, Math.min(ROOM.maxX - 0.5, position.x)), y: Math.max(0, Math.min(ROOM.maxY - 0.5, position.y)), z: Math.max(ROOM.minZ + 0.5, Math.min(ROOM.maxZ - 0.5, position.z)) };
-    model.place(p);
+    if (model.move) model.move(p); else model.place(p);
     if (id === selected) showSelection();
     saveLayout();
   },
@@ -1094,6 +1100,19 @@ $("exposure").addEventListener("input", () => {
 });
 $("exposure").addEventListener("change", saveLayout);
 $("exposure").addEventListener("dblclick", () => { $("exposure").value = "0"; $("exposure").dispatchEvent(new Event("input")); saveLayout(); });
+// Every fixed light pointed at the stage in front of it (where it hangs stays).
+$("aimStraight").addEventListener("click", () => {
+  let n = 0;
+  for (const model of fixtures.values()) {
+    if (model.moving || model.onFloor) continue;
+    model.aimAt(defaultAim(model.root.position));
+    n++;
+  }
+  select(selected);
+  saveLayout();
+  wake(800);
+  setStatus(`${n} light${n === 1 ? "" : "s"} aimed at the stage in front of them`);
+});
 $("resetLayout").addEventListener("click", () => {
   if (!confirm("Put every fixture back in its default place and aim?")) return;
   layout.positions = {};

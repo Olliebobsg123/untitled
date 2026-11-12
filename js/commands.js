@@ -584,7 +584,7 @@ function parseCommand(cmd){
     if(delcue){const nums=cueNumbers(delcue[1]).filter(n=>window.cueIndexOf(n)>=0);if(!nums.length)return log(`No cue ${delcue[1]}`,'warn');nums.forEach(n=>deleteCue(n));return log(`Deleted cues: ${nums.map(window.formatCueNumber).join(', ')}`,'ok');}
 
     const setfade=c.match(/^fade\s+(\d+(?:\.\d+)?|\.\d+)\s+(\d*\.?\d+)$/);
-    if(setfade){const cueNum=setfade[1],sec=parseFloat(setfade[2]);if(sec<0)return log('Fade time cannot be negative','warn');const idx=window.cueIndexOf(cueNum);if(idx<0)return log(`Cue ${cueNum} not found`,'warn');State.cues[idx].fade=Math.round(sec*1000);renderCues?.();return log(`Cue ${window.cueLabel(idx)} fade set to ${sec}s = ${State.cues[idx].fade}ms`,'ok');}
+    if(setfade){const cueNum=setfade[1],sec=parseFloat(setfade[2]);if(sec<0)return log('Fade time cannot be negative','warn');const idx=window.cueIndexOf(cueNum);if(idx<0)return log(`Cue ${cueNum} not found`,'warn');window.setCueFade(State.cues[idx],Math.round(sec*1000));renderCues?.();return log(`Cue ${window.cueLabel(idx)} fade set to ${sec}s = ${State.cues[idx].fade}ms`,'ok');}
     const quickfade=c.match(/^fade\s+(\d+(?:\.\d+)?|\.\d+)$/);
     if(quickfade){const n=quickfade[1],idx=window.cueIndexOf(n);if(idx<0)return log(`Cue ${n} not found`,'warn');goToCue(idx);return log(`Fading to Cue ${window.cueLabel(idx)} (${State.cues[idx].fade??800}ms)`,'ok');}
     if((m=c.match(/^go\s+(?:to\s+)?(?:cue\s+)?(\d+(?:\.\d+)?|\.\d+)$/))){const idx=window.cueIndexOf(m[1]);if(idx<0)return log(`Cue ${m[1]} not found`,'warn');goToCue(idx);return;}

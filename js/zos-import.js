@@ -458,6 +458,19 @@
     };
   }
 
+  // A desk cue's times as Light Spark keeps them: the Up time is the cue's
+  // fade (Up delay its delay), and only the times that differ from those are
+  // kept separately — so changing the fade changes the whole cue, as it should.
+  // Desk columns: Up, Down, Colour, Beam, Shape, Position (each with a delay).
+  function cueTimes(c) {
+    const timing = {};
+    for (const k of ["down", "colour", "beam", "shape", "focus"]) {
+      if (Math.abs((c[k] ?? 0) - (c.up ?? 0)) > 50) timing[k] = c[k] ?? 0;
+      if (Math.abs((c[k + "Delay"] ?? 0) - (c.upDelay ?? 0)) > 50) timing[k + "Delay"] = c[k + "Delay"] ?? 0;
+    }
+    return Object.keys(timing).length ? { timing: { split: true, ...timing } } : {};
+  }
+
   // A desk light's channel values (index → 0-65535) as Light Spark state.
   function stateFor(f, values) {
     const { slots } = deskSlots(f.type);
@@ -587,7 +600,7 @@
           number: n != null ? n / 100 : cues.length + 1, name: text(one(c, 2)),
           up: t(0xa) ?? 0, upDelay: t(0x6) ?? 0, down: t(0x1c) ?? 0, downDelay: t(0x1d) ?? 0,
           colour: t(0xb) ?? 0, colourDelay: t(0x7) ?? 0, beam: t(0xc) ?? 0, beamDelay: t(0x8) ?? 0,
-          focus: t(0xd) ?? 0, focusDelay: t(0x9) ?? 0,
+          focus: t(0xd) ?? 0, focusDelay: t(0x9) ?? 0, shape: t(0x22) ?? 0, shapeDelay: t(0x23) ?? 0,
           trigger: t(0x3) ?? 1, wait: t(0x4) ?? 0, levels
         });
       }
@@ -690,8 +703,8 @@
           states.push([`zos-i${f.index}`, out]);
         }
         cues.push({
-          name: c.name || `Cue ${c.number}`, number: c.number, fade: c.up,
-          timing: { up: c.up, down: c.down, upDelay: c.upDelay, downDelay: c.downDelay, colour: c.colour, colourDelay: c.colourDelay, beam: c.beam, beamDelay: c.beamDelay, focus: c.focus, focusDelay: c.focusDelay },
+          name: c.name || `Cue ${c.number}`, number: c.number, fade: c.up, ...(c.upDelay ? { delay: c.upDelay } : {}),
+          ...cueTimes(c),
           follow: 0, followEnabled: false, mode: "track", fixtureStates: states, state: {}, globalState: {},
           effects: cueEffects, zosTrigger: c.trigger
         });
@@ -1604,11 +1617,11 @@
         }
         named++;
       }
-      // Times: fade up / down and their delays, colour, beam and position.
+      // Times: fade up / down and their delays, colour, beam, shape and position.
       const timing = cue.timing && typeof cue.timing === "object" ? cue.timing : {};
       const fade = Number(cue.fade ?? 0) || 0, wait = Number(cue.delay ?? 0) || 0;
       const part = (k, d) => { const v = Number(timing[k]); return Number.isFinite(v) && timing[k] !== "" && timing[k] != null ? v : d; };
-      const want = { 0xa: part("up", fade), 0x6: part("upDelay", wait), 0x1c: part("down", fade), 0x1d: part("downDelay", wait), 0xb: part("colour", fade), 0x7: part("colourDelay", wait), 0xc: part("beam", fade), 0x8: part("beamDelay", wait), 0xd: part("focus", fade), 0x9: part("focusDelay", wait) };
+      const want = { 0xa: part("up", fade), 0x6: part("upDelay", wait), 0x1c: part("down", fade), 0x1d: part("downDelay", wait), 0xb: part("colour", fade), 0x7: part("colourDelay", wait), 0xc: part("beam", fade), 0x8: part("beamDelay", wait), 0xd: part("focus", fade), 0x9: part("focusDelay", wait) , 0x22: part("shape", fade), 0x23: part("shapeDelay", wait) };
       for (const [f, v] of Object.entries(want)) if (Math.abs((int(one(c, Number(f))) ?? 0) - v) > 50) setLeaf(c, Number(f), Math.round(v));
       // Trigger: this cue goes by itself when the one before follows on.
       const prev = lsCues[lsCues.indexOf(lsCues.find(x => x.i === i)) - 1]?.cue;

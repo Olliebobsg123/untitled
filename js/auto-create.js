@@ -424,12 +424,13 @@
   // Replace what Auto Create made last time (matched by autoKey) in place, so
   // numbers like "palette 3" or "group 2" stay put; drop auto items no
   // longer wanted; append new ones. Things you made are never touched.
-  function merge(list, made) {
+  // inScope: which of the earlier auto items this run is remaking (the rest stay).
+  function merge(list, made, inScope = () => true) {
     const result = [];
     const byKey = new Map(made.map(item => [item.autoKey, item]));
     const used = new Set();
     for (const item of list) {
-      if (!item?.auto) { result.push(item); continue; }
+      if (!item?.auto || !inScope(item)) { result.push(item); continue; }
       const replacement = byKey.get(item.autoKey);
       if (replacement && !used.has(item.autoKey)) { result.push({ ...replacement, ...(item.id != null ? { id: item.id } : {}), auto: true }); used.add(item.autoKey); }
     }
@@ -458,9 +459,11 @@
       window.renderGroups?.();
     }
     if (want.palettes) {
-      const made = makePalettes(rig, pos).map(p => ({ ...p, id: `palette-auto-${p.autoKey}`, createdAt: new Date().toISOString() }));
-      state.palettes = merge(Array.isArray(state.palettes) ? state.palettes : [], made);
-      for (const category of ["Colour", "Position", "Beam", "Intensity"]) counts[category] = made.filter(p => p.category === category).length;
+      // true = every kind, or a list of kinds: ["Colour", "Beam"]
+      const kinds = Array.isArray(want.palettes) ? want.palettes : ["Colour", "Position", "Beam", "Intensity"];
+      const made = makePalettes(rig, pos).filter(p => kinds.includes(p.category)).map(p => ({ ...p, id: `palette-auto-${p.autoKey}`, createdAt: new Date().toISOString() }));
+      state.palettes = merge(Array.isArray(state.palettes) ? state.palettes : [], made, p => kinds.includes(p.category));
+      for (const category of kinds) counts[category] = made.filter(p => p.category === category).length;
       window.Palettes?.refresh?.();
     }
     if (want.effects) {
@@ -480,7 +483,8 @@
 
     const parts = [];
     if (counts.groups != null) parts.push(`${counts.groups} groups`);
-    if (counts.Colour != null) parts.push(`${counts.Colour} colour, ${counts.Position} position, ${counts.Beam} beam, ${counts.Intensity} intensity palettes`);
+    const kinds = ["Colour", "Position", "Beam", "Intensity"].filter(k => counts[k] != null);
+    if (kinds.length) parts.push(`${kinds.map(k => `${counts[k]} ${k.toLowerCase()}`).join(", ")} palettes`);
     if (counts.effects != null) parts.push(`${counts.effects} effects`);
     if (counts.chases != null) parts.push(`${counts.chases} chases`);
     window.log?.(`✨ Auto Create: ${parts.join(" · ")}`, "ok");
@@ -537,12 +541,38 @@
     row.appendChild(button);
   }
 
-  // Typed command: "auto create" (or "autocreate").
+  // Typed command: "auto create" (or "autocreate") makes everything; or name
+  // what to make, one or several:
+  //   auto create groups            auto create palettes        auto create effects
+  //   auto create chases            auto create colour palettes auto create all
+  //   auto create groups effects    auto create position beam palettes
+  const KIND_WORDS = { colour: "Colour", color: "Colour", colours: "Colour", colors: "Colour", position: "Position", positions: "Position", beam: "Beam", beams: "Beam", intensity: "Intensity", intensities: "Intensity" };
+  function parseWhat(text) {
+    const words = String(text || "").toLowerCase().replace(/[,+&]/g, " ").split(/\s+/).filter(w => w && w !== "and");
+    if (!words.length || words.includes("all") || words.includes("everything")) return {};
+    const want = { groups: false, palettes: false, effects: false, chases: false };
+    const kinds = new Set();
+    for (const w of words) {
+      if (/^groups?$/.test(w)) want.groups = true;
+      else if (/^(palettes?|pals?)$/.test(w)) want.palettes = true;
+      else if (/^(effects?|fx)$/.test(w)) want.effects = true;
+      else if (/^chases?$/.test(w)) want.chases = true;
+      else if (KIND_WORDS[w]) kinds.add(KIND_WORDS[w]);
+      else return null;
+    }
+    if (kinds.size) want.palettes = [...kinds];
+    return want;
+  }
   function installCommand() {
     if (window.__autoCreateCommandInstalled || typeof window.parseCommand !== "function") return;
     const previous = window.parseCommand;
     window.parseCommand = function (raw) {
-      if (/^\s*auto\s*create\s*$/i.test(String(raw || ""))) return run();
+      const m = /^\s*auto\s*-?\s*create\b(.*)$/i.exec(String(raw || ""));
+      if (m) {
+        const want = parseWhat(m[1]);
+        if (!want) { window.log?.("Auto create what? groups, palettes (or colour / position / beam / intensity palettes), effects, chases, or all", "warn"); return null; }
+        return run(want);
+      }
       return previous.apply(this, arguments);
     };
     window.__autoCreateCommandInstalled = true;

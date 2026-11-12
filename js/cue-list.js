@@ -236,7 +236,7 @@
         const label = window.cueLabel(i);
         if (field === "num") { if (v && v !== label) window.parseCommand?.(`move cue ${label} to ${v}`); }
         else if (field === "name") cue.name = v || `Cue ${label}`;
-        else if (field === "fade") { const n = Number(v); if (Number.isFinite(n) && n >= 0) cue.fade = Math.round(n * 1000); }
+        else if (field === "fade") { const n = Number(v); if (Number.isFinite(n) && n >= 0) window.setCueFade(cue, Math.round(n * 1000)); }
         else if (field === "tc") { if (!v || /^(off|none|—)$/i.test(v)) delete cue.timecode; else { const t = window.LXTimecode?.parse(v); if (t != null) cue.timecode = t; } }
         else if (!v || /^off$/i.test(v)) { cue.followEnabled = false; cue.follow = 0; }
         else { const n = Number(v); if (Number.isFinite(n) && n >= 0) { cue.follow = n; cue.followEnabled = true; } }

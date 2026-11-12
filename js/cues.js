@@ -525,11 +525,13 @@ function applyLightingState(globalState, fixtureMap) {
  * Cue timing, as on a professional desk. A cue can give each kind of change
  * its own time and delay:
  *
- *   up      intensity going up         down    intensity going down
- *   focus   pan/tilt (moves)           colour  colour of every kind
- *   beam    gobo, zoom, focus, iris, prism, frost…
+ *   up      intensity going up         down      intensity going down
+ *   colour  colour of every kind       beam      gobo, zoom, focus, iris, prism, frost…
+ *   shape   framing shutters           focus     pan/tilt ("Position" on an FLX)
  *
- * Anything a cue doesn't split uses its fade time and delay.
+ * the same six times, each with its own delay, as an FLX cue. Anything a cue
+ * doesn't give its own time uses its fade time and delay; setting the fade
+ * (or the delay) sets it for the whole cue (setCueFade / setCueDelay).
  *
  * Part delays (cue.partDelays): a group or some lights can start later, and
  * take their own time — back bar 0 s, bar 2 0.6 s, bar 1 1.2 s, front 1.8 s
@@ -539,7 +541,7 @@ function applyLightingState(globalState, fixtureMap) {
  * shapes every part of the fade (smooth, linear, ease in/out, snap), and
  * the rate plays the whole cue faster or slower (200% = twice as fast).
  */
-const TIME_PARTS = ["up", "down", "focus", "colour", "beam"];
+const TIME_PARTS = ["up", "down", "colour", "beam", "shape", "focus"];
 const FOCUS_KEYS = new Set(["pan", "tilt", "panf", "tiltf", "panFine", "tiltFine"]);
 const COLOUR_KEYS = new Set(["hue", "sat", "light", "r", "g", "b", "w", "amber", "a", "lime", "uv", "cyan", "magenta", "yellow", "colour", "colourr", "colourSlot", "colourSlotFor", "blueMix", "amberMix", "magentaMix", "colmacro", "cto", "cct", "warmWhite", "naturalWhite", "coolWhite", "preset"]);
 const BEAM_KEYS = new Set(["gobo", "gobo2", "gobor", "gobo2r", "prism", "prismr", "focus", "zoom", "frost", "iris", "rot", "shake", "effect", "speed"]);
@@ -556,8 +558,30 @@ function partOf(key) {
     if (FOCUS_KEYS.has(key)) return "focus";
     if (COLOUR_KEYS.has(key)) return "colour";
     if (BEAM_KEYS.has(key)) return "beam";
+    if (/^shutter\d/.test(key)) return "shape";
     return "fade";
 }
+// The cue's fade for everything: drops the times given to single parts
+// (up, down, colour…), as setting all the times on an FLX does.
+function setCueFade(cue, ms) {
+    if (!cue) return;
+    cue.fade = Math.max(0, num(ms, 0));
+    if (cue.timing && typeof cue.timing === "object") {
+        TIME_PARTS.forEach(part => delete cue.timing[part]);
+        if (!TIME_PARTS.some(part => cue.timing[part + "Delay"] != null)) delete cue.timing;
+    }
+}
+// …and the delay for everything.
+function setCueDelay(cue, ms) {
+    if (!cue) return;
+    const v = Math.max(0, num(ms, 0));
+    if (v) cue.delay = v; else delete cue.delay;
+    if (cue.timing && typeof cue.timing === "object") {
+        TIME_PARTS.forEach(part => delete cue.timing[part + "Delay"]);
+        if (!TIME_PARTS.some(part => cue.timing[part] != null)) delete cue.timing;
+    }
+}
+
 // Times (ms) for each part of this cue. forceFade (MSC timed GO, sneak…)
 // replaces every time.
 function cueTiming(cue, forceFade = null) {
@@ -1121,6 +1145,8 @@ Object.assign(window, {
     recordCue,
     recordNextCue,
     cueTiming,
+    setCueFade,
+    setCueDelay,
     cueDuration,
     peekNextCue,
     runCueMacro,

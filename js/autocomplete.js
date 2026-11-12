@@ -80,7 +80,7 @@
     ["stats", "running time, GOs, errors", "Info"], ["clashes", "overlapping addresses", "Info"], ["history", "the last commands", "Info"],
     ["status", "what's loaded", "Info"], ["version", "which Light Spark this is", "Info"], ["help", "every command, with examples", "Info"],
     // Show
-    ["save <text?>", "save the show", "Show"], ["load <text?>", "open a show", "Show"], ["auto create", "groups, palettes, effects and chases", "Show"],
+    ["save <text?>", "save the show", "Show"], ["load <text?>", "open a show", "Show"], ["auto create", "groups, palettes, effects and chases", "Show"], ["auto create groups", "just the groups", "Show"], ["auto create palettes", "just the palettes", "Show"], ["auto create colour palettes", "just colour palettes (or position / beam / intensity)", "Show"], ["auto create effects", "just the effects", "Show"], ["auto create chases", "just the chases", "Show"], ["auto create all", "everything", "Show"],
     ["update", "check for a new Light Spark", "Show"], ["take control", "a backup console takes over", "Show"], ["take control back", "the primary takes over again", "Show"],
     ["artnet", "Art-Net output", "Show"]
   ];

@@ -23,9 +23,10 @@
   const PARTS = [
     ["up", "Up", "Intensity going up", "#3ddc84"],
     ["down", "Down", "Intensity going down", "#ff6b7d"],
-    ["focus", "Move", "Pan and tilt", "#5ca8ff"],
     ["colour", "Colour", "Every kind of colour", "#c38bff"],
-    ["beam", "Beam", "Gobo, zoom, focus, iris, prism, frost", "#ffb454"]
+    ["beam", "Beam", "Gobo, zoom, focus, iris, prism, frost", "#ffb454"],
+    ["shape", "Shape", "Framing shutters", "#ff7ad9"],
+    ["focus", "Position", "Pan and tilt", "#5ca8ff"]
   ];
   const CURVES = [["smooth", "Smooth (S-curve)"], ["linear", "Linear"], ["in", "Ease in (slow start)"], ["out", "Ease out (slow end)"], ["snap", "Snap (instant at its time)"]];
   const TAGS = ["", "#ff5265", "#ffb454", "#ffe066", "#3ddc84", "#19d6a3", "#5ca8ff", "#c38bff", "#ff7ad9"];
@@ -67,8 +68,8 @@
       case "name": cue.name = v || `Cue ${label(S().cues.indexOf(cue))}`; return changed(cue, `name → ${cue.name}`);
       case "number": { const now = label(S().cues.indexOf(cue)); if (v && v !== now) window.parseCommand?.(`move cue ${now} to ${v}`); return render(true); }
       case "scene": cue.scene = v || undefined; if (!v) delete cue.scene; return changed(cue, v ? `scene → ${v}` : "scene cleared");
-      case "fade": { const t = ms(v); if (t == null) return render(true); cue.fade = t; return changed(cue, `fade → ${secs(t)} s`); }
-      case "delay": { const t = ms(v); if (t == null) return render(true); if (t) cue.delay = t; else delete cue.delay; return changed(cue, `delay → ${secs(t)} s`); }
+      case "fade": { const t = ms(v); if (t == null) return render(true); window.setCueFade(cue, t); return changed(cue, `fade → ${secs(t)} s (the whole cue)`); }
+      case "delay": { const t = ms(v); if (t == null) return render(true); window.setCueDelay(cue, t); return changed(cue, `delay → ${secs(t)} s (the whole cue)`); }
       case "curve": cue.curve = v === "smooth" ? undefined : v; if (v === "smooth") delete cue.curve; return changed(cue, `curve → ${v}`);
       case "rate": { const n = Number(v); if (!(n > 0)) return render(true); if (n === 100) delete cue.rate; else cue.rate = Math.min(1000, n); return changed(cue, `rate → ${n}%`); }
       case "follow": { const t = Number(v); if (!(t >= 0)) return render(true); cue.follow = t; return changed(cue, `${cue.followMode === "go" ? "follow" : "hang"} → ${t} s`); }
@@ -247,7 +248,7 @@
   function timeline(cue) {
     const t = window.cueTiming(cue);
     const total = Math.max(t.total, 1);
-    const split = cue.timing?.split;
+    const split = PARTS.some(([k]) => cue.timing?.[k] != null || cue.timing?.[k + "Delay"] != null);
     const rows = split ? PARTS : [["fade", "Fade", "Everything", "#19d6a3"]];
     const W = 100;
     const ticks = [];
@@ -318,7 +319,6 @@
     const live = s.currentCue === i;
     const next = (window.LXCueList?.next?.() ?? window.peekNextCue?.()) === i;
     const t = window.cueTiming(cue);
-    const split = Boolean(cue.timing?.split);
     const then = cue.followEnabled ? (cue.followMode === "go" ? "follow" : "hang") : "wait";
     const tc = Number.isFinite(cue.timecode) ? window.LXTimecode?.format(cue.timecode) : "";
     const effect = cue.effect ? cue.effect.name || cue.effect.type : "";
@@ -349,13 +349,12 @@
             <label><em>Delay <span>s</span></em>${secField("delay", secs(cue.delay || 0))}</label>
             <label><em>Curve</em><select class="ci-in" data-f="curve">${CURVES.map(([v, l]) => `<option value="${v}"${(cue.curve || "smooth") === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
             <label><em>Rate <span>%</span></em>${field("rate", cue.rate || 100, 'inputmode="decimal" title="Play the whole cue faster or slower: 200 = twice as fast"')}</label>
-            <button type="button" class="ci-toggle${split ? " on" : ""}" data-a="split" title="Give intensity up, down, moves, colour and beam their own times">Split times</button>
           </div>
-          ${split ? `<div class="ci-split">${PARTS.map(([k, name, tip, colour]) => `
+          <div class="ci-split">${PARTS.map(([k, name, tip, colour]) => `
             <div class="ci-part" title="${esc(tip)}"><b style="color:${colour}">${name}</b>
-              <label>time ${secField(`t:${k}`, cue.timing?.[k] != null ? secs(cue.timing[k]) : "", secs(cue.fade ?? 800))}</label>
+              <label>fade ${secField(`t:${k}`, cue.timing?.[k] != null ? secs(cue.timing[k]) : "", secs(cue.fade ?? 800))}</label>
               <label>delay ${secField(`t:${k}Delay`, cue.timing?.[k + "Delay"] != null ? secs(cue.timing[k + "Delay"]) : "", secs(cue.delay || 0))}</label></div>`).join("")}
-            <p class="ci-muted">Empty = the cue's fade and delay. Up and down are for intensity: a light fading out can go slower than one fading in.</p></div>` : ""}
+            <p class="ci-muted">The same times as an FLX cue. Empty = the cue's fade and delay; setting Fade or Delay above sets the whole cue. Up and down are for intensity: a light fading out can go slower than one fading in.</p></div>
           ${partDelaysHtml(cue)}
           ${timeline(cue)}
         </section>
@@ -487,10 +486,10 @@
   //   cue 5 follow 2       cue 5 hang 2                cue 5 wait
   //   cue 5 disable / enable    cue 5 scene Act 1      cue 5 note …
   //   cue 5 command haze 40; run chase 2               cue 5 command off
-  const PART_WORDS = { up: "up", down: "down", move: "focus", focus: "focus", colour: "colour", color: "colour", beam: "beam" };
+  const PART_WORDS = { up: "up", down: "down", move: "focus", focus: "focus", position: "focus", pos: "focus", colour: "colour", color: "colour", beam: "beam", shape: "shape" };
   function command(raw) {
     const text = String(raw ?? "").trim();
-    const m = text.match(/^cue\s+(\d+(?:\.\d+)?|\.\d+)\s+(up|down|move|focus|colou?r|beam|delay|curve|rate|link|loop|follow|hang|wait|disable|enable|scene|note|command|macro|curtain)\b\s*(.*)$/i);
+    const m = text.match(/^cue\s+(\d+(?:\.\d+)?|\.\d+)\s+(up|down|move|focus|position|pos|colou?r|beam|shape|delay|curve|rate|link|loop|follow|hang|wait|disable|enable|scene|note|command|macro|curtain)\b\s*(.*)$/i);
     if (!m) return false;
     const i = window.cueIndexOf(m[1]);
     if (i < 0) { say(`Cue ${m[1]} not found`, "warn"); return true; }
@@ -499,17 +498,18 @@
     if (PART_WORDS[word]) {
       // One or more: "up 3 down 6", "move 4 delay 1 colour 2"
       const tail = `${word} ${rest}`.trim();
-      const re = /(up|down|move|focus|colou?r|beam)\s+(\d*\.?\d+)(?:\s+delay\s+(\d*\.?\d+))?\s*/gi;
+      // "up 3", "up 3 delay 1", or just a delay: "down delay 2"
+      const re = /(up|down|move|focus|position|pos|colou?r|beam|shape)\s+(?:(\d*\.?\d+)(?:\s+delay\s+(\d*\.?\d+))?|delay\s+(\d*\.?\d+))\s*/gi;
       const found = [...tail.matchAll(re)];
-      if (!found.length || found.map(f => f[0]).join("").trim() !== tail) { say(`Try: cue ${n} up 3 down 6, or cue ${n} move 4 delay 1 (seconds)`, "warn"); return true; }
+      if (!found.length || found.map(f => f[0]).join("").trim() !== tail) { say(`Try: cue ${n} up 3 down 6, cue ${n} colour 2 delay 1, cue ${n} down delay 2 (seconds). Times: up, down, colour, beam, shape, position`, "warn"); return true; }
       cue.timing ||= {};
       cue.timing.split = true;
-      for (const [, w, time, delay] of found) {
+      for (const [, w, time, delay, onlyDelay] of found) {
         const part = PART_WORDS[w.toLowerCase()];
-        cue.timing[part] = seconds(time);
-        if (delay != null) cue.timing[part + "Delay"] = seconds(delay);
+        if (time != null) cue.timing[part] = seconds(time);
+        if (delay != null || onlyDelay != null) cue.timing[part + "Delay"] = seconds(delay ?? onlyDelay);
       }
-      changed(cue, found.map(([, w, time, delay]) => `${w.toLowerCase()} ${time} s${delay != null ? ` after ${delay} s` : ""}`).join(", "));
+      changed(cue, found.map(([, w, time, delay, onlyDelay]) => time != null ? `${w.toLowerCase()} ${time} s${delay != null ? ` after ${delay} s` : ""}` : `${w.toLowerCase()} delay ${onlyDelay} s`).join(", "));
       return true;
     }
     switch (word) {

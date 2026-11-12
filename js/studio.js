@@ -415,7 +415,7 @@
   function setCueField(field, value) {
     const c = S().cues?.[pickedCue];
     if (!c) return;
-    if (field === "fade") c.fade = Math.max(0, num(value) * 1000);
+    if (field === "fade") window.setCueFade(c, Math.max(0, num(value) * 1000));
     else if (field === "follow") c.follow = Math.max(0, num(value));
     else if (field === "then") {
       if (value === "wait") c.followEnabled = false;

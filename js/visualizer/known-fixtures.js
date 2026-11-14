@@ -12,7 +12,7 @@
 //   kelvin      colour of a plain white source
 //   candela     measured brightness at the centre of the beam (lux x distance²),
 //               at the angle candelaAt: used rather than working it out from lumens
-//   scale       extra brightness where the paper figure undersells it in the room
+//   scale       brightness × this, where the paper figure doesn't match the room
 //
 // Matched on the fixture's name, so it works for library and FLX fixtures.
 const KNOWN = [
@@ -33,7 +33,9 @@ const KNOWN = [
   { match: /performer\s*1500\s*fresnel\s*q6/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50, lumens: 3111, candela: 48780, candelaAt: 10 },
   // Showtec Performer 1500 Fresnel (tungsten-look, warm + cool white):
   // 10-50° zoom, 4,781 lm, 22,163 lux at 2 m at 10°, 2700-4500K (manual, item 33131).
-  { match: /performer\s*1500\s*fresnel/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50, lumens: 4781, candela: 88652, candelaAt: 10, kelvinMin: 2700, kelvinMax: 4500 },
+  // That's both whites at full at its tightest zoom; on stage it reads far
+  // dimmer (checked against the real rig), so it's drawn at 40%.
+  { match: /performer\s*1500\s*fresnel/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50, lumens: 4781, candela: 88652, candelaAt: 10, scale: 0.4, kelvinMin: 2700, kelvinMax: 4500 },
   { match: /performer\s*\d+\s*fresnel/i, kind: "fresnel", beamAngle: 25, min: 10, max: 50 },
   // Chauvet EVE E-50Z: a warm white LED *ellipsoidal* (hard edge), 20-39° zoom,
   // 7,910 lux at 2 m at 20° (≈ 2,500 lm).

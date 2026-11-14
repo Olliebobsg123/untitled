@@ -36,6 +36,7 @@ import { archetype, baseAddress, decodeFixture } from "./decode.js";
 import { createViews } from "./views.js";
 import { createLightsTable } from "./lights-table.js";
 import { createCapture } from "./capture.js";
+import { createRigCommands } from "./rig-commands.js";
 
 const $ = id => document.getElementById(id);
 const consoleWindow = window.opener;
@@ -1184,6 +1185,16 @@ const builder = createBuilder({
 });
 $("buildMode").addEventListener("click", () => builder.toggle());
 
+// "viz stage 10 by 6", "viz hang 1 thru 10 on FOH", "viz focus 2 at DSL"… (js/visualizer/rig-commands.js)
+const rig = createRigCommands({
+  fixtures,
+  patch: () => patch,
+  venue: () => layout.venue || theatre.venue(),
+  commit(venue) { layout.venue = venue; theatre.apply(venue); builder.refresh(); shared.solidsVersion++; shared.shadowsDirty = true; },
+  saveLayout() { saveLayout(); shared.solidsVersion++; shared.shadowsDirty = true; wake(1500); },
+  defaultAim
+});
+
 // --- Messages from the console ---------------------------------------------
 
 function normaliseLayout(next) {
@@ -1288,6 +1299,7 @@ function vizCommand(action, arg) {
       el.value = want; el.dispatchEvent(new Event("change")); return `Quality: ${want}`;
     }
     case "from light": $("fromLight").click(); return "Looking from the selected light";
+    case "rig": return rig.run(arg) ?? `The visualiser doesn't know “${arg}”`;
     case "bar": setBarHidden(on(arg) === false ? true : on(arg) === true ? false : !document.body.classList.contains("bar-hidden")); return document.body.classList.contains("bar-hidden") ? "Toolbar hidden" : "Toolbar shown";
     default: return `The visualiser doesn't know “${action}”`;
   }

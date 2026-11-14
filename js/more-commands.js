@@ -253,6 +253,9 @@
     [/^viz quality (\w+)$/, m => vizSay("quality", m[1])],
     [/^viz from light$/, () => vizSay("from light")],
     [/^viz (?:bar|toolbar)(?: (on|off))?$/, m => vizSay("bar", m[1])],
+    // Matching the real stage (js/visualizer/rig-commands.js)
+    [/^viz (?:stage|bars$|bar \S|add bar|add truss|delete bar|remove bar|hang |focus )/, (m, raw) => vizSay("rig", raw.trim().replace(/^viz\s+/i, ""))],
+    [/^viz (?:beam|angle|beam angle) (.+?) (?:at )?(\d*\.?\d+|off|auto)\s*°?$/, m => beamAngle(m[1], m[2])],
 
     // Show
     [/^(?:save as|save show as)$/, () => (window.LXShowCommands?.saveAs?.(), true)],
@@ -260,6 +263,22 @@
     [/^(?:show name|which show|show\?)$/, () => say(`Show: ${window.LXShowCommands?.name?.() || "not saved yet"}${window.LXShowCommands?.isDirty?.() ? " (unsaved changes)" : ""}`, "info")],
     [/^(?:check for updates?|updates?\?)$/, () => (window.LXUpdates?.check?.(), say("Checking for a new Light Spark…", "info"))]
   ];
+
+  // A beam angle for lights with a manual zoom or a choice of lenses (what the
+  // visualiser draws): viz beam 21 thru 24 25 · viz beam 5 off (back to the profile)
+  function beamAngle(list, value) {
+    const numbers = [];
+    for (const part of String(list).replace(/\s*(?:thru|through|>)\s*/g, "-").split(/[\s,+]+/)) {
+      const r = /^(\d+)(?:-(\d+))?$/.exec(part); if (!r) return say("Try: viz beam 21 thru 24 25 (degrees)", "warn");
+      for (let n = Math.min(+r[1], +(r[2] ?? r[1])); n <= Math.max(+r[1], +(r[2] ?? r[1])); n++) numbers.push(n);
+    }
+    const lights = fixtures().filter(f => numbers.includes(Number(f.fixtureNumber)));
+    if (!lights.length) return say(`No lights ${list}`, "warn");
+    const angle = /^(off|auto)$/.test(value) ? null : window.LXBeamAngle?.parse(value);
+    for (const f of lights) { if (angle == null) delete f.beamAngle; else f.beamAngle = angle; }
+    window.sendToVisualizer?.(true);
+    return say(angle == null ? `${lights.length} light${lights.length === 1 ? "" : "s"} back to the angle in their profile` : `${lights.length} light${lights.length === 1 ? "" : "s"} at ${angle}°`);
+  }
 
   function vizSay(action, arg) {
     if (!window.LXVisualizer?.command) return say("The visualiser isn't available", "warn");
@@ -312,6 +331,12 @@
     ["tempo <number>", "the BPM effects follow", "Effects"], ["tap", "tap the tempo", "Effects"], ["effects speed <number>", "speed of the running effects", "Effects"],
     ["fog limit <sec>", "longest a fog machine may run", "Stage"], ["haze limit <sec>", "longest a hazer may run", "Stage"], ["fog reset", "let the fog run again", "Stage"], ["atmos off", "fog and haze off", "Stage"],
     ["viz views <split>", "1, 2 or 4 views in the visualiser", "Visualiser"], ["viz view <vizview>", "a camera view (or one you saved)", "Visualiser"], ["viz save view <text>", "save the camera as a view", "Visualiser"],
+    ["viz stage 10 by 6", "the real stage size (metres, wide by deep)", "Visualiser"], ["viz stage height 0.6", "how high the stage is", "Visualiser"],
+    ["viz bars", "the bars and where they are", "Visualiser"], ["viz bar LX 1 height 5.5", "how high a bar is", "Visualiser"], ["viz bar LX 1 upstage 2", "how far back from the stage edge", "Visualiser"], ["viz bar FOH out 4", "how far out over the audience", "Visualiser"],
+    ["viz add bar LX 4 height 5 upstage 6", "a new bar", "Visualiser"], ["viz delete bar LX 3", "remove a bar", "Visualiser"],
+    ["viz hang 1 thru 10 on FOH", "hang lights on a bar, house left to right", "Visualiser"], ["viz hang 4 + 7 on floor", "on the floor in front of the stage", "Visualiser"], ["viz hang 31 + 32 on stage", "on the stage floor at the sides", "Visualiser"],
+    ["viz focus 2 at DSL", "focus at a stage area (DSL…USR, cyc, audience)", "Visualiser"], ["viz focus 21 thru 28 across cyc", "spread along the cyc (or DS, CS, US)", "Visualiser"], ["viz focus 1 thru 10 straight", "point straight at the stage", "Visualiser"],
+    ["viz beam 21 thru 24 25", "a light's beam angle (lens or manual zoom)", "Visualiser"],
     ["viz picture", "save a picture of the stage", "Visualiser"], ["viz record", "record a video", "Visualiser"], ["viz stop", "stop recording and save", "Visualiser"],
     ["viz lights", "the lights table", "Visualiser"], ["viz plot", "the lighting plot", "Visualiser"], ["viz build", "build mode", "Visualiser"], ["viz measure", "measure", "Visualiser"],
     ["viz house <onoff>", "house lights", "Visualiser"], ["viz work <onoff>", "work lights", "Visualiser"], ["viz grid <onoff>", "the floor grid", "Visualiser"],

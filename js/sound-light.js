@@ -158,26 +158,48 @@
   }
 
   // Each kick: remember it, work the tempo out again, and pull the beat clock towards it.
+  // A new song (a cut, or the end of a blend) shows up as kicks that keep
+  // landing off the clock: then it forgets the old track, works the tempo
+  // out from the last few seconds and jumps onto the new beat.
   function onset(now) {
     st.lastOnset = now;
     st.onsets.push(now);
     while (st.onsets.length && now - st.onsets[0] > 8000) st.onsets.shift();
     estimateTempo();
     if (!st.bpm) return;
-    const period = 60000 / st.bpm;
+    let period = 60000 / st.bpm;
     if (!st.nextBeat) { st.nextBeat = now + period; st.beat++; st.lastBeatAt = now; beatHappened(); return; }
-    // How far this kick is from the nearest beat of the clock.
+    // How far this kick is from the nearest beat of the clock (fraction of a beat).
     const last = st.nextBeat - period;
     const error = Math.abs(now - last) < Math.abs(now - st.nextBeat) ? now - last : now - st.nextBeat;
-    if (Math.abs(error) < period * 0.3) st.nextBeat += error * 0.35;
-    else if (st.sure < 0.4) st.nextBeat = now + period;      // not locked yet: jump onto it
+    const e = error / period;
+    st.errs = [...(st.errs || []), e].slice(-4);
+    if (Math.abs(e) < 0.12) { st.nextBeat += error * 0.35; return; }   // on the beat: a gentle pull
+    if (st.sure < 0.4) { st.nextBeat = now + period; st.errs = []; return; }   // not locked yet: jump onto it
+    const off = st.errs.filter(x => Math.abs(x) >= 0.12);
+    if (off.length < 3) return;                                // one stray kick: ignore it
+    const mean = off.reduce((a, b) => a + b, 0) / off.length;
+    const spread = Math.max(...off) - Math.min(...off);
+    if (spread < 0.12) {
+      // Same tempo, beat moved (a blend finished on a track a little out): jump onto it.
+      st.nextBeat += mean * period;
+    } else {
+      // A different tempo: start again from the last 3 seconds.
+      st.onsets = st.onsets.filter(t => now - t <= 3000);
+      estimateTempo(true);
+      period = 60000 / st.bpm;
+      st.nextBeat = now + period;
+    }
+    st.errs = [];
   }
 
   // Tempo: which beat length best explains the kicks of the last 8 seconds.
   // DJ music sits between 80 and 175 BPM.
-  function estimateTempo() {
+  function estimateTempo(fresh = false) {
     const t = st.onsets;
-    if (t.length < 6) return;
+    if (t.length < (fresh ? 4 : 6)) return;
+    // The latest kicks count most, so a new song takes over quickly.
+    const newest = t[t.length - 1];
     let best = 0, bestScore = 0, total = 0;
     for (let bpm = 80; bpm <= 175; bpm += 0.5) {
       const period = 60000 / bpm;
@@ -188,15 +210,18 @@
         const n = Math.round(dt / period);
         if (n < 1 || n > 4) continue;
         const off = (dt - n * period) / (period * 0.06);
-        score += Math.exp(-off * off) / n;
+        score += Math.exp(-off * off) / n * Math.exp(-(newest - t[j]) / 3000);
       }
       total += score;
       if (score > bestScore) { bestScore = score; best = bpm; }
     }
     if (!best) return;
-    const sure = Math.min(1, bestScore / Math.max(1, t.length * 0.9));
+    // How sure: against what the same kicks would score if perfectly in time.
+    let ideal = 0;
+    for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) { const dt = t[j] - t[i], n = Math.round(dt / (60000 / best)); if (n >= 1 && n <= 4 && dt <= 4 * 60000 / best + 100) ideal += Math.exp(-(newest - t[j]) / 3000) / n; }
+    const sure = Math.min(1, bestScore / Math.max(1e-9, ideal));
     // Small changes ease in; a different tempo takes over once it's clearly right.
-    if (!st.bpm || Math.abs(best - st.bpm) / st.bpm > 0.04) { if (sure > 0.45 || !st.bpm) st.bpm = best; }
+    if (!st.bpm || fresh || Math.abs(best - st.bpm) / st.bpm > 0.04) { if (sure > 0.6 || !st.bpm || fresh) st.bpm = best; }
     else st.bpm += (best - st.bpm) * 0.3;
     st.sure += (sure - st.sure) * 0.3;
     if (settings.tempo && window.LXTempo && st.sure > 0.4 && Math.abs((window.LXTempo.bpm?.() ?? 0) - st.bpm) >= 0.5) {

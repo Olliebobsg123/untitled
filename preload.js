@@ -242,6 +242,12 @@ try {
     onMessage: cb => { ipcRenderer.on('lx-os2l-message', (_e, msg) => cb(msg)); },
     onStatus: cb => { ipcRenderer.on('lx-os2l-status', (_e, st) => cb(st)); }
   });
+  contextBridge.exposeInMainWorld('LXSerato', {
+    start: () => ipcRenderer.invoke('lx-serato-start'),
+    stop: () => ipcRenderer.invoke('lx-serato-stop'),
+    onTrack: cb => { ipcRenderer.on('lx-serato-track', (_e, t) => cb(t)); },
+    onStatus: cb => { ipcRenderer.on('lx-serato-status', (_e, st) => cb(st)); }
+  });
   contextBridge.exposeInMainWorld('LXScriptLink', {
     info: () => ipcRenderer.invoke('lx-script-info'),
     departments: url => ipcRenderer.invoke('lx-script-departments', url),

@@ -6,6 +6,10 @@
  *  - From the DJ software (best): VirtualDJ sends every beat of the playing
  *    track over OS2L (see os2l-link.js), straight from its beat grid: exact.
  *    "dj on", or just "party". In VirtualDJ: Settings → Options, "os2l" → Yes.
+ *  - Serato DJ (Lite or Pro): it saves each song's analysis (exact BPM,
+ *    beat grid) and rewrites it the moment a song starts (serato-link.js).
+ *    The tempo is then known exactly and at once; listening finds where the
+ *    beat is from the next kick. "serato on" (party and sound on start it).
  *  - By listening (any DJ software, e.g. Serato DJ Lite): any sound input,
  *    a cable from the DJ controller, a loopback of the computer's own sound,
  *    or the mic. Light Spark finds the beat and the tempo itself.
@@ -201,7 +205,11 @@
     // The latest kicks count most, so a new song takes over quickly.
     const newest = t[t.length - 1];
     let best = 0, bestScore = 0, total = 0;
-    for (let bpm = 80; bpm <= 175; bpm += 0.5) {
+    // Serato told us the song's tempo: only look for the pitch fader moving
+    // it (±8%). Otherwise anything from 70 to 180 BPM.
+    const grid = st.grid && performance.now() - st.gridAt < 20 * 60000 ? st.grid : 0;
+    const [lo, hi, step] = grid ? [grid * 0.92, grid * 1.08, grid * 0.0025] : [70, 180, 0.5];
+    for (let bpm = lo; bpm <= hi; bpm += step) {
       const period = 60000 / bpm;
       let score = 0;
       for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) {
@@ -288,6 +296,37 @@
     badge();
     return st.djOn;
   }
+  // ------------------------------------------------------------ from Serato (serato-link.js)
+
+  // A song started in Serato: its exact tempo now, and the beat locks onto
+  // the next kick heard (listening fills in where in the song it is).
+  function seratoTrack(t) {
+    if (!(t?.bpm > 0)) return;
+    if (t.event !== "playing") return;
+    st.grid = t.bpm; st.gridAt = performance.now(); st.seratoSong = `${t.service} ${t.id}`;
+    st.bpm = t.bpm;
+    st.sure = Math.max(st.sure, 0.7);
+    st.onsets = []; st.errs = [];
+    st.nextBeat = 0;                       // the next kick sets where the beat is
+    if (settings.tempo && window.LXTempo) { try { window.LXTempo.set(Math.round(t.bpm * 2) / 2, { quiet: true }); } catch (_) {} }
+    badge();
+    say(`Serato: new song, ${Math.round(t.bpm * 10) / 10} BPM${st.listening ? "" : " — sound on to lock the lights to its beat"}`);
+  }
+  if (window.LXSerato) window.LXSerato.onTrack(seratoTrack);
+  async function seratoOn(quiet = false) {
+    if (!window.LXSerato) { if (!quiet) say("The Serato link needs the Light Spark app", "warn"); return false; }
+    const info = await window.LXSerato.start();
+    st.seratoOn = Boolean(info?.running);
+    if (info?.error === "no-serato") { if (!quiet) say("Serato's folder (Music → _Serato_) isn't on this computer", "warn"); }
+    else if (st.seratoOn && !quiet) say("Following Serato: each song's tempo as it starts", "info");
+    return st.seratoOn;
+  }
+  async function seratoOff() {
+    await window.LXSerato?.stop();
+    st.seratoOn = false; st.grid = 0;
+    say("Stopped following Serato", "info");
+  }
+
   async function djOff() {
     await window.LXOs2l?.stop();
     st.djOn = false; st.djAt = -1e9;
@@ -402,7 +441,7 @@
       if (fromDj()) { span.textContent = `♪ ${Math.round(st.bpm * 10) / 10} BPM`; small.textContent = "from VirtualDJ"; return; }
       if (!st.listening) { span.textContent = "♪ waiting for VirtualDJ…"; small.textContent = ""; return; }
       span.textContent = st.bpm ? `♪ ${Math.round(st.bpm)} BPM` : "♪ finding the beat…";
-      small.textContent = st.bpm ? (st.sure > 0.6 ? "locked" : st.sure > 0.35 ? "nearly" : "listening") : `${Math.round(Math.min(1, st.energy) * 100)}%`;
+      small.textContent = st.bpm ? (st.sure > 0.6 ? "locked" : st.sure > 0.35 ? "nearly" : "listening") + (st.grid ? " · Serato" : "") : `${Math.round(Math.min(1, st.energy) * 100)}%`;
     }, 250);
   }
   function pulseBadge() {
@@ -437,9 +476,11 @@
   async function command(raw) {
     const c = String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
     let m;
+    if (/^serato( on| link)?$/.test(c)) { await seratoOn(); return true; }
+    if (/^serato off$/.test(c)) { await seratoOff(); return true; }
     if (/^(dj|virtual ?dj|os2l)( on| link)?$/.test(c)) { await djOn(); return true; }
     if (/^(dj|virtual ?dj|os2l) off$/.test(c)) { await djOff(); return true; }
-    if (/^(sound|listen|music) on$|^listen$/.test(c)) { await start(); return true; }
+    if (/^(sound|listen|music) on$|^listen$/.test(c)) { await start(); if (!st.seratoOn) await seratoOn(true); return true; }
     if (/^(sound|listen|music) off$|^stop listening$/.test(c)) { stop(); return true; }
     if (/^(sound|music|dj)( status)?\??$/.test(c)) {
       if (fromDj()) return say(`${Math.round(st.bpm * 10) / 10} BPM from VirtualDJ (beat ${st.beat})${settings.offset ? ` · offset ${settings.offset} ms` : ""}`, "info"), true;
@@ -476,6 +517,7 @@
     }
     if (/^party( on| mode)?$/.test(c)) {
       startMusicEffect("party");
+      if (!st.seratoOn) await seratoOn(true);
       // The beat: from VirtualDJ if it's sending, else listen to the music.
       if (!fromDj() && !st.listening) {
         if (window.LXOs2l && !st.djOn) await djOn();
@@ -487,6 +529,7 @@
       for (const e of [...(S().effects || [])]) if (["party", "beatflash", "beatcolour", "beatchase", "soundlevel"].includes(e.type)) window.stopEffectsOn?.([...e.ids], false);
       stop(true);
       if (st.djOn) await djOff();
+      if (st.seratoOn) { await window.LXSerato?.stop(); st.seratoOn = false; st.grid = 0; }
       say("Party over", "info");
       return true;
     }
@@ -503,7 +546,7 @@
     if (previous.__lxSound) return;
     const wrapped = function (raw) {
       const c = String(raw || "").trim().toLowerCase();
-      if (/^(sound|listen|music|party|beat |stop listening|dj\b|virtual ?dj|os2l)/.test(c)) {
+      if (/^(sound|listen|music|party|beat |stop listening|dj\b|virtual ?dj|os2l|serato)/.test(c)) {
         const handled = command(raw);
         // Handled asynchronously; anything else falls through.
         handled.then(ok => { if (!ok) previous.call(this, raw); });
@@ -516,7 +559,7 @@
     window.parseCommand = wrapped;
   }
 
-  window.LXSound = { start, stop, state, command, djOn, djOff, djMessage, onBeat: f => beatListeners.push(f), settings, raw: st };
+  window.LXSound = { start, stop, state, command, djOn, djOff, djMessage, seratoTrack, seratoOn, onBeat: f => beatListeners.push(f), settings, raw: st };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => { addEffects(); install(); }, { once: true });
   else { addEffects(); install(); }
   // Other scripts wrap parseCommand after load: make sure ours is outermost-ish.

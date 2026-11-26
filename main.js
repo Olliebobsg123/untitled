@@ -521,6 +521,19 @@ ipcMain.handle('lx-os2l-start', () => getOs2l().start());
 ipcMain.handle('lx-os2l-stop', () => getOs2l().stop());
 ipcMain.handle('lx-os2l-status', () => getOs2l().status());
 
+// ---- Serato link: which song started and its tempo (see serato-link.js) ----
+let seratoLink = null;
+function getSerato() {
+  if (!seratoLink) {
+    const { createSeratoLink } = require('./serato-link.js');
+    const toPage = (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); };
+    seratoLink = createSeratoLink({ onTrack: t => toPage('lx-serato-track', t), onStatus: st => toPage('lx-serato-status', st) });
+  }
+  return seratoLink;
+}
+ipcMain.handle('lx-serato-start', () => getSerato().start());
+ipcMain.handle('lx-serato-stop', () => getSerato().stop());
+
 // ---- Script link (see script-link.js) ----
 // Where each cue goes in the show's script, read from QLab Connect.
 let scriptLink = null;
@@ -850,5 +863,5 @@ app.whenReady().then(() => {
   step('started');
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
-app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} try { deskLink?.close(); } catch (_) {} try { sessionLink?.stop(); } catch (_) {} try { os2lLink?.stop(); } catch (_) {} stopServices(); });
+app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} try { deskLink?.close(); } catch (_) {} try { sessionLink?.stop(); } catch (_) {} try { os2lLink?.stop(); } catch (_) {} try { seratoLink?.stop(); } catch (_) {} stopServices(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

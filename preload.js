@@ -248,6 +248,12 @@ try {
     onTrack: cb => { ipcRenderer.on('lx-serato-track', (_e, t) => cb(t)); },
     onStatus: cb => { ipcRenderer.on('lx-serato-status', (_e, st) => cb(st)); }
   });
+  contextBridge.exposeInMainWorld('LXLink', {
+    start: () => ipcRenderer.invoke('lx-link-start'),
+    stop: () => ipcRenderer.invoke('lx-link-stop'),
+    onTimeline: cb => { ipcRenderer.on('lx-link-timeline', (_e, tl) => cb(tl)); },
+    onStatus: cb => { ipcRenderer.on('lx-link-status', (_e, st) => cb(st)); }
+  });
   contextBridge.exposeInMainWorld('LXScriptLink', {
     info: () => ipcRenderer.invoke('lx-script-info'),
     departments: url => ipcRenderer.invoke('lx-script-departments', url),

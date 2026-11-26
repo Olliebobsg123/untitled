@@ -1,7 +1,12 @@
 "use strict";
 
 /*
- * Sound to light: the music effects move with the music's beat. Two ways in:
+ * Sound to light: the music effects move with the music's beat. Ways in,
+ * best first:
+ *
+ *  - Ableton Link (link-sync.js): Serato DJ Pro with Link on (and LINK on
+ *    the decks), Rekordbox, Traktor, djay, Ableton Live… share the exact
+ *    tempo and where the beat is over the network. No microphone. "link on".
  *
  *  - From the DJ software (best): VirtualDJ sends every beat of the playing
  *    track over OS2L (see os2l-link.js), straight from its beat grid: exact.
@@ -67,7 +72,11 @@
     djAt: -1e9, djStrength: null, djOn: false   // OS2L: when its last beat came
   };
   const fromDj = (now = performance.now()) => now - st.djAt < 4000;
-  const live = () => (st.listening || fromDj()) && st.bpm > 0;
+  // Ableton Link: the session's timeline in ms since 1970 (link-sync.js).
+  const epochNow = () => performance.timeOrigin + performance.now();
+  const linked = () => Boolean(st.link);
+  const linkBeats = (ms = epochNow()) => st.link.beatOrigin + (ms - settings.offset - st.link.timeOriginMs) * st.link.bpm / 60000;
+  const live = () => linked() || ((st.listening || fromDj()) && st.bpm > 0);
 
   async function start(device = settings.device) {
     stop(true);
@@ -286,12 +295,12 @@
     window.LXOs2l.onMessage(djMessage);
     window.LXOs2l.onStatus(info => { const was = st.djClients || 0; st.djClients = info.clients; if (info.clients > was) say("VirtualDJ connected — play a track", "ok"); });
   }
-  async function djOn() {
+  async function djOn(quiet = false) {
     if (!window.LXOs2l) { say("Taking the beat from DJ software needs the Light Spark app", "warn"); return false; }
     if (fromDj()) { say(`${Math.round(st.bpm * 10) / 10} BPM from VirtualDJ (beat ${st.beat})`, "info"); return true; }
     const info = await window.LXOs2l.start();
     st.djOn = Boolean(info?.running);
-    if (st.djOn) say(`Waiting for VirtualDJ's beat (OS2L, port ${info.port}). In VirtualDJ: Settings → Options → os2l → Yes`, "info");
+    if (st.djOn && !quiet) say(`Waiting for VirtualDJ's beat (OS2L, port ${info.port}). In VirtualDJ: Settings → Options → os2l → Yes`, "info");
     else say("Couldn't start the OS2L link", "warn");
     badge();
     return st.djOn;
@@ -327,6 +336,41 @@
     say("Stopped following Serato", "info");
   }
 
+  // ------------------------------------------------------------ Ableton Link
+
+  let linkTimer = null;
+  function linkTimeline(tl) {
+    const was = st.link;
+    st.link = tl && tl.bpm > 0 ? tl : null;
+    if (!st.link) { if (was) { say("Ableton Link session ended", "info"); badge(); } clearInterval(linkTimer); linkTimer = null; return; }
+    st.bpm = tl.bpm; st.sure = 1;
+    if (settings.tempo && window.LXTempo && Math.abs((window.LXTempo.bpm?.() ?? 0) - tl.bpm) >= 0.5) { try { window.LXTempo.set(Math.round(tl.bpm * 2) / 2, { quiet: true }); } catch (_) {} }
+    if (!was) { say(`Locked to Ableton Link: ${Math.round(tl.bpm * 10) / 10} BPM${tl.peers > 1 ? ` (${tl.peers} apps)` : ""}`); badge(); }
+    // A beat event on every beat of the session.
+    if (!linkTimer) {
+      st.linkBeat = Math.floor(linkBeats());
+      linkTimer = setInterval(() => {
+        if (!st.link) return;
+        const b = Math.floor(linkBeats());
+        if (b !== st.linkBeat) { st.linkBeat = b; st.beat = b; st.lastBeatAt = performance.now(); beatHappened(); }
+      }, 4);
+    }
+  }
+  if (window.LXLink) window.LXLink.onTimeline(linkTimeline);
+  async function linkOn(quiet = false) {
+    if (!window.LXLink) { if (!quiet) say("Ableton Link needs the Light Spark app", "warn"); return false; }
+    const info = await window.LXLink.start();
+    st.linkOn = Boolean(info?.running);
+    if (!quiet) say(st.linkOn ? "Listening for Ableton Link — in Serato DJ Pro, click LINK at the top (and LINK on the decks)" : "Couldn't start Ableton Link", st.linkOn ? "info" : "warn");
+    badge();
+    return st.linkOn;
+  }
+  async function linkOff() {
+    await window.LXLink?.stop();
+    st.linkOn = false; linkTimeline(null);
+    say("Stopped following Ableton Link", "info");
+  }
+
   async function djOff() {
     await window.LXOs2l?.stop();
     st.djOn = false; st.djAt = -1e9;
@@ -338,6 +382,11 @@
 
   // Where the music is now. Without the sound on: the show tempo's clock.
   function state(now = performance.now()) {
+    if (linked()) {
+      const b = linkBeats(), period = 60000 / st.link.bpm, beat = Math.floor(b);
+      const energy = st.listening ? Math.min(1, st.energy * 1.3) : 0.85;
+      return { listening: true, dj: true, link: true, bpm: st.link.bpm, sure: 1, beat, phase: b - beat, period, energy, bass: st.listening ? st.bass : energy, drop: st.listening && now - st.dropAt < period * 4 };
+    }
     if (live()) {
       const period = 60000 / st.bpm;
       const since = Math.max(0, now - st.lastBeatAt);
@@ -426,7 +475,7 @@
   function badge() {
     css();
     let el = document.getElementById("lxSoundBadge");
-    if (!st.listening && !st.djOn && !fromDj()) { el?.remove(); clearInterval(badge.timer); return; }
+    if (!st.listening && !st.djOn && !fromDj() && !st.linkOn && !linked()) { el?.remove(); clearInterval(badge.timer); return; }
     if (!el) {
       el = document.createElement("div");
       el.id = "lxSoundBadge";
@@ -438,8 +487,9 @@
     clearInterval(badge.timer);
     badge.timer = setInterval(() => {
       const span = el.querySelector("span"), small = el.querySelector("small");
+      if (linked()) { span.textContent = `♪ ${Math.round(st.link.bpm * 10) / 10} BPM`; small.textContent = "Ableton Link"; return; }
       if (fromDj()) { span.textContent = `♪ ${Math.round(st.bpm * 10) / 10} BPM`; small.textContent = "from VirtualDJ"; return; }
-      if (!st.listening) { span.textContent = "♪ waiting for VirtualDJ…"; small.textContent = ""; return; }
+      if (!st.listening) { span.textContent = st.linkOn ? "♪ waiting for Link…" : "♪ waiting for VirtualDJ…"; small.textContent = ""; return; }
       span.textContent = st.bpm ? `♪ ${Math.round(st.bpm)} BPM` : "♪ finding the beat…";
       small.textContent = st.bpm ? (st.sure > 0.6 ? "locked" : st.sure > 0.35 ? "nearly" : "listening") + (st.grid ? " · Serato" : "") : `${Math.round(Math.min(1, st.energy) * 100)}%`;
     }, 250);
@@ -476,6 +526,8 @@
   async function command(raw) {
     const c = String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
     let m;
+    if (/^(ableton )?link( on)?$/.test(c)) { await linkOn(); return true; }
+    if (/^(ableton )?link off$/.test(c)) { await linkOff(); return true; }
     if (/^serato( on| link)?$/.test(c)) { await seratoOn(); return true; }
     if (/^serato off$/.test(c)) { await seratoOff(); return true; }
     if (/^(dj|virtual ?dj|os2l)( on| link)?$/.test(c)) { await djOn(); return true; }
@@ -483,6 +535,7 @@
     if (/^(sound|listen|music) on$|^listen$/.test(c)) { await start(); if (!st.seratoOn) await seratoOn(true); return true; }
     if (/^(sound|listen|music) off$|^stop listening$/.test(c)) { stop(); return true; }
     if (/^(sound|music|dj)( status)?\??$/.test(c)) {
+      if (linked()) return say(`${Math.round(st.link.bpm * 100) / 100} BPM from Ableton Link, beat ${Math.floor(linkBeats())}${settings.offset ? ` · offset ${settings.offset} ms` : ""}`, "info"), true;
       if (fromDj()) return say(`${Math.round(st.bpm * 10) / 10} BPM from VirtualDJ (beat ${st.beat})${settings.offset ? ` · offset ${settings.offset} ms` : ""}`, "info"), true;
       if (!st.listening) return say("Not listening — sound on to start (sound inputs to pick where from)", "info"), true;
       return say(st.bpm ? `${Math.round(st.bpm * 2) / 2} BPM, ${st.sure > 0.6 ? "locked on" : st.sure > 0.35 ? "nearly locked" : "still finding it"} · level ${Math.round(Math.min(1, st.energy) * 100)}% · from ${inputName}${settings.offset ? ` · offset ${settings.offset} ms` : ""}` : `Listening to ${inputName}, no beat yet (level ${Math.round(Math.min(1, st.energy) * 100)}%)`, "info"), true;
@@ -517,11 +570,12 @@
     }
     if (/^party( on| mode)?$/.test(c)) {
       startMusicEffect("party");
+      if (!st.linkOn) await linkOn(true);
       if (!st.seratoOn) await seratoOn(true);
       // The beat: from VirtualDJ if it's sending, else listen to the music.
-      if (!fromDj() && !st.listening) {
-        if (window.LXOs2l && !st.djOn) await djOn();
-        setTimeout(() => { if (!fromDj() && !st.listening) { say("No beat from VirtualDJ — listening to the music instead (dj on keeps waiting for it)", "info"); start(); } }, 5000);
+      if (!fromDj() && !st.listening && !linked()) {
+        if (window.LXOs2l && !st.djOn) await djOn(true);
+        setTimeout(() => { if (!fromDj() && !st.listening && !linked()) { say("No beat from Ableton Link or VirtualDJ — listening to the music instead", "info"); start(); } }, 5000);
       }
       return true;
     }
@@ -530,6 +584,7 @@
       stop(true);
       if (st.djOn) await djOff();
       if (st.seratoOn) { await window.LXSerato?.stop(); st.seratoOn = false; st.grid = 0; }
+      if (st.linkOn) { await window.LXLink?.stop(); st.linkOn = false; linkTimeline(null); }
       say("Party over", "info");
       return true;
     }
@@ -546,7 +601,7 @@
     if (previous.__lxSound) return;
     const wrapped = function (raw) {
       const c = String(raw || "").trim().toLowerCase();
-      if (/^(sound|listen|music|party|beat |stop listening|dj\b|virtual ?dj|os2l|serato)/.test(c)) {
+      if (/^(sound|listen|music|party|beat |stop listening|dj\b|virtual ?dj|os2l|serato|(ableton )?link\b)/.test(c)) {
         const handled = command(raw);
         // Handled asynchronously; anything else falls through.
         handled.then(ok => { if (!ok) previous.call(this, raw); });
@@ -559,7 +614,7 @@
     window.parseCommand = wrapped;
   }
 
-  window.LXSound = { start, stop, state, command, djOn, djOff, djMessage, seratoTrack, seratoOn, onBeat: f => beatListeners.push(f), settings, raw: st };
+  window.LXSound = { start, stop, state, command, djOn, djOff, djMessage, seratoTrack, seratoOn, linkOn, linkOff, linkTimeline, onBeat: f => beatListeners.push(f), settings, raw: st };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => { addEffects(); install(); }, { once: true });
   else { addEffects(); install(); }
   // Other scripts wrap parseCommand after load: make sure ours is outermost-ish.

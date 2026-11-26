@@ -251,6 +251,7 @@ try {
   contextBridge.exposeInMainWorld('LXLink', {
     start: () => ipcRenderer.invoke('lx-link-start'),
     stop: () => ipcRenderer.invoke('lx-link-stop'),
+    status: () => ipcRenderer.invoke('lx-link-status'),
     onTimeline: cb => { ipcRenderer.on('lx-link-timeline', (_e, tl) => cb(tl)); },
     onStatus: cb => { ipcRenderer.on('lx-link-status', (_e, st) => cb(st)); }
   });

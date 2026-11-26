@@ -365,6 +365,19 @@
     badge();
     return st.linkOn;
   }
+  // What Light Spark can see of Link, in words: which step is failing.
+  async function linkStatus() {
+    if (!window.LXLink) return say("This copy of Light Spark has no Ableton Link — update it and restart it", "warn");
+    if (!window.LXLink.status) return say("Restart Light Spark to finish updating Ableton Link", "warn");
+    if (!st.linkOn) await linkOn(true);
+    await new Promise(r => setTimeout(r, 2500));
+    const d = await window.LXLink.status();
+    const nets = (d.networks || []).join(", ") || "none";
+    say(`Link: ${d.running ? "listening" : "NOT listening"}${d.error ? ` — problem: ${d.error}` : ""} · networks: ${nets} · heard ${d.packets} messages (${d.linkPackets} from Link apps) · ${d.peers} Link app${d.peers === 1 ? "" : "s"} · clock ${d.measured ? "measured" : `not measured (pings ${d.pings}, answers ${d.pongs}${d.mep ? ` to ${d.mep}` : ""})`}${linked() ? ` · LOCKED ${Math.round(st.link.bpm * 10) / 10} BPM` : ""}`, "info");
+    if (!d.running) say("Light Spark couldn't open the Link network port. Quit and reopen Light Spark, then try again", "warn");
+    else if (!d.linkPackets) say("Nothing from Serato yet: check LINK is on in Serato (top left), and on a Mac: System Settings → Privacy & Security → Local Network → turn Light Spark on, then restart Light Spark", "warn");
+    else if (!d.measured) say("Serato was found but didn't answer the clock check — allow Light Spark in Local Network and check no firewall is blocking it", "warn");
+  }
   async function linkOff() {
     await window.LXLink?.stop();
     st.linkOn = false; linkTimeline(null);
@@ -528,6 +541,7 @@
     let m;
     if (/^(ableton )?link( on)?$/.test(c)) { await linkOn(); return true; }
     if (/^(ableton )?link off$/.test(c)) { await linkOff(); return true; }
+    if (/^(ableton )?link (status|check|\?)$/.test(c)) { await linkStatus(); return true; }
     if (/^serato( on| link)?$/.test(c)) { await seratoOn(); return true; }
     if (/^serato off$/.test(c)) { await seratoOff(); return true; }
     if (/^(dj|virtual ?dj|os2l)( on| link)?$/.test(c)) { await djOn(); return true; }
@@ -575,7 +589,7 @@
       // The beat: from VirtualDJ if it's sending, else listen to the music.
       if (!fromDj() && !st.listening && !linked()) {
         if (window.LXOs2l && !st.djOn) await djOn(true);
-        setTimeout(() => { if (!fromDj() && !st.listening && !linked()) { say("No beat from Ableton Link or VirtualDJ — listening to the music instead", "info"); start(); } }, 5000);
+        setTimeout(() => { if (!fromDj() && !st.listening && !linked()) { say("No beat from Ableton Link or VirtualDJ — listening to the music instead (type link status to see why Link wasn't found)", "info"); start(); } }, 5000);
       }
       return true;
     }

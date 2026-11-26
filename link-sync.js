@@ -47,11 +47,15 @@ function createLinkSync({ onTimeline, onStatus }) {
   const peers = new Map();       // peer id (hex) → { tl, sess, mep, seen }
   const offsets = new Map();     // session id (hex) → { samples, offset, at, busy }
   let lastSent = '';
+  // What it can see, for "link status".
+  const diag = { error: '', networks: [], packets: 0, linkPackets: 0, pings: 0, pongs: 0, mep: '' };
 
-  const status = () => ({ running: Boolean(disco), peers: peers.size, measured: [...offsets.values()].some(o => o.offset != null) });
+  const status = () => ({ running: Boolean(disco), peers: peers.size, measured: [...offsets.values()].some(o => o.offset != null), ...diag });
 
   function onDiscovery(msg) {
+    diag.packets++;
     if (msg.length < 20 || !msg.subarray(0, 8).equals(DISCOVERY)) return;
+    diag.linkPackets++;
     const type = msg[8];
     const id = msg.subarray(12, 20).toString('hex');
     if (type === 3) { peers.delete(id); publish(); return; }
@@ -86,10 +90,12 @@ function createLinkSync({ onTimeline, onStatus }) {
     const payload = [entry(K.ht, i64(hostMicros()))];
     if (prevGhost != null) payload.push(entry(K.pgt, i64(prevGhost)));
     const msg = Buffer.concat([LINK, Buffer.from([1]), ...payload]);
-    try { ping.send(msg, o.to.port, o.to.address); } catch (_) {}
+    diag.pings++; diag.mep = `${o.to.address}:${o.to.port}`;
+    try { ping.send(msg, o.to.port, o.to.address, err => { if (err) diag.error = `ping: ${err.code || err.message}`; }); } catch (err) { diag.error = `ping: ${err.code || err.message}`; }
   }
   function onPong(msg) {
     if (msg.length < 9 || !msg.subarray(0, 8).equals(LINK) || msg[8] !== 2) return;
+    diag.pongs++;
     const now = hostMicros();
     const e = entries(msg, 9);
     const sess = e.get(K.sess)?.toString('hex');
@@ -138,14 +144,14 @@ function createLinkSync({ onTimeline, onStatus }) {
     return new Promise(resolve => {
       disco = dgram.createSocket({ type: 'udp4', reuseAddr: true });
       disco.on('message', onDiscovery);
-      disco.on('error', err => { console.warn('[LINK] discovery error:', err.message); stop(); resolve(status()); });
+      disco.on('error', err => { console.warn('[LINK] discovery error:', err.message); diag.error = `port ${PORT}: ${err.code || err.message}`; stop(true); resolve(status()); });
       disco.bind(PORT, () => {
         try { disco.setMulticastLoopback(true); } catch (_) {}
         // Every network the computer is on (Link peers on the same Mac use them too).
-        const addrs = Object.values(os.networkInterfaces()).flat().filter(a => a && a.family === 'IPv4').map(a => a.address);
-        let joined = 0;
-        for (const a of addrs) { try { disco.addMembership(GROUP, a); joined++; } catch (_) {} }
-        if (!joined) { try { disco.addMembership(GROUP); } catch (_) {} }
+        const nets = Object.entries(os.networkInterfaces()).flatMap(([name, list]) => (list || []).filter(a => a && a.family === 'IPv4').map(a => ({ name, address: a.address })));
+        diag.networks = [];
+        for (const n of nets) { try { disco.addMembership(GROUP, n.address); diag.networks.push(`${n.name} ${n.address}`); } catch (err) { diag.networks.push(`${n.name} ${n.address} (couldn't join: ${err.code || err.message})`); } }
+        if (!diag.networks.some(n => !n.includes("couldn't"))) { try { disco.addMembership(GROUP); diag.networks.push('default'); } catch (err) { diag.error = `multicast: ${err.code || err.message}`; } }
         ping = dgram.createSocket('udp4');
         ping.on('message', onPong);
         ping.on('error', () => {});
@@ -165,7 +171,8 @@ function createLinkSync({ onTimeline, onStatus }) {
     });
   }
 
-  function stop() {
+  function stop(keepError = false) {
+    if (!keepError) Object.assign(diag, { error: '', packets: 0, linkPackets: 0, pings: 0, pongs: 0, mep: '' });
     clearInterval(timer); timer = null;
     try { disco?.close(); } catch (_) {}
     try { ping?.close(); } catch (_) {}

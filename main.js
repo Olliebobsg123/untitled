@@ -546,6 +546,7 @@ function getLink() {
 }
 ipcMain.handle('lx-link-start', () => getLink().start());
 ipcMain.handle('lx-link-stop', () => getLink().stop());
+ipcMain.handle('lx-link-status', () => getLink().status());
 
 // ---- Script link (see script-link.js) ----
 // Where each cue goes in the show's script, read from QLab Connect.

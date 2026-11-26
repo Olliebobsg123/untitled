@@ -447,6 +447,8 @@
     // The party: a different look every 4 bars, colours change with the
     // bars, flashes on the beat, calmer in breakdowns, white hits on a drop.
     FX_TYPES.party = ["all", (st_, f, c) => {
+      // The Party page's settings (js/party-page.js) when it's loaded.
+      if (window.LXParty?.frame) return window.LXParty.frame(st_, f, c, state());
       const s = state(), colour = fxCanColour(f), level = drive(s);
       const bar = Math.floor(s.beat / 4), look = Math.floor(s.beat / 16) % 5;
       const hue = PARTY_HUES[bar % PARTY_HUES.length];
@@ -479,7 +481,7 @@
     const s = document.createElement("style");
     s.id = "lxSoundStyle";
     s.textContent = `
-  #lxSoundBadge{position:fixed;right:14px;bottom:14px;z-index:9000;display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;border:1px solid var(--border-strong,#333);background:var(--bg-1,#111);color:var(--text,#eee);font:700 12px var(--sans,system-ui);cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+  #lxSoundBadge{position:fixed;right:14px;bottom:64px;z-index:9000;display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;border:1px solid var(--border-strong,#333);background:var(--bg-1,#111);color:var(--text,#eee);font:700 12px var(--sans,system-ui);cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.35)}
   #lxSoundBadge i{width:10px;height:10px;border-radius:50%;background:var(--accent,#19d6a3);opacity:.25;transition:opacity .12s ease-out}
   #lxSoundBadge i.on{opacity:1;transition:none}
   #lxSoundBadge small{font-weight:600;color:var(--text-muted,#999)}`;
@@ -523,15 +525,16 @@
     } catch (_) { return []; }
   }
 
-  function startMusicEffect(type, options = {}) {
+  function startMusicEffect(type, options = {}, given = null) {
     const sel = [...(S().selected || [])].map(String);
     // Never the smoke machines.
-    const lights = sel.length ? sel : (S().fixtures || []).filter(f => {
+    const lights = given?.length ? given.map(String) : sel.length ? sel : (S().fixtures || []).filter(f => {
       const map = (typeof fxDefinitionMap === "function" ? fxDefinitionMap(f) : {}) || {};
       return f && f.id != null && typeof map.fog !== "number" && typeof map.haze !== "number" && !/fog|haz|smoke/i.test(f.name || "");
     }).map(f => String(f.id));
     if (!lights.length) return say("Patch some lights first", "warn");
     const name = { party: "Party", beatflash: "Beat Flash", beatcolour: "Beat Colour", beatchase: "Beat Chase", soundlevel: "Sound Level" }[type];
+    if (options.fullLevel) { options = { ...options, levels: Object.fromEntries(lights.map(id => [id, 100])) }; delete options.fullLevel; }
     window.startEffect?.(type, { name, fixtureMode: "custom", fixtureIds: lights, speed: 1, ...options });
     return say(`${name} on ${lights.length} light${lights.length === 1 ? "" : "s"}${st.listening || fromDj() || st.djOn || type === "party" ? "" : " — following the show tempo (dj on or sound on to follow the music)"}`);
   }
@@ -582,8 +585,22 @@
       settings.tempo = m[1] === "on"; store("tempo", settings.tempo);
       return say(settings.tempo ? "The music's tempo sets the show tempo" : "The show tempo stays as you set it"), true;
     }
-    if (/^party( on| mode)?$/.test(c)) {
-      startMusicEffect("party");
+    if ((m = /^(beat flash|beat colou?r|beat chase|sound level)$/.exec(c))) {
+      startMusicEffect({ "beat flash": "beatflash", "beat colour": "beatcolour", "beat color": "beatcolour", "beat chase": "beatchase", "sound level": "soundlevel" }[m[1]]);
+      return true;
+    }
+    if (/^party (page|settings|setup)$/.test(c)) { window.LXParty?.open?.(); return true; }
+    if (/^party( on| mode)?$/.test(c)) { await startParty(); return true; }
+    if (/^party off$/.test(c)) { await stopParty(); return true; }
+    return false;
+  }
+
+  // The party: the look on the lights (given, else the selected, else all),
+  // and the beat from the best place there is.
+  async function startParty(lights = null) {
+      // At full whatever the lights were at (the Party page's Brightness sets the level).
+      const ids = lights?.length ? lights.map(String) : null;
+      startMusicEffect("party", ids ? { levels: Object.fromEntries(ids.map(id => [id, 100])) } : { fullLevel: true }, ids);
       if (!st.linkOn) await linkOn(true);
       if (!st.seratoOn) await seratoOn(true);
       // The beat: from VirtualDJ if it's sending, else listen to the music.
@@ -591,9 +608,8 @@
         if (window.LXOs2l && !st.djOn) await djOn(true);
         setTimeout(() => { if (!fromDj() && !st.listening && !linked()) { say("No beat from Ableton Link or VirtualDJ — listening to the music instead (type link status to see why Link wasn't found)", "info"); start(); } }, 5000);
       }
-      return true;
-    }
-    if (/^party off$/.test(c)) {
+  }
+  async function stopParty() {
       for (const e of [...(S().effects || [])]) if (["party", "beatflash", "beatcolour", "beatchase", "soundlevel"].includes(e.type)) window.stopEffectsOn?.([...e.ids], false);
       stop(true);
       if (st.djOn) await djOff();
@@ -601,12 +617,6 @@
       if (st.linkOn) { await window.LXLink?.stop(); st.linkOn = false; linkTimeline(null); }
       say("Party over", "info");
       return true;
-    }
-    if ((m = /^(beat flash|beat colou?r|beat chase|sound level)$/.exec(c))) {
-      startMusicEffect({ "beat flash": "beatflash", "beat colour": "beatcolour", "beat color": "beatcolour", "beat chase": "beatchase", "sound level": "soundlevel" }[m[1]]);
-      return true;
-    }
-    return false;
   }
 
   function install() {
@@ -628,7 +638,7 @@
     window.parseCommand = wrapped;
   }
 
-  window.LXSound = { start, stop, state, command, djOn, djOff, djMessage, seratoTrack, seratoOn, linkOn, linkOff, linkTimeline, onBeat: f => beatListeners.push(f), settings, raw: st };
+  window.LXSound = { start, stop, state, command, startParty, stopParty, linkStatus, partyRunning: () => (S().effects || []).some(e => e.type === "party"), djOn, djOff, djMessage, seratoTrack, seratoOn, linkOn, linkOff, linkTimeline, onBeat: f => beatListeners.push(f), settings, raw: st };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => { addEffects(); install(); }, { once: true });
   else { addEffects(); install(); }
   // Other scripts wrap parseCommand after load: make sure ours is outermost-ish.

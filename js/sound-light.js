@@ -303,7 +303,7 @@
     const info = await window.LXOs2l.start();
     st.djOn = Boolean(info?.running);
     if (st.djOn && !quiet) say(`Waiting for VirtualDJ's beat (OS2L, port ${info.port}). In VirtualDJ: Settings → Options → os2l → Yes`, "info");
-    else say("Couldn't start the OS2L link", "warn");
+    else if (!quiet) say("Couldn't start the OS2L link", "warn");
     badge();
     return st.djOn;
   }
@@ -342,21 +342,23 @@
   // ------------------------------------------------------------ Ableton Link
 
   let linkTimer = null;
-  // Serato says the song is (say) 97 BPM but the Link session is at 120:
-  // the playing deck isn't on LINK. Same tempo, double or half is fine.
+  // Serato starts a Link session at exactly 120 BPM and leaves it there
+  // until the playing deck has LINK on. So Link sitting at 120.0 while
+  // Serato says the song is something else (not ~120, 60 or 240) means the
+  // music isn't following Link. Any other Link tempo is a deck driving it
+  // (the tempo slider included), so it's trusted.
   function checkLink() {
-    if (!st.link || !(st.grid > 0) || performance.now() - st.gridAt > 20 * 60000) { if (st.linkIgnored) { st.linkIgnored = false; badge(); } return; }
-    const r = st.link.bpm / st.grid;
-    const ok = [1, 2, 0.5].some(x => Math.abs(r / x - 1) < 0.09);
-    if (!ok && !st.linkIgnored) {
+    const fresh = st.link && st.grid > 0 && performance.now() - st.gridAt < 20 * 60000;
+    const stuck = fresh && Math.abs(st.link.bpm - 120) < 0.05 && ![1, 2, 0.5].some(x => Math.abs(st.grid * x / 120 - 1) < 0.02);
+    if (stuck && !st.linkIgnored) {
       st.linkIgnored = true;
       st.bpm = st.grid; st.onsets = []; st.errs = []; st.nextBeat = 0;
-      say(`Serato's Link is at ${Math.round(st.link.bpm)} BPM but the song is ${Math.round(st.grid)} BPM — press LINK on the deck that's playing. Following the music by listening until then`, "warn");
+      say(`Serato's Link is still at 120 BPM but the song is ${Math.round(st.grid)} BPM — press LINK on the deck that's playing. Following the music by listening until then`, "warn");
       if (!st.listening && window.LXSound?.partyRunning?.()) start();
       badge();
-    } else if (ok && st.linkIgnored) {
+    } else if (!stuck && st.linkIgnored) {
       st.linkIgnored = false;
-      say(`Link matches the song now: ${Math.round(st.link.bpm * 10) / 10} BPM`);
+      if (st.link) say(`Link is following the music now: ${Math.round(st.link.bpm * 10) / 10} BPM`);
       badge();
     }
   }

@@ -228,6 +228,7 @@
   function source() {
     const r = window.LXSound?.raw || {}, s = window.LXSound?.state?.() || {};
     if (s.link) return ["Ableton Link", s.bpm];
+    if (r.linkIgnored) return [`⚠ Serato's Link is at ${Math.round(r.link?.bpm || 0)} — press LINK on the deck that's playing (listening for now)`, r.bpm];
     if (s.dj) return ["VirtualDJ", s.bpm];
     if (r.listening && r.bpm) return [`listening${r.grid ? " + Serato" : ""}${r.sure > 0.6 ? " · locked" : " · finding it"}`, r.bpm];
     if (r.listening) return ["listening — finding the beat…", 0];

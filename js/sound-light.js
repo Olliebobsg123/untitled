@@ -74,7 +74,9 @@
   const fromDj = (now = performance.now()) => now - st.djAt < 4000;
   // Ableton Link: the session's timeline in ms since 1970 (link-sync.js).
   const epochNow = () => performance.timeOrigin + performance.now();
-  const linked = () => Boolean(st.link);
+  // A Link session the music isn't following (Serato's decks not on LINK:
+  // the session sits at 120) is ignored, and listening takes over.
+  const linked = () => Boolean(st.link) && !st.linkIgnored;
   const linkBeats = (ms = epochNow()) => st.link.beatOrigin + (ms - settings.offset - st.link.timeOriginMs) * st.link.bpm / 60000;
   const live = () => linked() || ((st.listening || fromDj()) && st.bpm > 0);
 
@@ -319,7 +321,8 @@
     st.nextBeat = 0;                       // the next kick sets where the beat is
     if (settings.tempo && window.LXTempo) { try { window.LXTempo.set(Math.round(t.bpm * 2) / 2, { quiet: true }); } catch (_) {} }
     badge();
-    say(`Serato: new song, ${Math.round(t.bpm * 10) / 10} BPM${st.listening ? "" : " — sound on to lock the lights to its beat"}`);
+    if (!st.link) say(`Serato: new song, ${Math.round(t.bpm * 10) / 10} BPM${st.listening ? "" : " — sound on to lock the lights to its beat"}`);
+    checkLink();
   }
   if (window.LXSerato) window.LXSerato.onTrack(seratoTrack);
   async function seratoOn(quiet = false) {
@@ -339,18 +342,38 @@
   // ------------------------------------------------------------ Ableton Link
 
   let linkTimer = null;
+  // Serato says the song is (say) 97 BPM but the Link session is at 120:
+  // the playing deck isn't on LINK. Same tempo, double or half is fine.
+  function checkLink() {
+    if (!st.link || !(st.grid > 0) || performance.now() - st.gridAt > 20 * 60000) { if (st.linkIgnored) { st.linkIgnored = false; badge(); } return; }
+    const r = st.link.bpm / st.grid;
+    const ok = [1, 2, 0.5].some(x => Math.abs(r / x - 1) < 0.09);
+    if (!ok && !st.linkIgnored) {
+      st.linkIgnored = true;
+      st.bpm = st.grid; st.onsets = []; st.errs = []; st.nextBeat = 0;
+      say(`Serato's Link is at ${Math.round(st.link.bpm)} BPM but the song is ${Math.round(st.grid)} BPM — press LINK on the deck that's playing. Following the music by listening until then`, "warn");
+      if (!st.listening && window.LXSound?.partyRunning?.()) start();
+      badge();
+    } else if (ok && st.linkIgnored) {
+      st.linkIgnored = false;
+      say(`Link matches the song now: ${Math.round(st.link.bpm * 10) / 10} BPM`);
+      badge();
+    }
+  }
+
   function linkTimeline(tl) {
     const was = st.link;
     st.link = tl && tl.bpm > 0 ? tl : null;
     if (!st.link) { if (was) { say("Ableton Link session ended", "info"); badge(); } clearInterval(linkTimer); linkTimer = null; return; }
-    st.bpm = tl.bpm; st.sure = 1;
-    if (settings.tempo && window.LXTempo && Math.abs((window.LXTempo.bpm?.() ?? 0) - tl.bpm) >= 0.5) { try { window.LXTempo.set(Math.round(tl.bpm * 2) / 2, { quiet: true }); } catch (_) {} }
+    if (!st.linkIgnored) { st.bpm = tl.bpm; st.sure = 1; }
+    if (!st.linkIgnored && settings.tempo && window.LXTempo && Math.abs((window.LXTempo.bpm?.() ?? 0) - tl.bpm) >= 0.5) { try { window.LXTempo.set(Math.round(tl.bpm * 2) / 2, { quiet: true }); } catch (_) {} }
     if (!was) { say(`Locked to Ableton Link: ${Math.round(tl.bpm * 10) / 10} BPM${tl.peers > 1 ? ` (${tl.peers} apps)` : ""}`); badge(); }
+    checkLink();
     // A beat event on every beat of the session.
     if (!linkTimer) {
       st.linkBeat = Math.floor(linkBeats());
       linkTimer = setInterval(() => {
-        if (!st.link) return;
+        if (!st.link || st.linkIgnored) return;
         const b = Math.floor(linkBeats());
         if (b !== st.linkBeat) { st.linkBeat = b; st.beat = b; st.lastBeatAt = performance.now(); beatHappened(); }
       }, 4);

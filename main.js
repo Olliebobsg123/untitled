@@ -507,6 +507,20 @@ ipcMain.on('lx-ui-set', (_e, ui) => { try { fs.writeFileSync(path.join(app.getPa
 ipcMain.handle('lx-desk-info', () => getDeskLink().info());
 ipcMain.handle('lx-desk-configure', (_e, next) => getDeskLink().configure(next));
 
+// ---- OS2L: the beat from DJ software (see os2l-link.js, js/sound-light.js) ----
+let os2lLink = null;
+function getOs2l() {
+  if (!os2lLink) {
+    const { createOs2lLink } = require('./os2l-link.js');
+    const toPage = (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); };
+    os2lLink = createOs2lLink({ onMessage: msg => toPage('lx-os2l-message', msg), onStatus: st => toPage('lx-os2l-status', st) });
+  }
+  return os2lLink;
+}
+ipcMain.handle('lx-os2l-start', () => getOs2l().start());
+ipcMain.handle('lx-os2l-stop', () => getOs2l().stop());
+ipcMain.handle('lx-os2l-status', () => getOs2l().status());
+
 // ---- Script link (see script-link.js) ----
 // Where each cue goes in the show's script, read from QLab Connect.
 let scriptLink = null;
@@ -836,5 +850,5 @@ app.whenReady().then(() => {
   step('started');
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(err => { console.error('❌ Electron startup failed:', err); stopServices(); app.quit(); });
-app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} try { deskLink?.close(); } catch (_) {} try { sessionLink?.stop(); } catch (_) {} stopServices(); });
+app.on('before-quit', () => { try { remoteServer?.stop(); } catch (_) {} try { deskLink?.close(); } catch (_) {} try { sessionLink?.stop(); } catch (_) {} try { os2lLink?.stop(); } catch (_) {} stopServices(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

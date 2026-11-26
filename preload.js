@@ -235,6 +235,13 @@ try {
     onCommand: cb => { ipcRenderer.on('lx-desk-command', (_e, msg) => cb(msg)); },
     onInfo: cb => { ipcRenderer.on('lx-desk-info', (_e, info) => cb(info)); }
   });
+  contextBridge.exposeInMainWorld('LXOs2l', {
+    start: () => ipcRenderer.invoke('lx-os2l-start'),
+    stop: () => ipcRenderer.invoke('lx-os2l-stop'),
+    status: () => ipcRenderer.invoke('lx-os2l-status'),
+    onMessage: cb => { ipcRenderer.on('lx-os2l-message', (_e, msg) => cb(msg)); },
+    onStatus: cb => { ipcRenderer.on('lx-os2l-status', (_e, st) => cb(st)); }
+  });
   contextBridge.exposeInMainWorld('LXScriptLink', {
     info: () => ipcRenderer.invoke('lx-script-info'),
     departments: url => ipcRenderer.invoke('lx-script-departments', url),

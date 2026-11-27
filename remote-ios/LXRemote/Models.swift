@@ -79,15 +79,24 @@ struct FixtureItem: Decodable {
     var num = Flex.string("")
     var name = ""
     var sel = false
+    var mv = false          // it pans and tilts
 
-    enum K: String, CodingKey { case id, num, name, sel }
+    enum K: String, CodingKey { case id, num, name, sel, mv }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
         fid = (try? c.decode(Flex.self, forKey: .id)) ?? .string("")
         num = (try? c.decode(Flex.self, forKey: .num)) ?? .string("")
         name = (try? c.decode(String.self, forKey: .name)) ?? ""
         sel = (try? c.decode(Bool.self, forKey: .sel)) ?? false
+        mv = (try? c.decode(Bool.self, forKey: .mv)) ?? false
     }
+}
+
+/// Where the selected moving lights point: pan and tilt 0-1, and how many.
+struct Position: Decodable, Equatable {
+    var pan: Double = 0.5
+    var tilt: Double = 0.5
+    var count = 0
 }
 
 struct Swatch: Decodable {
@@ -122,12 +131,13 @@ struct ConsoleState: Decodable {
     var activeChase = -1
     var fixtures: [FixtureItem] = []
     var swatches: [Swatch] = []
+    var position: Position?
     var log: LogLine?
 
     init() {}
 
     enum K: String, CodingKey {
-        case type, mode, blackout, master, intensity, hue, sat, strobe, currentCue, next, cues, groups, palettes, chases, activeChase, fixtures, swatches, log
+        case type, mode, blackout, master, intensity, hue, sat, strobe, currentCue, next, cues, groups, palettes, chases, activeChase, fixtures, swatches, position, log
     }
 
     init(from decoder: Decoder) throws {
@@ -149,6 +159,7 @@ struct ConsoleState: Decodable {
         activeChase = (try? c.decode(Int.self, forKey: .activeChase)) ?? -1
         fixtures = (try? c.decode([FixtureItem].self, forKey: .fixtures)) ?? []
         swatches = (try? c.decode([Swatch].self, forKey: .swatches)) ?? []
+        position = try? c.decode(Position.self, forKey: .position)
         log = try? c.decode(LogLine.self, forKey: .log)
     }
 
@@ -169,6 +180,7 @@ struct ConsoleState: Decodable {
 
     var isBlind: Bool { (mode ?? "").uppercased() == "BLIND" }
     var selectedCount: Int { fixtures.filter(\.sel).count }
+    var hasMovers: Bool { fixtures.contains(where: \.mv) }
 }
 
 /// The console the phone is paired with (remembered between launches).

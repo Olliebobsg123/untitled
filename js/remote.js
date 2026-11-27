@@ -19,6 +19,18 @@
     };
   }
 
+  // Lights that pan and tilt, and where the selected ones point (0-1, the
+  // fine channel included) for the phone's Move pad.
+  const mapOf = f => (window.getFixtureDefinition?.(f) || window.FixtureLibrary?.[f?.name] || {}).map || {};
+  const moves = f => { const m = mapOf(f); return typeof m.pan === "number" || typeof m.tilt === "number"; };
+  function position(fixtures, selected) {
+    const f = fixtures.find(x => x && selected.has(x.id) && moves(x));
+    if (!f) return null;
+    const st = S().fixtureStates?.get?.(f.id) || {};
+    const v = (c, fine) => ((Number(st[c] ?? 128) * 256 + Number(st[fine] ?? 0)) / 65535);
+    return { pan: +v("pan", "panf").toFixed(5), tilt: +v("tilt", "tiltf").toFixed(5), count: fixtures.filter(x => x && selected.has(x.id) && moves(x)).length };
+  }
+
   function buildSnapshot() {
     const s = S();
     const fixtures = Array.isArray(s.fixtures) ? s.fixtures : [];
@@ -41,7 +53,8 @@
       palettes: (Array.isArray(s.palettes) ? s.palettes : []).filter(Boolean).map(p => ({ name: p.name, ...(p.values && Number(p.values.sat) > 0 && p.values.hue != null ? { hue: Number(p.values.hue), sat: Number(p.values.sat) } : {}) })),
       chases: (Array.isArray(s.chases) ? s.chases : []).map((c, i) => ({ i, name: c?.name || `Chase ${i + 1}` })),
       activeChase: Number.isInteger(s.currentChase) && s.chaseTimer ? s.currentChase : -1,
-      fixtures: fixtures.map((f, i) => ({ id: f.id, num: f.fixtureNumber ?? i + 1, name: f.name || `Fixture ${i + 1}`, sel: selected.has(f.id) })),
+      fixtures: fixtures.map((f, i) => ({ id: f.id, num: f.fixtureNumber ?? i + 1, name: f.name || `Fixture ${i + 1}`, sel: selected.has(f.id), ...(moves(f) ? { mv: true } : {}) })),
+      position: position(fixtures, selected),
       colours: typeof cueColours !== "undefined" ? Object.keys(cueColours) : [],
       swatches: typeof cueColours !== "undefined" ? Object.entries(cueColours).map(([name, c]) => ({ name, hue: Number(c.hue) || 0, sat: Number(c.sat) || 0, light: Number(c.light ?? 50) })) : [],
       log: lastLog
@@ -83,6 +96,25 @@
     colourName(m) { const c = typeof cueColours !== "undefined" ? cueColours[String(m.name)] : null; if (c && has("applyColour")) window.applyColour(c); },
     strobe(m) { if (has("fadeFixtures")) window.fadeFixtures(S().selected, { strobe: num(m.value, 0, 255) }, 0); },
     blackout(m) { if (has("setBlackout")) window.setBlackout(!!m.on); },
+    // The Move pad: pan / tilt 0-1 for every selected light that moves
+    // (16-bit, so it's smooth), a nudge (dpan / dtilt, keeping each light's
+    // own position), or home (centre).
+    position(m) {
+      const ids = movingSelected(); if (!ids.length) return;
+      const values = {};
+      if (m.pan != null) Object.assign(values, split("pan", "panf", m.pan));
+      if (m.tilt != null) Object.assign(values, split("tilt", "tiltf", m.tilt));
+      if (Object.keys(values).length && has("fadeFixtures")) window.fadeFixtures(ids, values, 0);
+    },
+    nudge(m) {
+      for (const id of movingSelected()) {
+        const st = S().fixtureStates?.get?.(id) || {};
+        const now = (c, fine) => (Number(st[c] ?? 128) * 256 + Number(st[fine] ?? 0)) / 65535;
+        const values = { ...split("pan", "panf", now("pan", "panf") + (Number(m.dpan) || 0)), ...split("tilt", "tiltf", now("tilt", "tiltf") + (Number(m.dtilt) || 0)) };
+        if (has("fadeFixtures")) window.fadeFixtures([id], values, 0);
+      }
+    },
+    home() { const ids = movingSelected(); if (ids.length && has("fadeFixtures")) window.fadeFixtures(ids, { pan: 128, panf: 0, tilt: 128, tiltf: 0 }, 400); },
     select(m) {
       const s = S(); if (!(s.selected instanceof Set)) return;
       if (m.mode === "all") s.fixtures.forEach(f => s.selected.add(f.id));
@@ -98,6 +130,15 @@
     cmd(m) { const c = String(m.text || "").trim(); if (c && has("parseCommand")) window.parseCommand(c); },
     hello() { publish(true); }
   };
+
+  function movingSelected() {
+    const s = S(); const sel = s.selected instanceof Set ? s.selected : new Set();
+    return (s.fixtures || []).filter(f => f && sel.has(f.id) && moves(f)).map(f => f.id);
+  }
+  function split(coarse, fine, v) {
+    const x = Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 65535);
+    return { [coarse]: x >> 8, [fine]: x & 255 };
+  }
 
   bridge.onCommand(msg => {
     try { handlers[msg.type]?.(msg); } catch (err) { console.error("[REMOTE] command failed:", msg?.type, err); }

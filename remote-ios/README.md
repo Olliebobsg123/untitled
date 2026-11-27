@@ -23,6 +23,8 @@ and works like Apple's own apps, in light or dark mode.
   note, Back and Go always at the bottom; Blackout at the top
 - **Lights**: groups, and every light with a tick when selected; search; Select All / Clear
 - **Colour**: intensity, colour swatches and a colour picker, strobe, grand master
+- **Move**: pan and tilt for the selected moving lights: drag on the pad, Fine for small
+  careful moves, arrows to nudge, Home to centre them
 - **More**: palettes, chases, record a cue, the command line, Kill Cue List / Kill
   Everything, and the connection
 

@@ -42,6 +42,8 @@ struct MainTabs: View {
                 .tabItem { Label("Lights", systemImage: "lightbulb") }
             ColourView()
                 .tabItem { Label("Colour", systemImage: "paintbrush") }
+            MoveView()
+                .tabItem { Label("Move", systemImage: "move.3d") }
             MoreView()
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
         }
